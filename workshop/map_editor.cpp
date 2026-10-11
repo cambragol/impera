@@ -88,9 +88,6 @@ QByteArray MapNpcDocument::move(int settlement, int npc, int slot, NpcLocation d
 MapCanvas::MapCanvas(QWidget *parent) : QWidget(parent) {
     setObjectName("mapCanvas");
     setAccessibleName("Map canvas");
-    setToolTip("Arrow keys choose a tile; Enter applies the selected tool or moves the selected "
-               "character. Shift+arrows extend a terrain selection. B/I/V/R/F select tools. Escape "
-               "cancels a gesture.");
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
 }
@@ -1071,8 +1068,6 @@ MapWorkspace::MapWorkspace(
     }
     canvas->tiles = U5::readGraphics("TILES.16", project->data("TILES.16")).images;
     view = new MapView(canvas);
-    view->setToolTip("Edit terrain or characters with the selected tool. Middle-drag or Space "
-                     "pans; Ctrl+wheel zooms.");
     centerLayout->addWidget(view, 1);
     auto coordinates = new QHBoxLayout;
     coordinate = new QLabel;
@@ -1097,12 +1092,6 @@ MapWorkspace::MapWorkspace(
         canvas->setFocus();
     });
     centerLayout->addLayout(coordinates);
-    auto hints = new QLabel(
-        "Left-drag paints · Right-click picks · Middle-drag / Space pans · "
-        "Ctrl+wheel zooms · Arrows target / Enter applies · Shift+arrows select · Esc cancels");
-    hints->setObjectName("mapInteractionHint");
-    hints->setWordWrap(true);
-    centerLayout->addWidget(hints);
     split->addWidget(center);
     auto right = new QWidget;
     auto rightOuter = new QVBoxLayout(right);
@@ -1132,6 +1121,7 @@ MapWorkspace::MapWorkspace(
     selectionLabel->setWordWrap(true);
     rightLayout->addWidget(selectionLabel);
     minimap = new MapMinimap(canvas, view);
+    minimap->setObjectName("mapMinimap");
     minimap->setToolTip("Click or drag to move the main map view.");
     rightLayout->addWidget(minimap);
     auto brushControls = new QHBoxLayout;
@@ -1199,6 +1189,7 @@ MapWorkspace::MapWorkspace(
     npcResource = companion;
     talkResource = resource.left(resource.size() - 4) + ".TLK";
     auto npcPanel = new QScrollArea;
+    npcPanel->setObjectName("mapCharacterInspector");
     npcPanel->setWidgetResizable(true);
     auto npcContent = new QWidget;
     auto npcLayout = new QVBoxLayout(npcContent);
@@ -1208,7 +1199,9 @@ MapWorkspace::MapWorkspace(
         createNpcInspector(npcLayout);
     npcPanel->setWidget(npcContent);
     inspector->addWidget(npcPanel);
-    right->setMinimumWidth(220);
+    const int inspectorWidth = npcContent->minimumSizeHint().width() + npcPanel->frameWidth() * 2 +
+                               npcPanel->style()->pixelMetric(QStyle::PM_ScrollBarExtent);
+    right->setMinimumWidth(qMax(220, inspectorWidth));
     split->addWidget(right);
     split->setStretchFactor(1, 1);
     split->setSizes({190, 780, 220});
@@ -1446,7 +1439,15 @@ void MapWorkspace::applyLocationMode() {
     clearLocationLayer();
     const QString mode = locationModes->tabText(activeMode);
     canvas->terrainEditingEnabled = activeMode == 0;
-    inspector->parentWidget()->setMinimumWidth(externalMode() ? 380 : 220);
+    int minimum = externalMode() ? 380 : 220;
+    if (mode == "Characters / Schedules" || mode == "Encounter") {
+        auto panel = findChild<QScrollArea *>("mapCharacterInspector");
+        panel->widget()->layout()->activate();
+        minimum = qMax(minimum, panel->widget()->minimumSizeHint().width() +
+                       panel->frameWidth() * 2 +
+                       panel->style()->pixelMetric(QStyle::PM_ScrollBarExtent));
+    }
+    inspector->parentWidget()->setMinimumWidth(minimum);
     canvas->actors.clear();
     canvas->ghosts.clear();
     canvas->ids = document.terrain(currentPage());
@@ -1516,18 +1517,6 @@ void MapWorkspace::applyLocationMode() {
         inspector->setCurrentWidget(locationLayer);
     }
     tool->button(canvas->tool)->setChecked(true);
-    auto hint = findChild<QLabel *>("mapInteractionHint");
-    hint->setText(
-        activeMode == 0 ? "Left-drag paints · Right-click picks · Middle-drag / Space pans · "
-                          "Ctrl+wheel zooms · Arrows target / Enter applies · Esc cancels"
-        : mode == "Signs" ? "Click a sign to edit its text · Click an empty cell, then Add sign · "
-                            "Terrain is unchanged · Middle-drag / Space pans · Ctrl+wheel zooms"
-        : mode == "Encounter Details"
-            ? "Advanced data for this combat map · Terrain stays unchanged · Middle-drag / Space "
-              "pans · Ctrl+wheel zooms"
-            : "Click a marker to inspect · Drag or target a tile and Enter to move · Terrain is "
-              "unchanged · Middle-drag / Space pans · Ctrl+wheel zooms");
-    canvas->setToolTip(hint->text());
     canvas->update();
 }
 int MapWorkspace::currentPage() const { return page->currentData().toInt(); }
@@ -1673,6 +1662,7 @@ void MapWorkspace::loadPage() {
     auto state = states->value(key);
     const auto &mp = document.pages[currentPage()];
     canvas->side = mp.side;
+    minimap->setVisible(resource == "BRIT.DAT" || resource == "UNDER.DAT");
     canvas->ids = document.terrain(currentPage());
     canvas->original = document.terrain(currentPage(), true);
     canvas->keyboardCell = state.keyboardCell;

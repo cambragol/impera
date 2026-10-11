@@ -80,6 +80,62 @@ int main(int argc, char **argv) {
         std::cout << "PASS " << name << "\n";
     };
     try {
+        test("Startup opens Britannia at the castle, world-only thumbnails and quiet canvas", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            QByteArray overlay(0x3986, 0);
+            overlay.replace(0x3886, 256, QByteArray(256, char(255)));
+            file(dir.path() + "/DATA.OVL", overlay);
+            file(dir.path() + "/BRIT.DAT", QByteArray(256, 0));
+            file(dir.path() + "/UNDER.DAT", QByteArray(65536, 0));
+            file(dir.path() + "/TOWNE.DAT", QByteArray(16384, 0));
+            WorkshopWindow w;
+            check(w.openGame(dir.path()), "Startup fixture failed");
+            w.resize(1280, 800);
+            w.show();
+            app.processEvents();
+            auto active = [&] { return w.findChild<QStackedWidget *>("workspaces")->currentWidget(); };
+            auto view = [&] { return dynamic_cast<MapView *>(active()->findChild<QScrollArea *>("canvasView")); };
+            QPointF castle(Workshop::TableDocument::value({}, 7, 16) + 0.5, Workshop::TableDocument::value({}, 8, 16) + 0.5);
+            check(view() && QLineF(view()->mapCenter(), castle).length() < 0.1, "Startup castle is not centered");
+            check(active()->findChild<QComboBox *>("mapPage")->currentText() == "Britannia", "Startup did not open Britannia");
+            check(active()->findChild<QWidget *>("mapMinimap")->isVisible(), "Britannia thumbnail missing");
+            check(!active()->findChild<QLabel *>("mapInteractionHint") && active()->findChild<QWidget *>("mapCanvas")->toolTip().isEmpty() && view()->toolTip().isEmpty(), "Map instructions or hover tooltip remain");
+            for (auto action : w.findChild<QToolBar *>()->actions()) check(action->objectName() != "showResourceLibrary", "Content button remains on toolbar");
+            auto rules = Workshop::TableDocument::change({}, 7, 16, 94);
+            rules = Workshop::TableDocument::change(rules, 8, 16, 110);
+            w.projectForTests().resources["RULES.TBL"].edited = rules;
+            w.projectForTests().save(dir.path() + "/castle.imperaproject");
+            check(w.openProject(dir.path() + "/castle.imperaproject"), "Project startup failed");
+            app.processEvents();
+            check(QLineF(view()->mapCenter(), QPointF(94.5, 110.5)).length() < 0.1, "Project startup ignored castle entrance override");
+            for (const QString name : {"UNDER.DAT", "TOWNE.DAT"}) {
+                w.selectResource(name);
+                app.processEvents();
+                check(active()->findChild<QWidget *>("mapMinimap")->isVisible() == (name == "UNDER.DAT"), "Thumbnail shown on a settlement or absent on Underworld");
+            }
+        });
+        test("Character inspector fits native control metrics with larger fonts", [&] {
+            QTemporaryDir dir;
+            fixture(dir.path());
+            file(dir.path() + "/TOWNE.DAT", QByteArray(16384, 0));
+            QByteArray schedules(4608, 0); schedules[512] = 1; schedules[544] = 1;
+            file(dir.path() + "/TOWNE.NPC", schedules);
+            file(dir.path() + "/TOWNE.TLK", U5::writeDialogue({{1, U5::encodeText("A character with an unusually long name that should wrap rather than widen the inspector<Entry>Description<Entry>Greeting<Entry>Job<Entry>Bye<Entry><Any><Label 15>@")}}));
+            WorkshopWindow w;
+            auto font = w.font(); font.setPointSize(qMax(14, font.pointSize() + 3)); w.setFont(font);
+            check(w.openGame(dir.path()), "Inspector fixture failed");
+            w.resize(1400, 900); w.show();
+            w.selectResource("TOWNE.DAT"); app.processEvents();
+            auto root = w.findChild<QStackedWidget *>("workspaces")->currentWidget();
+            root->findChild<QButtonGroup *>("mapTools")->button(MapCanvas::InspectNpc)->click();
+            root->findChild<QComboBox *>("mapNpcList")->setCurrentIndex(0);
+            app.processEvents();
+            auto inspector = root->findChild<QScrollArea *>("mapCharacterInspector");
+            check(inspector && inspector->horizontalScrollBar()->maximum() == 0, "Native control metrics overflow the inspector");
+            check(inspector->horizontalScrollBarPolicy() != Qt::ScrollBarAlwaysOff, "Overflow was hidden instead of fixed");
+            check(inspector->widget()->width() >= inspector->widget()->minimumSizeHint().width(), "Inspector controls do not fit their measured minimum");
+        });
         test("Aggregate changes isolate locations, shared conversations and encounters", [&] {
             QTemporaryDir dir;
             auto p = fixture(dir.path());

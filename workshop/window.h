@@ -37,6 +37,7 @@ class WorkshopWindow : public QMainWindow {
     void navigateContent(const QString &id);
     void syncNavigation();
     void prepareNavigation();
+    void openInitialMap();
     QStackedWidget *content;
     QString current, savedTitle, lastMap;
     bool rebuildPending = false;

@@ -44,7 +44,7 @@ workshop-build/ImperaWorkshop --project my-mod.imperaproject
 1. **New Mod**: choose the original DOS game directory. Workshop does not load
    installed mods into the base game; you can explicitly import a package.
 2. **Name Mod**: give the project a name used in Impera's diagnostics.
-3. Choose a resource from the searchable library and edit it.
+3. Workshop opens Britannia centered on Lord British’s Castle. Choose locations or other content from the sidebar and edit it.
 4. **Save Project** creates `.imperaproject` JSON containing the original folder
    reference/checksums and changed resources. Keep this project for future editing;
    it requires the same original files when reopened. It is not a distribution file.
@@ -52,6 +52,18 @@ workshop-build/ImperaWorkshop --project my-mod.imperaproject
 6. Copy the package into **`<selected Ultima 5 folder>/Mods/`**, then restart Impera.
    Create `Mods` if it does not exist. To disable a mod, move its package out and
    restart. There is no in-game mod-selection UI yet.
+
+Projects are your working documents: they retain source-file verification and
+Workshop-only metadata such as dialogue question annotations. Packages are the
+files you distribute and install in Impera; they contain only runtime mod data.
+You can import a package to continue editing its game content, but it does not
+restore project-only annotations. Keeping a project is recommended, not required
+for running a mod.
+
+The sidebar is always available. **Tools → Find Content** (Ctrl+L) focuses its
+search; there is no separate Content toolbar button. Map thumbnails appear only
+for Britannia and the Underworld. Map controls retain tooltips, but the canvas
+has no instructional hover popup or permanent instruction strip.
 
 Keyboard: **Ctrl+N** new project, **Ctrl+O** open project, **Ctrl+S** save,
 **Ctrl+Z** undo, **Ctrl+Shift+Z** redo, **Ctrl+E** export. Qt uses the usual Command

@@ -367,7 +367,9 @@ WorkshopWindow::WorkshopWindow() {
     showResources->setObjectName("showResourceLibrary");
     showResources->setShortcut(QKeySequence("Ctrl+L"));
     showResources->setToolTip("Focus content navigation (Ctrl+L). Your current edit remains open.");
-    toolbar->insertAction(toolbar->actions().first(), showResources);
+    addAction(showResources);
+    toolsMenu->addAction(showResources);
+    showResources->setText("Find Content");
     connect(showResources, &QAction::triggered, this, [library, search] {
         library->show();
         search->setFocus();
@@ -525,7 +527,7 @@ bool WorkshopWindow::openGame(const QString &path) {
         lastMap.clear();
         flushDraft = {};
         rebuildTree();
-        selectResource("TILES.16");
+        openInitialMap();
         updateSummary();
     });
 }
@@ -546,11 +548,33 @@ bool WorkshopWindow::openProject(const QString &path) {
         lastMap.clear();
         flushDraft = {};
         rebuildTree();
-        selectResource("TILES.16");
+        openInitialMap();
         updateSummary();
     });
 }
+void WorkshopWindow::openInitialMap() {
+    if (project.resources.contains("BRIT.DAT") && project.resources.contains("DATA.OVL")) {
+        // Location 17 is Lord British's Castle in the engine's entrance table.
+        // Use the same defaults and mod overrides as the location editor.
+        const QByteArray rules = project.resources.contains("RULES.TBL")
+                                     ? project.data("RULES.TBL") : QByteArray();
+        QPointF center;
+        try {
+            center = {Workshop::TableDocument::value(rules, 7, 16) + 0.5,
+                      Workshop::TableDocument::value(rules, 8, 16) + 0.5};
+        } catch (...) {
+            center = {Workshop::TableDocument::value({}, 7, 16) + 0.5,
+                      Workshop::TableDocument::value({}, 8, 16) + 0.5};
+        }
+        mapViewStates["BRIT.DAT/0"].center = center;
+        selectResource("BRIT.DAT");
+    } else {
+        // Partial projects used for recovery may not contain an overworld.
+        selectResource("TILES.16");
+    }
+}
 void WorkshopWindow::prepareNavigation() {
+    if (current.isEmpty()) return; // A new project must not inherit the previous map camera.
     auto widget = content->currentWidget();
     if (widget) if (auto map = dynamic_cast<MapWorkspace *>(widget->findChild<QWidget *>("mapWorkspace")))
         map->prepareNavigation();
