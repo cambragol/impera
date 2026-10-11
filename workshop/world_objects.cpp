@@ -71,8 +71,10 @@ static QString objectName(int shape) {
     return QString("World object (shape %1)").arg(shape);
 }
 QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit commit,
-                           QMap<QString, int> *state, std::function<bool()> *flush) {
-    auto root = new QWidget;
+                           QMap<QString, int> *state, std::function<bool()> *flush,
+                           MapCanvas *sharedCanvas, std::function<void(QPoint)> locate) {
+    auto owner = std::make_unique<QWidget>();
+    auto root = owner.get();
     root->setObjectName("worldObjectEditor");
     auto layout = new QVBoxLayout(root);
     auto toolbar = new QHBoxLayout;
@@ -83,6 +85,8 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
     world->setToolTip(
         "Edit the effective objects for a fresh game in this world. Existing saves are unchanged.");
     toolbar->addWidget(world);
+    if (sharedCanvas)
+        world->hide();
     auto add = new QPushButton("Add object");
     add->setObjectName("addWorldObject");
     add->setToolTip("Use the first empty world slot. Slot 0 is reserved for the active party.");
@@ -95,9 +99,12 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
     revert->setObjectName("revertWorldObjects");
     revert->setToolTip("Undoably remove this world's explicit override: Britannia becomes empty; "
                        "Underworld uses INIT.OOL.");
-    toolbar->addWidget(revert);
+    if (!sharedCanvas)
+        toolbar->addWidget(revert);
     toolbar->addStretch();
     layout->addLayout(toolbar);
+    if (sharedCanvas)
+        layout->addWidget(revert);
     auto status = new QLabel;
     status->setObjectName("objectProvenance");
     status->setWordWrap(true);
@@ -108,20 +115,26 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
     list->setToolTip(
         "Starting world objects, not settlement NPCs. Select an object to inspect and place it.");
     split->addWidget(list);
-    auto canvas = new MapCanvas;
-    canvas->setObjectName("worldObjectMap");
-    canvas->side = 256;
-    canvas->rows = 256;
-    canvas->zoom = 0.5;
+    auto canvas = sharedCanvas ? sharedCanvas : new MapCanvas;
+    QScrollArea *view = nullptr;
+    if (!sharedCanvas) {
+        canvas->setObjectName("worldObjectMap");
+        canvas->setToolTip(
+            "Drag a selected object to place it. Map terrain is read-only in this layer.");
+        canvas->side = canvas->rows = 256;
+        canvas->zoom = 0.5;
+        canvas->tiles = U5::readGraphics("TILES.16", project->data("TILES.16")).images;
+        view = new QScrollArea;
+        view->setObjectName("canvasView");
+        view->setWidget(canvas);
+        split->addWidget(view);
+        split->setStretchFactor(1, 1);
+    } else {
+        split->setOrientation(Qt::Vertical);
+    }
     canvas->tool = MapCanvas::InspectNpc;
-    canvas->setToolTip(
-        "Drag a selected object to place it. Map terrain is read-only in this layer.");
-    canvas->tiles = U5::readGraphics("TILES.16", project->data("TILES.16")).images;
-    auto view = new QScrollArea;
-    view->setObjectName("canvasView");
-    view->setWidget(canvas);
-    split->addWidget(view);
-    split->setStretchFactor(1, 1);
+    canvas->terrainEditingEnabled = false;
+    canvas->ghosts.clear();
     auto inspector = new QWidget;
     auto il = new QFormLayout(inspector);
     auto type = new QComboBox;
@@ -153,8 +166,12 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
                         "properties are intentionally read-only.");
     il->addRow("Advanced details", details);
     auto note =
-        new QLabel("New games only. Starting state controls the party and initial location. This "
-                   "layer controls each world's objects; terrain is edited in Maps.");
+        sharedCanvas
+            ? new QLabel("New games only. Add at the targeted map cell, or drag a marker to place "
+                         "it. Existing saves are unchanged.")
+            : new QLabel(
+                  "New games only. Starting state controls the party and initial location. This "
+                  "layer controls each world's objects; terrain is edited in Maps.");
     note->setWordWrap(true);
     il->addRow(note);
     split->addWidget(inspector);
@@ -195,7 +212,8 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
                     .arg(uchar(r[6]))
                     .arg(uchar(r[7]))
                     .arg(world->currentIndex() == 0 ? "Surface" : "Underworld"));
-            view->ensureVisible(uchar(r[2]) * 8, uchar(r[3]) * 8, 80, 80);
+            if (view)
+                view->ensureVisible(uchar(r[2]) * 8, uchar(r[3]) * 8, 80, 80);
         }
         canvas->update();
         *loading = false;
@@ -232,16 +250,25 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
             canvas->ids = U5::worldMap(map, project->data(map), overlay);
         } else
             canvas->ids = QByteArray(65536, 0);
-        canvas->original = canvas->ids;
+        if (!sharedCanvas)
+            canvas->original = canvas->ids;
         canvas->resizeMap();
-        status->setText(QString("Starting world objects · %1 of 31 object slots used (%2 "
-                                "available) · 32 fixed records, including reserved party slot\n%3")
-                            .arg(count)
-                            .arg(31 - count)
-                            .arg(WorldObjects::overridden(*project, which) ? "World override"
-                                 : which == 0
-                                     ? "Normal start — empty Britannia list"
-                                     : "Initial underworld objects — inherited from INIT.OOL"));
+        if (sharedCanvas) {
+            status->setText(QString("New-game objects · %1 of 31 slots used\n%2")
+                                .arg(count)
+                                .arg(WorldObjects::overridden(*project, which)
+                                         ? "Customized for this world"
+                                     : which == 0 ? "Normal start: Britannia begins without objects"
+                                                  : "Inherited initial Underworld objects"));
+        } else
+            status->setText(
+                QString("Starting world objects · %1 of 31 object slots used (%2 "
+                        "available) · 32 fixed records, including reserved party slot\n%3")
+                    .arg(count)
+                    .arg(31 - count)
+                    .arg(WorldObjects::overridden(*project, which) ? "World override"
+                         : which == 0 ? "Normal start — empty Britannia list"
+                                      : "Initial underworld objects — inherited from INIT.OOL"));
         revert->setEnabled(WorldObjects::overridden(*project, which));
         add->setEnabled(count < 31);
         *loading = false;
@@ -302,6 +329,10 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
                 r[0] = r[1] = 36;
                 r[4] = world->currentIndex() == 0 ? 0 : char(255);
                 r[5] = 99;
+                if (sharedCanvas) {
+                    r[2] = char(canvas->keyboardCell.x());
+                    r[3] = char(canvas->keyboardCell.y());
+                }
                 write(slot, r);
                 return;
             }
@@ -319,6 +350,15 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
         if (commit(name, project->resources[name].original, false))
             (*load)();
     });
+    if (sharedCanvas && locate) {
+        auto show = new QPushButton("Show selected object");
+        show->setToolTip("Center the shared map on the selected starting object.");
+        layout->addWidget(show);
+        QObject::connect(show, &QPushButton::clicked, root, [=] {
+            if (list->currentItem())
+                locate({x->value(), y->value()});
+        });
+    }
     canvas->chooseNpc = [=](int slot) {
         for (int i = 0; i < list->count(); ++i)
             if (list->item(i)->data(Qt::UserRole).toInt() == slot) {
@@ -337,6 +377,6 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
         return true;
     };
     (*load)();
-    return root;
+    return owner.release();
 }
 } // namespace Workshop

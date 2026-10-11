@@ -61,6 +61,7 @@ class MapCanvas : public QWidget {
     QRect selection;
     bool outline = false, comparison = false;
     QString operation = "Paint";
+    bool terrainEditingEnabled = true;
     std::function<void()> changed, selectionChanged;
     std::function<void(const QString &)> feedback;
     QString clipboardMime = "application/x-impera-terrain", clipboardMagic = "IMPTILE1";
@@ -168,12 +169,31 @@ class MapWorkspace : public QWidget {
                  std::function<bool(const QMap<QString, QByteArray> &, const QString &)> commit,
                  std::function<void(const QString &)> navigate, MapBrushState *brushes = nullptr,
                  QWidget *parent = nullptr);
+    ~MapWorkspace() override { clearLocationLayer(); }
     void cancelGesture();
     void prepareNavigation() { cancelGesture(); saveView(); }
     void useSharedNavigation() { maps->parentWidget()->hide(); }
     void openPage(int index) { selectPage(index); }
+    using LocationLayerFactory =
+        std::function<QWidget *(const QString &, int, MapCanvas *, std::function<bool()> *)>;
+    void enableLocationModes(const QStringList &names, LocationLayerFactory factory);
+    bool flushLocationMode();
+    std::function<void()> locationChanged;
+    void centerOnCell(QPoint cell) { view->centerMap(QPointF(cell) + QPointF(0.5, 0.5)); }
 
   private:
+    QTabBar *locationModes = nullptr;
+    int activeMode = 0, terrainTool = MapCanvas::Pencil;
+    QWidget *locationLayer = nullptr;
+    LocationLayerFactory layerFactory;
+    std::function<bool()> layerFlush;
+    std::function<void(int)> nativeChooseNpc;
+    std::function<int(const QList<int> &)> nativeChooseActor;
+    std::function<bool(int, QPoint)> nativeMoveNpc;
+    std::function<bool(const QByteArray &)> nativeCommit;
+    void clearLocationLayer();
+    void applyLocationMode();
+    bool externalMode() const;
     Project *project;
     QString resource, key;
     MapDocument document;

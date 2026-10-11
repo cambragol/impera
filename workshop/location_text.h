@@ -1,4 +1,5 @@
 #pragma once
+#include "map_editor.h"
 #include "project.h"
 #include <QWidget>
 #include <functional>
@@ -17,7 +18,14 @@ QByteArray encodeSign(const QString &text);
 QByteArray description(const QByteArray &bytes, int entry);
 QByteArray changeDescription(const QByteArray &bytes, int entry, const QString &text, bool linked);
 using TextCommit = std::function<bool(const QMap<QString, QByteArray> &, const QString &)>;
+struct LocationTextContext {
+    QString resource;
+    int page = 0;
+    MapCanvas *canvas = nullptr;
+    std::function<void(QPoint)> locate;
+};
 QWidget *locationTextEditor(Project *project, const QString &resource, TextCommit commit,
                             QMap<QString, int> *state = nullptr,
-                            std::function<bool()> *flush = nullptr);
+                            std::function<bool()> *flush = nullptr,
+                            const LocationTextContext &context = {});
 } // namespace Workshop

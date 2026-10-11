@@ -11,5 +11,6 @@ class WorldObjects {
 };
 using ObjectCommit = std::function<bool(const QString &, const QByteArray &, bool)>;
 QWidget *worldObjectEditor(Project *, int world, ObjectCommit, QMap<QString, int> *,
-                           std::function<bool()> *);
+                           std::function<bool()> *, MapCanvas *sharedCanvas = nullptr,
+                           std::function<void(QPoint)> locate = {});
 } // namespace Workshop

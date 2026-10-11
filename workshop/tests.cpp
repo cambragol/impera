@@ -12,6 +12,7 @@
 #include "resource_document.h"
 #include "scene_editor.h"
 #include "text_preview.h"
+#include "ui_theme.h"
 #include "window.h"
 #include "world_objects.h"
 #include <QTemporaryDir>
@@ -64,6 +65,8 @@ static Project fixture(const QString &directory) {
 }
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
+    if (qEnvironmentVariableIsSet("IMPERA_WORKSHOP_SCREENSHOT_DIR"))
+        Workshop::applyTheme(app);
     QTemporaryDir settingsDirectory;
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDirectory.path());
@@ -685,6 +688,252 @@ int main(int argc, char **argv) {
                 Workshop::writeSigns(seed, {{1, 3, 2, 3, Workshop::encodeSign("Missing floor")}});
             imported.resources["SIGNS.DAT"].edited = bad;
             rejects([&] { imported.validate(); });
+        });
+        test("Location modes share canvas, floors, drafts and history", [&] {
+            QTemporaryDir dir;
+            fixture(dir.path());
+            const QByteArray terrain(16384, char(0xf8));
+            file(dir.path() + "/TOWNE.DAT", terrain);
+            QByteArray npcs(4608, 0);
+            npcs[3] = 2;
+            npcs[6] = 3;
+            npcs[512] = 25;
+            file(dir.path() + "/TOWNE.NPC", npcs);
+            file(dir.path() + "/IBM.CH", QByteArray(1024, char(255)));
+            file(dir.path() + "/RUNES.CH", QByteArray(1024, char(255)));
+            QByteArray seed(66, 0);
+            seed += char(255);
+            seed += char(255);
+            const auto signs =
+                Workshop::writeSigns(seed, {{1, 0, 2, 3, Workshop::encodeSign("Ground")},
+                                            {1, 1, 4, 5, Workshop::encodeSign("Upstairs")},
+                                            {2, 0, 6, 7, Workshop::encodeSign("Britain")}});
+            file(dir.path() + "/SIGNS.DAT", signs);
+            WorkshopWindow w;
+            check(w.openGame(dir.path()), "Location fixture failed");
+            w.show();
+            w.selectResource("TOWNE.DAT");
+            app.processEvents();
+            auto active = [&] {
+                return w.findChild<QStackedWidget *>("workspaces")->currentWidget();
+            };
+            auto modes = active()->findChild<QTabBar *>("locationModes");
+            auto setMode = [&](QString title) {
+                for (int i = 0; i < modes->count(); ++i)
+                    if (modes->tabText(i) == title) {
+                        modes->setCurrentIndex(i);
+                        app.processEvents();
+                        return;
+                    }
+                throw std::runtime_error("Location mode missing");
+            };
+            auto canvas = dynamic_cast<MapCanvas *>(active()->findChild<QWidget *>("mapCanvas"));
+            auto view = dynamic_cast<MapView *>(active()->findChild<QScrollArea *>("canvasView"));
+            auto floor = active()->findChild<QComboBox *>("mapPage");
+            check(modes->count() == 3, "Wrong settlement modes");
+            view->setZoom(2);
+            view->centerMap({16, 16});
+            const auto center = view->mapCenter();
+            setMode("Signs");
+            check(active()->findChild<QWidget *>("mapCanvas") == canvas &&
+                      active()->findChild<QScrollArea *>("canvasView") == view,
+                  "Mode replaced the map canvas or camera");
+            check(canvas->zoom == 2 && QLineF(center, view->mapCenter()).length() < 0.1,
+                  "Mode changed zoom or camera");
+            check(active()->findChild<QComboBox *>("signLocation")->isHidden() &&
+                      active()->findChild<QComboBox *>("signFloor")->isHidden(),
+                  "Signs can escape the shared location context");
+            auto list = active()->findChild<QListWidget *>("locationTextEntries");
+            check(list->count() == 1 && list->item(0)->text().contains("Ground"),
+                  "Signs leaked another floor or settlement");
+            auto draft = active()->findChild<QPlainTextEdit *>("locationTextDraft");
+            draft->selectAll();
+            draft->insertPlainText("Changed ground");
+            setMode("Characters / Schedules");
+            check(Workshop::signSource(
+                      Workshop::readSigns(w.projectForTests().data("SIGNS.DAT"))[0].text) ==
+                      "Changed ground",
+                  "Mode switch lost sign draft");
+            check(canvas->actors.size() == 32 && canvas->actors[0].tile == 281,
+                  "Sign markers leaked into character mode");
+            setMode("Signs");
+            floor->setCurrentIndex(floor->findData(1));
+            app.processEvents();
+            auto navigator = w.findChild<QWidget *>("resourceLibrary")->findChild<QTreeWidget *>();
+            check(navigator->currentItem() && navigator->currentItem()->text(0) == "Moonglow",
+                  "Changing floors lost the shared location highlight");
+            check(active()
+                      ->findChild<QListWidget *>("locationTextEntries")
+                      ->item(0)
+                      ->text()
+                      .contains("Upstairs"),
+                  "Shared floor selector did not update signs");
+            check(canvas->actors.size() == 1 && canvas->actors[0].x == 4,
+                  "Sign marker floor context is stale");
+            canvas->keyboardCell = {8, 9};
+            for (auto b : active()->findChildren<QPushButton *>())
+                if (b->text() == "Add sign at selected cell")
+                    b->click();
+            auto records = Workshop::readSigns(w.projectForTests().data("SIGNS.DAT"));
+            check(std::any_of(records.begin(), records.end(),
+                              [](const Workshop::SignRecord &r) {
+                                  return r.floor == 1 && r.map == 1 && r.x == 8 && r.y == 9;
+                              }),
+                  "Adding a sign used the wrong shared cell or floor");
+            check(w.projectForTests().data("TOWNE.DAT") == terrain, "Signs painted terrain");
+            // Invalid drafts block both mode changes and floor changes, rather than dropping edits.
+            draft = active()->findChild<QPlainTextEdit *>("locationTextDraft");
+            draft->selectAll();
+            draft->insertPlainText("[byte:ZZ]");
+            auto closeWarning = [] {
+                QTimer::singleShot(0, [] {
+                    for (auto widget : QApplication::topLevelWidgets())
+                        if (auto box = qobject_cast<QMessageBox *>(widget))
+                            box->accept();
+                });
+            };
+            closeWarning();
+            setMode("Terrain");
+            check(modes->tabText(modes->currentIndex()) == "Signs" &&
+                      draft->toPlainText() == "[byte:ZZ]",
+                  "Invalid sign draft was dropped by mode change");
+            closeWarning();
+            floor->setCurrentIndex(floor->findData(0));
+            check(floor->currentData().toInt() == 1 && draft->toPlainText() == "[byte:ZZ]",
+                  "Invalid sign draft was dropped by floor change");
+            draft->selectAll();
+            draft->insertPlainText("New sign");
+            setMode("Terrain");
+            check(canvas->chooseNpc && canvas->moveNpc && canvas->commit,
+                  "Layer callbacks did not restore native editing");
+            check(active()->findChild<QComboBox *>("mapPage")->currentData().toInt() == 1,
+                  "Mode switch lost current floor");
+            setMode("Signs");
+            for (auto a : w.findChildren<QAction *>())
+                if (a->text().startsWith("Undo ")) {
+                    a->trigger();
+                    break;
+                }
+            app.processEvents();
+            app.processEvents();
+            check(
+                active()->findChild<QTabBar *>("locationModes")
+                            ->tabText(
+                                active()->findChild<QTabBar *>("locationModes")->currentIndex()) ==
+                        "Signs" &&
+                    active()->findChild<QComboBox *>("mapPage")->currentData().toInt() == 1,
+                "Undo lost location mode or floor");
+            check(Workshop::readSigns(w.projectForTests().data("SIGNS.DAT")).size() == 3,
+                  "Undo did not remove the new sign");
+            modes = active()->findChild<QTabBar *>("locationModes");
+            setMode("Terrain");
+            w.projectForTests().resources["SIGNS.DAT"].edited = "broken";
+            setMode("Signs");
+            bool explained = false;
+            for (auto label : active()->findChildren<QLabel *>())
+                explained |= label->text().contains("Cannot open this location layer");
+            check(explained, "Broken sign companion did not produce a recoverable layer error");
+            setMode("Terrain");
+            check(
+                bool(
+                    dynamic_cast<MapCanvas *>(active()->findChild<QWidget *>("mapCanvas"))->commit),
+                "Cannot leave a damaged location layer");
+        });
+        test("Starting object mode uses the shared world and preserves terrain", [&] {
+            QTemporaryDir dir;
+            fixture(dir.path());
+            QByteArray overlay(0x3986, char(255));
+            file(dir.path() + "/DATA.OVL", overlay);
+            const QByteArray world(256, 1);
+            file(dir.path() + "/BRIT.DAT", world);
+            file(dir.path() + "/UNDER.DAT", QByteArray(65536, 1));
+            for (QString name : {"INIT.OOL", "BRIT.OOL", "UNDER.OOL"})
+                file(dir.path() + "/" + name, QByteArray(256, 0));
+            WorkshopWindow w;
+            check(w.openGame(dir.path()), "World layer fixture failed");
+            w.show();
+            w.selectResource("BRIT.DAT");
+            app.processEvents();
+            auto active = [&] {
+                return w.findChild<QStackedWidget *>("workspaces")->currentWidget();
+            };
+            auto modes = active()->findChild<QTabBar *>("locationModes");
+            auto canvas = dynamic_cast<MapCanvas *>(active()->findChild<QWidget *>("mapCanvas"));
+            check(modes->count() == 2 && modes->tabText(1) == "Starting Objects",
+                  "World mode availability wrong");
+            canvas->keyboardCell = {50, 60};
+            modes->setCurrentIndex(1);
+            app.processEvents();
+            check(active()->findChild<QComboBox *>("objectWorld")->isHidden(),
+                  "Objects can switch away from shared world");
+            check(!active()->findChild<QWidget *>("worldObjectMap"),
+                  "Objects created a second canvas");
+            MapCanvas clipboard;
+            clipboard.side = 1;
+            clipboard.ids = QByteArray(1, 5);
+            clipboard.selection = QRect(0, 0, 1, 1);
+            check(clipboard.copySelection(), "Could not create valid terrain clipboard");
+            active()->findChild<QButtonGroup *>("mapTools")->button(MapCanvas::Pan)->click();
+            check(!canvas->beginPaste(), "Panning in object mode enabled terrain paste");
+            active()->findChild<QButtonGroup *>("mapTools")->button(MapCanvas::InspectNpc)->click();
+
+            active()->findChild<QPushButton *>("addWorldObject")->click();
+            auto objects = Workshop::WorldObjects::effective(w.projectForTests(), 0);
+            check(uchar(objects[10]) == 50 && uchar(objects[11]) == 60,
+                  "Object added at wrong shared cell");
+            check(canvas->actors.size() == 1 && canvas->moveNpc(1, {70, 80}),
+                  "Shared object drag failed");
+            objects = Workshop::WorldObjects::effective(w.projectForTests(), 0);
+            check(uchar(objects[10]) == 70 && uchar(objects[11]) == 80,
+                  "Object drag did not edit world override");
+            check(w.projectForTests().data("BRIT.DAT") == world &&
+                      w.projectForTests().data("DATA.OVL") == overlay,
+                  "Object mode modified map terrain");
+            modes->setCurrentIndex(0);
+            app.processEvents();
+            check(canvas->actors.isEmpty() && canvas->commit,
+                  "Object layer leaked into terrain mode");
+            w.selectResource("UNDER.DAT");
+            app.processEvents();
+            modes = active()->findChild<QTabBar *>("locationModes");
+            modes->setCurrentIndex(1);
+            canvas = dynamic_cast<MapCanvas *>(active()->findChild<QWidget *>("mapCanvas"));
+            canvas->keyboardCell = {20, 30};
+            active()->findChild<QPushButton *>("addWorldObject")->click();
+            check(uchar(Workshop::WorldObjects::effective(w.projectForTests(), 1)[12]) == 255,
+                  "Underworld object got the wrong world level");
+            check(Workshop::WorldObjects::effective(w.projectForTests(), 0) == objects,
+                  "Underworld edit changed Britannia objects");
+        });
+        test("Encounter modes keep advanced metadata tied to the selected combat map", [&] {
+            QTemporaryDir dir;
+            fixture(dir.path());
+            QByteArray combat(704, 0);
+            file(dir.path() + "/BRIT.CBT", combat);
+            WorkshopWindow w;
+            check(w.openGame(dir.path()), "Encounter mode fixture failed");
+            w.selectResource("BRIT.CBT");
+            app.processEvents();
+            auto root = w.findChild<QStackedWidget *>("workspaces")->currentWidget();
+            auto map = dynamic_cast<MapWorkspace *>(root->findChild<QWidget *>("mapWorkspace"));
+            map->openPage(1);
+            app.processEvents();
+            auto modes = root->findChild<QTabBar *>("locationModes");
+            check(modes->count() == 3 && modes->tabText(1) == "Encounter" &&
+                      modes->tabText(2) == "Encounter Details",
+                  "Combat modes incorrect");
+            modes->setCurrentIndex(2);
+            auto table = root->findChild<QTableWidget *>();
+            check(table, "Advanced encounter editor missing");
+            table->item(5, 0)->setText("25");
+            auto expected = combat;
+            expected[352 + 5 * 32 + 11] = 25;
+            check(w.projectForTests().data("BRIT.CBT") == expected,
+                  "Advanced metadata edited a different encounter or touched terrain");
+            modes->setCurrentIndex(1);
+            check(root->findChild<QComboBox *>("mapPage")->currentData().toInt() == 1 &&
+                      root->findChild<QComboBox *>("combatEntity")->count() == 30,
+                  "Encounter mode lost its selected map or markers");
         });
         test("Location text original resources and native editors (optional)", [&] {
             auto directory = qEnvironmentVariable("U5_GAME_DIR");
@@ -2788,6 +3037,42 @@ int main(int argc, char **argv) {
                 for (auto name : p.resources.keys()) {
                     w.selectResource(name);
                     app.processEvents();
+                }
+                w.show();
+                for (const QString &resource : {QString("TOWNE.DAT"), QString("BRIT.DAT"),
+                                                QString("UNDER.DAT"), QString("BRIT.CBT")}) {
+                    if (!p.resources.contains(resource))
+                        continue;
+                    w.selectResource(resource);
+                    app.processEvents();
+                    auto root = w.findChild<QStackedWidget *>("workspaces")->currentWidget();
+                    auto modes = root->findChild<QTabBar *>("locationModes");
+                    check(modes, "Original map lacks location modes");
+                    for (int mode = 0; mode < modes->count(); ++mode) {
+                        modes->setCurrentIndex(mode);
+                        app.processEvents();
+                        check(root->findChild<QComboBox *>("mapPage"),
+                              "Location layer replaced floor selector");
+                        const auto captures =
+                            qEnvironmentVariable("IMPERA_WORKSHOP_SCREENSHOT_DIR");
+                        if (!captures.isEmpty()) {
+                            QDir().mkpath(captures);
+                            if (modes->tabText(mode) == "Signs") {
+                                auto entries =
+                                    root->findChild<QListWidget *>("locationTextEntries");
+                                if (entries && entries->count() > 1)
+                                    entries->setCurrentRow(1);
+                                app.processEvents();
+                            }
+                            QString title = modes->tabText(mode);
+                            title.replace(" / ", "-");
+                            title.replace(' ', '-');
+                            check(w.grab().save(captures + "/workshop-" +
+                                                QString(resource).replace('.', '-').toLower() +
+                                                "-" + title.toLower() + ".png"),
+                                  "Could not capture location-mode UI");
+                        }
+                    }
                 }
                 check(w.projectForTests().changed().isEmpty(), "Original GUI mutation");
             });

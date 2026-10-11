@@ -368,6 +368,8 @@ void MapCanvas::mousePressEvent(QMouseEvent *e) {
 
     if (tool != Pencil && tool != Select && tool != Rectangle && tool != Fill)
         return;
+    if (!terrainEditingEnabled && tool != Select)
+        return;
     if (tool != Select && !editable(cell))
         return;
     before = ids;
@@ -517,8 +519,8 @@ bool MapCanvas::copySelection() {
 }
 bool MapCanvas::beginPaste() {
     cancelStroke();
-    if (tool == InspectNpc) {
-        say("Switch to a terrain tool before pasting");
+    if (!terrainEditingEnabled || tool == InspectNpc) {
+        say("Switch to Terrain before pasting");
         return false;
     }
     auto mime = QApplication::clipboard()->mimeData();
@@ -1007,6 +1009,7 @@ MapWorkspace::MapWorkspace(
     schedule->setSizeAdjustPolicy(QComboBox::AdjustToContents);
     if (project->resources.contains(companion)) {
         auto scheduleLabel = new QLabel("NPC schedule:");
+        scheduleLabel->setObjectName("mapScheduleLabel");
         scheduleLabel->setBuddy(schedule);
         scheduleLabel->setToolTip(schedule->toolTip());
         row->insertWidget(1, scheduleLabel);
@@ -1097,6 +1100,7 @@ MapWorkspace::MapWorkspace(
     auto hints = new QLabel(
         "Left-drag paints · Right-click picks · Middle-drag / Space pans · "
         "Ctrl+wheel zooms · Arrows target / Enter applies · Shift+arrows select · Esc cancels");
+    hints->setObjectName("mapInteractionHint");
     hints->setWordWrap(true);
     centerLayout->addWidget(hints);
     split->addWidget(center);
@@ -1276,9 +1280,19 @@ MapWorkspace::MapWorkspace(
             selectPage(currentPage());
     });
     connect(tool, &QButtonGroup::idClicked, this, [=](int i) {
+        if (locationModes && !externalMode() && i != MapCanvas::Pan) {
+            const int target = i == MapCanvas::InspectNpc ? 1 : 0;
+            if (locationModes->currentIndex() != target)
+                locationModes->setCurrentIndex(target);
+            if (i != MapCanvas::InspectNpc)
+                terrainTool = i;
+        }
         cancelGesture();
         canvas->tool = i;
-        inspector->setCurrentIndex(i == MapCanvas::InspectNpc ? 1 : 0);
+        if (!externalMode())
+            inspector->setCurrentIndex(locationModes                ? activeMode
+                                       : i == MapCanvas::InspectNpc ? 1
+                                                                    : 0);
         if (resource.endsWith(".CBT"))
             refreshCombat();
         findChild<QPushButton *>("mapPaste")->setEnabled(i != MapCanvas::InspectNpc);
@@ -1358,6 +1372,164 @@ MapWorkspace::MapWorkspace(
     x->setRange(0, canvas->side - 1);
     y->setRange(0, canvas->side - 1);
 }
+bool MapWorkspace::externalMode() const {
+    return locationModes && locationModes->tabText(activeMode) != "Terrain" &&
+           locationModes->tabText(activeMode) != "Characters / Schedules" &&
+           locationModes->tabText(activeMode) != "Encounter";
+}
+bool MapWorkspace::flushLocationMode() {
+    cancelGesture();
+    return !layerFlush || layerFlush();
+}
+void MapWorkspace::clearLocationLayer() {
+    if (!locationModes)
+        return;
+    // Restore callbacks before deleting the controls they used to capture.
+    canvas->chooseNpc = nativeChooseNpc;
+    canvas->chooseActor = nativeChooseActor;
+    canvas->moveNpc = nativeMoveNpc;
+    canvas->commit = nativeCommit;
+    layerFlush = {};
+    if (locationLayer) {
+        inspector->removeWidget(locationLayer);
+        delete locationLayer;
+        locationLayer = nullptr;
+    }
+}
+void MapWorkspace::enableLocationModes(const QStringList &names, LocationLayerFactory factory) {
+    layerFactory = std::move(factory);
+    nativeChooseNpc = canvas->chooseNpc;
+    nativeChooseActor = canvas->chooseActor;
+    nativeMoveNpc = canvas->moveNpc;
+    nativeCommit = canvas->commit;
+    terrainTool = canvas->tool == MapCanvas::InspectNpc ? MapCanvas::Pencil : canvas->tool;
+    locationModes = new QTabBar;
+    locationModes->setObjectName("locationModes");
+    locationModes->setExpanding(false);
+    locationModes->setToolTip(
+        "Switch what you edit at this location. Floor, zoom and map view stay shared.");
+    for (const auto &name : names) {
+        const int index = locationModes->addTab(name);
+        const QString help =
+            name == "Terrain" ? "Paint and select map tiles."
+            : name == "Characters / Schedules"
+                ? "Inspect characters and edit their scheduled destinations on this floor."
+            : name == "Signs"
+                ? "Edit sign text and place text records on this floor; terrain stays unchanged."
+            : name == "Starting Objects"
+                ? "Place objects for new games in this world; existing saves stay unchanged."
+            : name == "Encounter" ? "Place party starts, monsters and triggers in this combat map."
+                                  : "Inspect advanced metadata for this combat map; unverified "
+                                    "bytes are labeled explicitly.";
+        locationModes->setTabToolTip(index, help);
+    }
+    activeMode = qBound(
+        0, navigation->value(resource + "/mode", canvas->tool == MapCanvas::InspectNpc ? 1 : 0),
+        int(names.size()) - 1);
+    locationModes->setCurrentIndex(activeMode);
+    static_cast<QVBoxLayout *>(layout())->insertWidget(0, locationModes);
+    connect(locationModes, &QTabBar::currentChanged, this, [this](int mode) {
+        if (!flushLocationMode()) {
+            QSignalBlocker block(locationModes);
+            locationModes->setCurrentIndex(activeMode);
+            return;
+        }
+        saveView();
+        clearLocationLayer();
+        activeMode = mode;
+        (*navigation)[resource + "/mode"] = mode;
+        applyLocationMode();
+    });
+    applyLocationMode();
+}
+void MapWorkspace::applyLocationMode() {
+    clearLocationLayer();
+    const QString mode = locationModes->tabText(activeMode);
+    canvas->terrainEditingEnabled = activeMode == 0;
+    inspector->parentWidget()->setMinimumWidth(externalMode() ? 380 : 220);
+    canvas->actors.clear();
+    canvas->ghosts.clear();
+    canvas->ids = document.terrain(currentPage());
+    canvas->selectedNpc = states->value(key).npc;
+    for (auto button : tool->buttons()) {
+        const int id = tool->id(button);
+        button->setEnabled(!externalMode() || id == MapCanvas::Pan || id == MapCanvas::InspectNpc);
+        button->setVisible(activeMode == 0 || id == MapCanvas::Pan || id == MapCanvas::InspectNpc);
+    }
+    // The character tool remains a shortcut into the dedicated mode when it exists.
+    tool->button(MapCanvas::InspectNpc)
+        ->setEnabled(activeMode > 0 || locationModes->tabText(1) == "Characters / Schedules" ||
+                     locationModes->tabText(1) == "Encounter");
+    schedule->setEnabled(!externalMode() && activeMode == 1 && !resource.endsWith(".CBT"));
+    const bool showSchedule =
+        activeMode == 1 && !externalMode() && project->resources.contains(npcResource);
+    schedule->setVisible(showSchedule);
+    if (auto label = findChild<QLabel *>("mapScheduleLabel"))
+        label->setVisible(showSchedule);
+    comparison->setVisible(activeMode == 0);
+    for (auto name : {"mapCopy", "mapPaste", "mapClearSelection"})
+        findChild<QPushButton *>(name)->setVisible(activeMode == 0);
+    comparison->setEnabled(activeMode == 0);
+    findChild<QPushButton *>("mapPaste")->setEnabled(activeMode == 0);
+    if (!externalMode()) {
+        canvas->tool = activeMode == 0 ? terrainTool : MapCanvas::InspectNpc;
+        inspector->setCurrentIndex(activeMode);
+        refreshNpcs();
+    } else {
+        canvas->tool = MapCanvas::InspectNpc;
+        canvas->commit = {}; // A layer can never paint terrain through keyboard or mouse.
+        canvas->moveNpc = {};
+        canvas->chooseNpc = {};
+        canvas->chooseActor = [this](const QList<int> &ids) {
+            QStringList labels;
+            for (int id : ids)
+                for (const auto &actor : canvas->actors)
+                    if (actor.npc == id) {
+                        labels.append(QString("%1 · item %2").arg(actor.label).arg(id + 1));
+                        break;
+                    }
+            bool ok = false;
+            const auto label = QInputDialog::getItem(this, "Choose item", "Items on this tile",
+                                                     labels, 0, false, &ok);
+            return ok ? ids.value(labels.indexOf(label), -1) : -1;
+        };
+        QWidget *controls = nullptr;
+        try {
+            controls = layerFactory(mode, currentPage(), canvas, &layerFlush);
+        } catch (const std::exception &error) {
+            // A damaged companion must not escape a Qt signal handler or leave stale callbacks.
+            layerFlush = {};
+            canvas->chooseNpc = {};
+            canvas->moveNpc = {};
+            canvas->actors.clear();
+            auto message =
+                new QLabel("Cannot open this location layer: " + QString::fromUtf8(error.what()) +
+                           "\nChoose another mode. Original data has not been changed.");
+            message->setWordWrap(true);
+            controls = message;
+        }
+        auto scroll = new QScrollArea;
+        scroll->setWidgetResizable(true);
+        scroll->setWidget(controls);
+        locationLayer = scroll;
+        inspector->addWidget(locationLayer);
+        inspector->setCurrentWidget(locationLayer);
+    }
+    tool->button(canvas->tool)->setChecked(true);
+    auto hint = findChild<QLabel *>("mapInteractionHint");
+    hint->setText(
+        activeMode == 0 ? "Left-drag paints · Right-click picks · Middle-drag / Space pans · "
+                          "Ctrl+wheel zooms · Arrows target / Enter applies · Esc cancels"
+        : mode == "Signs" ? "Click a sign to edit its text · Click an empty cell, then Add sign · "
+                            "Terrain is unchanged · Middle-drag / Space pans · Ctrl+wheel zooms"
+        : mode == "Encounter Details"
+            ? "Advanced data for this combat map · Terrain stays unchanged · Middle-drag / Space "
+              "pans · Ctrl+wheel zooms"
+            : "Click a marker to inspect · Drag or target a tile and Enter to move · Terrain is "
+              "unchanged · Middle-drag / Space pans · Ctrl+wheel zooms");
+    canvas->setToolTip(hint->text());
+    canvas->update();
+}
 int MapWorkspace::currentPage() const { return page->currentData().toInt(); }
 void MapWorkspace::populateFloors(int index) {
     QSignalBlocker block(page);
@@ -1376,10 +1548,15 @@ void MapWorkspace::populateFloors(int index) {
     page->setCurrentIndex(page->findData(index));
 }
 void MapWorkspace::selectPage(int index) {
+    if (locationModes && !flushLocationMode()) {
+        populateFloors(navigation->value(resource + "/map"));
+        return;
+    }
     if (index < 0 || index >= document.pages.size())
         return;
     cancelGesture();
     saveView();
+    clearLocationLayer();
     int oldPage = navigation->value(resource + "/map");
     if (canvas->tool == MapCanvas::InspectNpc && canvas->selectedNpc >= 0 &&
         document.pages[oldPage].settlement == document.pages[index].settlement) {
@@ -1394,6 +1571,7 @@ void MapWorkspace::selectPage(int index) {
     loadPage();
     findChild<QSpinBox *>("mapGoX")->setRange(0, canvas->side - 1);
     findChild<QSpinBox *>("mapGoY")->setRange(0, canvas->side - 1);
+    if (locationChanged) locationChanged();
 }
 void MapWorkspace::cancelGesture() { canvas->cancelStroke(); }
 void MapWorkspace::setBrush(int id) {
@@ -1480,9 +1658,11 @@ void MapWorkspace::saveView() {
     s.outline = canvas->outline;
     s.keyboardCell = canvas->keyboardCell;
     s.brush = canvas->brush;
-    s.tool = canvas->tool;
+    if (!externalMode())
+        s.tool = canvas->tool;
     s.schedule = schedule->currentIndex();
-    s.npc = canvas->selectedNpc;
+    if (!externalMode())
+        s.npc = canvas->selectedNpc;
     s.ghosts = npcGhosts->isChecked();
     if (isVisible())
         s.center = view->mapCenter();
@@ -1547,6 +1727,8 @@ void MapWorkspace::loadPage() {
             ++it;
         }
     }
+    if (locationModes)
+        applyLocationMode();
     QString loadedKey = key;
     QTimer::singleShot(0, this, [this, state, loadedKey] {
         if (key != loadedKey)
@@ -1977,7 +2159,7 @@ void MapWorkspace::createCombatInspector(QVBoxLayout *layout) {
     layout->addWidget(combatPreview);
     auto advanced = new QLabel(
         "Drag markers to move. P = party start, M = monster, T = trigger. Disabled/out-of-bounds "
-        "records stay in the list. Use the Combat setup tab for raw metadata. Trigger preview is "
+        "records stay in the list. Use Encounter Details for advanced metadata. Trigger preview is "
         "read-only; runtime AI and special encounters are not simulated.");
     advanced->setWordWrap(true);
     layout->addWidget(advanced);

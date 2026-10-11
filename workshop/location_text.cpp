@@ -246,8 +246,10 @@ static QImage signPreview(const Project &p, const QByteArray &b) {
     return image.copy(0, 0, 128, qMin(1024, y + 8));
 }
 QWidget *locationTextEditor(Project *project, const QString &resource, TextCommit commit,
-                            QMap<QString, int> *state, std::function<bool()> *flush) {
-    auto root = new QWidget;
+                            QMap<QString, int> *state, std::function<bool()> *flush,
+                            const LocationTextContext &context) {
+    auto owner = std::make_unique<QWidget>();
+    auto root = owner.get();
     auto layout = new QVBoxLayout(root);
     auto search = new QLineEdit;
     search->setPlaceholderText("Search text or location");
@@ -429,7 +431,17 @@ QWidget *locationTextEditor(Project *project, const QString &resource, TextCommi
                 addedMaps.insert(p.map);
             }
         }
-        int initial = pages->isEmpty() ? -1
+        int scopedPage = -1;
+        if (context.canvas) {
+            for (int i = 0; i < pages->size(); ++i)
+                if (pages->at(i).resource == context.resource && pages->at(i).index == context.page)
+                    scopedPage = i;
+            require(scopedPage >= 0, "This location has no sign layer");
+            place->hide();
+            location->hide();
+        }
+        int initial = context.canvas     ? scopedPage
+                      : pages->isEmpty() ? -1
                       : state ? qBound(0, state->value("SIGNS.DAT/page"), int(pages->size()) - 1)
                               : 0;
         auto fillFloors = [=](int preferred) {
@@ -449,14 +461,25 @@ QWidget *locationTextEditor(Project *project, const QString &resource, TextCommi
         if (initial >= 0 && initial < pages->size())
             place->setCurrentIndex(place->findData(pages->at(initial).map));
         fillFloors(initial);
-        auto canvas = new MapCanvas;
-        canvas->setObjectName("signMap");
+        auto canvas = context.canvas ? context.canvas : new MapCanvas;
+        QScrollArea *mapScroll = nullptr;
+        if (!context.canvas) {
+            canvas->setObjectName("signMap");
+            canvas->zoom = 1;
+            canvas->tiles = U5::readGraphics("TILES.16", project->data("TILES.16")).images;
+            mapScroll = new QScrollArea;
+            mapScroll->setWidget(canvas);
+            form->insertWidget(0, mapScroll, 1);
+        } else {
+            // A shared map retains terrain, zoom and camera; only this layer owns markers.
+            list->setMinimumWidth(0);
+            splitter->setOrientation(Qt::Vertical);
+            text->setMaximumHeight(120);
+            canvas->moveNpc = {};
+        }
         canvas->tool = MapCanvas::InspectNpc;
-        canvas->zoom = 1;
-        canvas->tiles = U5::readGraphics("TILES.16", project->data("TILES.16")).images;
-        auto mapScroll = new QScrollArea;
-        mapScroll->setWidget(canvas);
-        form->insertWidget(0, mapScroll, 1);
+        canvas->terrainEditingEnabled = false;
+        canvas->ghosts.clear();
         auto add = new QPushButton("Add sign at selected cell");
         add->setToolTip("Add a text record at the selected map cell without painting terrain. Use "
                         "Look on a sign tile to read it.");
@@ -496,7 +519,8 @@ QWidget *locationTextEditor(Project *project, const QString &resource, TextCommi
             MapDocument doc(project, page.resource);
             canvas->side = doc.pages[page.index].side;
             canvas->ids = doc.terrain(page.index);
-            canvas->original = canvas->ids;
+            if (!context.canvas)
+                canvas->original = canvas->ids;
             x->setMaximum(canvas->side - 1);
             y->setMaximum(canvas->side - 1);
             for (int i = 0; i < records->size(); i++) {
@@ -553,6 +577,10 @@ QWidget *locationTextEditor(Project *project, const QString &resource, TextCommi
             if (!mayDiscard(row))
                 return;
             auto r = records->at(list->item(row)->data(Qt::UserRole).toInt());
+            if (state && context.canvas)
+                (*state)["SIGNS.DAT/selection/" + context.resource + "/" +
+                         QString::number(context.page)] =
+                    list->item(row)->data(Qt::UserRole).toInt();
             {
                 QSignalBlocker bx(x), by(y);
                 x->setValue(r.x);
@@ -569,10 +597,11 @@ QWidget *locationTextEditor(Project *project, const QString &resource, TextCommi
                     .arg(readable ? "Look reads this sign tile."
                                   : "Warning: this tile does not read SIGNS.DAT with Look."));
             canvas->keyboardCell = {r.x, r.y};
-            QTimer::singleShot(0, root, [=] {
-                mapScroll->ensureVisible((r.x + 0.5) * 16 * canvas->zoom,
-                                         (r.y + 0.5) * 16 * canvas->zoom, 30, 30);
-            });
+            if (mapScroll)
+                QTimer::singleShot(0, root, [=] {
+                    mapScroll->ensureVisible((r.x + 0.5) * 16 * canvas->zoom,
+                                             (r.y + 0.5) * 16 * canvas->zoom, 30, 30);
+                });
             canvas->selectedNpc = list->item(row)->data(Qt::UserRole).toInt();
             canvas->update();
         });
@@ -619,8 +648,9 @@ QWidget *locationTextEditor(Project *project, const QString &resource, TextCommi
                 if (p < 0)
                     return;
                 auto page = pages->at(p);
-                auto cell = canvas->selection.isEmpty() ? canvas->keyboardCell
-                                                        : canvas->selection.topLeft();
+                auto cell = context.canvas || canvas->selection.isEmpty()
+                                ? canvas->keyboardCell
+                                : canvas->selection.topLeft();
                 auto next = *records;
                 for (auto r : next)
                     require(r.map != page.map || r.floor != page.floor || r.x != cell.x() ||
@@ -637,6 +667,16 @@ QWidget *locationTextEditor(Project *project, const QString &resource, TextCommi
                 QMessageBox::warning(root, "Cannot add sign", e.what());
             }
         });
+        if (context.canvas && context.locate) {
+            auto locate = new QPushButton("Show selected sign");
+            locate->setToolTip(
+                "Center the shared map on the selected sign without changing its floor.");
+            form->addWidget(locate);
+            QObject::connect(locate, &QPushButton::clicked, root, [=] {
+                if (list->currentItem())
+                    context.locate({x->value(), y->value()});
+            });
+        }
         canvas->chooseNpc = [=](int id) {
             for (int row = 0; row < list->count(); row++)
                 if (list->item(row)->data(Qt::UserRole).toInt() == id)
@@ -682,9 +722,19 @@ QWidget *locationTextEditor(Project *project, const QString &resource, TextCommi
             }
         });
         refresh();
-        if (list->count())
-            list->setCurrentRow(0);
+        if (list->count()) {
+            int row = 0;
+            const int selected = state && context.canvas
+                                     ? state->value("SIGNS.DAT/selection/" + context.resource +
+                                                        "/" + QString::number(context.page),
+                                                    -1)
+                                     : -1;
+            for (int i = 0; i < list->count(); ++i)
+                if (list->item(i)->data(Qt::UserRole).toInt() == selected)
+                    row = i;
+            list->setCurrentRow(row);
+        }
     }
-    return root;
+    return owner.release();
 }
 } // namespace Workshop

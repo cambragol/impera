@@ -59,6 +59,6 @@ class WorkshopWindow : public QMainWindow {
     QWidget *storyEditor();
     QWidget *stateEditor();
     QWidget *npcEditor(const QString &name);
-    QWidget *combatEditor(const QString &name);
+    QWidget *combatEditor(const QString &name, int pageIndex = -1);
     void rebuildEditor();
 };

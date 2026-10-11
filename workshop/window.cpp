@@ -574,8 +574,17 @@ void WorkshopWindow::rebuildTree() {
         item->setData(0, Qt::UserRole, d.resource);
         item->setData(0, Qt::UserRole + 2, d.id);
         item->setToolTip(0, Workshop::capability(d.resource).status + "\nSource: " + d.resource);
-        if (d.resource == current && (d.page < 0 || editorState.value(current + "/map") == d.page))
-            assets->setCurrentItem(item);
+        if (d.resource == current) {
+            const int selected = editorState.value(current + "/map");
+            bool matches = d.page < 0 || selected == d.page;
+            if (!matches && d.page >= 0) {
+                const auto pages = U5::mapPages(current, project.data(current));
+                matches = selected >= 0 && selected < pages.size() &&
+                          pages[d.page].settlement >= 0 &&
+                          pages[d.page].settlement == pages[selected].settlement;
+            }
+            if (matches) assets->setCurrentItem(item);
+        }
     }
     for (auto group : groups)
         group->setHidden(group->childCount() == 0);
@@ -699,7 +708,6 @@ QWidget *WorkshopWindow::resourceEditor(const QString &name) {
     root->setObjectName("resourceWorkspace");
     auto layout = new QVBoxLayout(root);
     layout->setContentsMargins(0, 0, 0, 0);
-    auto tabs = new QTabWidget;
     auto navigation = new QHBoxLayout;
     if (!MapDocument::supported(name) && !lastMap.isEmpty()) {
         auto back = new QPushButton("Back to map");
@@ -735,14 +743,25 @@ QWidget *WorkshopWindow::resourceEditor(const QString &name) {
     if (kind == Workshop::EditorKind::WorldObjects) {
         editor = Workshop::worldObjectEditor(&project, name == "BRIT.OOL" ? 0 : 1,
                                              objectCommit, &editorState, &flushDraft);
-    } else if (kind == Workshop::EditorKind::LocationText ||
-               kind == Workshop::EditorKind::Narrative || kind == Workshop::EditorKind::Scenes ||
+    } else if (kind == Workshop::EditorKind::LocationText) {
+        editor = Workshop::locationTextEditor(
+            &project, name,
+            [this](const QMap<QString, QByteArray> &changes, const QString &title) {
+                return guard([&] {
+                    Project candidate = project;
+                    for (auto it = changes.begin(); it != changes.end(); ++it)
+                        candidate.resources[it.key()].edited = it.value();
+                    candidate.validate();
+                    edit(changes, title);
+                });
+            },
+            &editorState, &flushDraft);
+    } else if (kind == Workshop::EditorKind::Narrative || kind == Workshop::EditorKind::Scenes ||
                kind == Workshop::EditorKind::Fonts || kind == Workshop::EditorKind::Tables) {
-        editor = (kind == Workshop::EditorKind::Tables      ? Workshop::tableEditor
-                  : kind == Workshop::EditorKind::Fonts     ? Workshop::fontEditor
-                  : kind == Workshop::EditorKind::Scenes    ? Workshop::sceneEditor
-                  : kind == Workshop::EditorKind::Narrative ? Workshop::narrativeEditor
-                                                            : Workshop::locationTextEditor)(
+        editor = (kind == Workshop::EditorKind::Tables   ? Workshop::tableEditor
+                  : kind == Workshop::EditorKind::Fonts  ? Workshop::fontEditor
+                  : kind == Workshop::EditorKind::Scenes ? Workshop::sceneEditor
+                                                         : Workshop::narrativeEditor)(
             &project, name,
             [this](const QMap<QString, QByteArray> &changes, const QString &title) {
                 return guard([&] {
@@ -786,22 +805,8 @@ QWidget *WorkshopWindow::resourceEditor(const QString &name) {
         editor = stateEditor();
     else if (kind == Workshop::EditorKind::Schedule)
         editor = npcEditor(name);
-    else if (kind == Workshop::EditorKind::Map) {
+    else if (kind == Workshop::EditorKind::Map)
         editor = mapEditor(name);
-        if (name.endsWith(".CBT"))
-            tabs->addTab(combatEditor(name), "Combat setup");
-        if ((name == "BRIT.DAT" || name == "UNDER.DAT") &&
-            project.resources.contains("INIT.OOL") && project.resources.contains("BRIT.OOL") &&
-            project.resources.contains("UNDER.OOL")) {
-            std::function<bool()> objectFlush;
-            tabs->addTab(Workshop::worldObjectEditor(&project, name == "BRIT.DAT" ? 0 : 1,
-                objectCommit, &editorState, &objectFlush), "Starting world objects");
-            auto terrainFlush = flushDraft;
-            flushDraft = [terrainFlush, objectFlush] {
-                return (!terrainFlush || terrainFlush()) && (!objectFlush || objectFlush());
-            };
-        }
-    }
     if (!editor) {
         QVBoxLayout *layout;
         editor = panel(&layout);
@@ -820,14 +825,7 @@ QWidget *WorkshopWindow::resourceEditor(const QString &name) {
         }
         layout->addWidget(entries);
     }
-    if (tabs->count()) {
-        tabs->insertTab(0, editor, "Map");
-        tabs->setCurrentIndex(0);
-        layout->addWidget(tabs);
-    } else {
-        delete tabs;
-        layout->addWidget(editor);
-    }
+    layout->addWidget(editor);
     return root;
 }
 
@@ -838,32 +836,62 @@ QWidget *WorkshopWindow::mapEditor(const QString &name) {
             return guard([&] { edit(changes, description); });
         },
         [this](const QString &resource) { selectResource(resource); }, &mapBrushes);
-    if (project.resources.contains("SIGNS.DAT") && QStringList{"TOWNE.DAT","DWELLING.DAT","CASTLE.DAT","KEEP.DAT"}.contains(name)) {
-        auto signs = new QPushButton("Signs layer", workspace);
-        signs->setObjectName("openSignsLayer");
-        signs->setToolTip(
-            "Inspect and edit sign text on this location floor without changing terrain.");
-        workspace->layout()->addWidget(signs);
-        connect(signs, &QPushButton::clicked, this, [this, name] {
-            int target = project.resources.contains("BRIT.DAT") ? 1 : 0;
-            QStringList maps = {"TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT", "KEEP.DAT"};
-            for (const auto &map : maps) {
-                if (!project.resources.contains(map))
-                    continue;
-                if (map == name) {
-                    target += editorState.value(name + "/map");
-                    break;
-                }
-                target += U5::mapPages(map, project.data(map)).size();
+    workspace->locationChanged = [this] { rebuildTree(); };
+    QStringList modes{"Terrain"};
+    const auto npc = name.left(name.size() - 4) + ".NPC";
+    if (name.endsWith(".CBT"))
+        modes.append("Encounter");
+    else if (project.resources.contains(npc))
+        modes.append("Characters / Schedules");
+    if (project.resources.contains("SIGNS.DAT") &&
+        QStringList{"BRIT.DAT", "TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT", "KEEP.DAT"}.contains(
+            name))
+        modes.append("Signs");
+    if ((name == "BRIT.DAT" || name == "UNDER.DAT") && project.resources.contains("INIT.OOL") &&
+        project.resources.contains("BRIT.OOL") && project.resources.contains("UNDER.OOL"))
+        modes.append("Starting Objects");
+    if (name.endsWith(".CBT"))
+        modes.append("Encounter Details");
+    workspace->enableLocationModes(
+        modes,
+        [this, name, workspace](const QString &mode, int page, MapCanvas *canvas,
+                                std::function<bool()> *flush) -> QWidget * {
+            if (mode == "Signs") {
+                return Workshop::locationTextEditor(
+                    &project, "SIGNS.DAT",
+                    [this](const QMap<QString, QByteArray> &changes, const QString &title) {
+                        return guard([&] {
+                            Project candidate = project;
+                            for (auto it = changes.begin(); it != changes.end(); ++it)
+                                candidate.resources[it.key()].edited = it.value();
+                            candidate.validate();
+                            edit(changes, title);
+                        });
+                    },
+                    &editorState, flush, {name, page, canvas, [workspace](QPoint cell) {
+                                              workspace->centerOnCell(cell);
+                                          }});
             }
-            editorState["SIGNS.DAT/page"] = target;
-            selectResource("SIGNS.DAT");
+            if (mode == "Starting Objects") {
+                return Workshop::worldObjectEditor(
+                    &project, name == "BRIT.DAT" ? 0 : 1,
+                    [this](const QString &resource, const QByteArray &bytes, bool included) {
+                        return guard([&] {
+                            Project candidate = project;
+                            candidate.resources[resource].edited = bytes;
+                            candidate.resources[resource].included = included;
+                            candidate.validate();
+                            edit({{resource, bytes}}, "Edit starting world objects",
+                                 {{resource, included}});
+                        });
+                    },
+                    &editorState, flush, canvas,
+                    [workspace](QPoint cell) { workspace->centerOnCell(cell); });
+            }
+            *flush = [] { return true; };
+            return combatEditor(name, page);
         });
-    }
-    flushDraft = [workspace] {
-        workspace->cancelGesture();
-        return true;
-    };
+    flushDraft = [workspace] { return workspace->flushLocationMode(); };
     return workspace;
 }
 QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
@@ -1432,7 +1460,7 @@ QWidget *WorkshopWindow::npcEditor(const QString &name) {
              "to this town's dialogue."));
     return w;
 }
-QWidget *WorkshopWindow::combatEditor(const QString &name) {
+QWidget *WorkshopWindow::combatEditor(const QString &name, int pageIndex) {
     auto pages = U5::mapPages(name, project.data(name));
     QVBoxLayout *layout;
     auto w = panel(&layout);
@@ -1440,6 +1468,10 @@ QWidget *WorkshopWindow::combatEditor(const QString &name) {
     for (auto page : pages)
         choice->addItem(page.name);
     layout->addWidget(choice);
+    if (pageIndex >= 0) {
+        choice->setCurrentIndex(pageIndex);
+        choice->hide();
+    }
     auto table = new QTableWidget(11, 21);
     QStringList headers;
     for (int i = 0; i < 21; i++)
