@@ -1929,7 +1929,7 @@ void MapWorkspace::refreshNpcs() {
                 conversationIndices[id] = i;
                 auto doc = Dialogue::parse(conversations[i].bytes);
                 if (!doc.entries.isEmpty()) {
-                    auto name = Dialogue::plain(doc.entries[0].bytes).simplified();
+                    auto name = Dialogue::displayName(doc.entries[0].bytes);
                     if (!name.isEmpty())
                         npcNames[id] = name.left(60);
                 }

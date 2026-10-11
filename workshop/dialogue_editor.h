@@ -78,7 +78,7 @@ class ConversationEditor : public QWidget {
     void install(const QByteArray &bytes, const QString &description, int selectEntry = -1);
     void updateDiagnostics();
     void mutateBlocks(int entry, int block, int delta, bool remove);
-    void addBlock(bool isText, int entry = -1, int before = -1);
+    void addBlock(bool isText, int entry = -1, int before = -1, int requestedCode = -1);
     void aliasesChanged();
     void addTopic(bool reply);
     void deleteSelected();

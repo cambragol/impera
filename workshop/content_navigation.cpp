@@ -56,13 +56,7 @@ QVector<ContentDestination> characterDestinations(const Project &project) {
             try {
                 auto doc = Dialogue::parse(conversation.bytes);
                 if (!doc.entries.isEmpty()) {
-                    // Name entries may continue with flags and name-recognition actions.
-                    // Display literal name text only; preserve all commands in the editor.
-                    for (const auto &block : Dialogue::blocks(doc.entries[0].bytes)) {
-                        if (block.opcode >= 0) break;
-                        name += Dialogue::plain(block.bytes);
-                    }
-                    name = name.simplified();
+                    name = Dialogue::displayName(doc.entries[0].bytes);
                 }
             } catch (...) {
             }

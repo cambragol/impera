@@ -381,7 +381,7 @@ int main(int argc, char **argv) {
                     return w.findChild<QStackedWidget *>("workspaces")->currentWidget();
                 };
                 auto modes = active()->findChild<QTabWidget *>("characterModes");
-                check(modes && modes->count() == 2 &&
+                check(modes && modes->count() == 1 &&
                           active()->findChild<QWidget *>("conversationBrowser")->isHidden(),
                       "Character workspace duplicates collection navigation");
                 check(active()
@@ -398,7 +398,7 @@ int main(int argc, char **argv) {
                     check(dialog, "Invalid character draft did not prompt");
                     dialog->done(QMessageBox::Cancel);
                 });
-                modes->setCurrentIndex(1);
+                choose("character/KEEP/0/0");
                 check(modes->currentIndex() == 0 && source->toPlainText() == "<Unknown>",
                       "Invalid draft was lost while switching character mode");
                 source->setPlainText(baseline);
@@ -407,41 +407,26 @@ int main(int argc, char **argv) {
                 QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
                 const auto originalName = Dialogue::parse(U5::readDialogue(w.projectForTests().data("TOWNE.TLK"))[0].bytes).entries[0].bytes;
                 editor->findChild<QPlainTextEdit *>("conversationBlockText")->setPlainText("Renamed Alice");
-                modes->setCurrentIndex(1);
+                check(editor->flush(), "Name edit did not commit");
                 const auto renamedName = Dialogue::parse(U5::readDialogue(w.projectForTests().data("TOWNE.TLK"))[0].bytes).entries[0].bytes;
                 check(renamedName == Dialogue::text("Renamed Alice") + originalName.mid(U5::encodeText("Alice").size()),
                       "Mode switch did not commit shared dialogue or preserved commands incorrectly");
                 check(active()->findChild<QLabel *>("characterTitle")->text().startsWith("Renamed Alice"),
                       "Character heading did not follow dialogue name edit");
-                auto schedule = active()->findChild<QTableWidget *>("characterSchedule");
-                const auto terrain = w.projectForTests().data("TOWNE.DAT");
-                schedule->item(1, 1)->setText("7");
-                check(schedule->item(3, 1)->text() == "7" &&
-                          U5::byte(w.projectForTests().data("TOWNE.NPC"), 4) == 7,
-                      "Changes 2 and 4 did not share destination");
-                check(U5::byte(w.projectForTests().data("TOWNE.NPC"), 576 + 16 + 4) == 0 &&
-                          w.projectForTests().data("TOWNE.DAT") == terrain,
-                      "Schedule edit affected other character or terrain");
-                QTimer::singleShot(0, [&] {
-                    auto dialog = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
-                    check(dialog, "Conversation assignment dialog missing");
-                    dialog->setIntValue(99);
-                    dialog->accept();
-                });
-                active()->findChild<QPushButton *>("changeCharacterConversation")->click();
+                check(!active()->findChild<QTableWidget *>("characterSchedule"),
+                      "Schedule table still occupies the conversation page");
+                check(modes->tabBar()->isHidden(), "Redundant conversation tab remains");
+                tree->setMaximumHeight(85);
                 app.processEvents();
-                check(active()->findChild<QTableWidget *>("characterSchedule") &&
-                          !active()->findChild<QWidget *>("conversationEditor"),
-                      "Changing link retained stale conversation");
-                for (auto action : w.findChildren<QAction *>())
-                    if (action->text().startsWith("Undo ")) {
-                        action->trigger();
-                        break;
-                    }
+                tree->verticalScrollBar()->setValue(tree->verticalScrollBar()->maximum());
+                const int scroll = tree->verticalScrollBar()->value();
+                check(scroll > 0, "Navigation regression did not exercise a scrolled list");
+                editor->findChild<QPlainTextEdit *>("conversationBlockText")->setPlainText("Alice again");
+                check(editor->flush(), "Second name edit failed");
                 app.processEvents();
-                check(active()->findChild<QWidget *>("conversationEditor") &&
-                          active()->findChild<QTabWidget *>("characterModes")->currentIndex() == 1,
-                      "Undo relink did not resolve character and mode");
+                check(tree->verticalScrollBar()->value() == scroll,
+                      "Committing a draft scrolled the navigation tree under the pointer");
+                tree->setMaximumHeight(QWIDGETSIZE_MAX);
                 choose("character/KEEP/0/0");
                 check(
                     active()->findChild<QLabel *>("characterProvenance")->text().contains("Ararat"),
@@ -452,18 +437,8 @@ int main(int argc, char **argv) {
                         break;
                     }
                 app.processEvents();
-                check(active()->findChild<QTabWidget *>("characterModes")->currentIndex() == 1,
+                check(active()->findChild<QTabWidget *>("characterModes")->currentIndex() == 0,
                       "Back lost selected character mode");
-                for (auto action : w.findChildren<QAction *>())
-                    if (action->text().startsWith("Undo ")) {
-                        action->trigger();
-                        break;
-                    }
-                app.processEvents();
-                check(
-                    active()->findChild<QTableWidget *>("characterSchedule")->item(1, 1)->text() ==
-                        "0",
-                    "Undo did not restore focused schedule");
                 active()->findChild<QPushButton *>("showCharacterMap")->click();
                 app.processEvents();
                 auto canvas =
@@ -3006,6 +2981,10 @@ int main(int argc, char **argv) {
             p.openGame(dir.path());
             auto baseline = p.data("TOWNE.TLK");
             auto original = Dialogue::parse(bytes);
+            check(Dialogue::displayName(U5::encodeText("Malik\"<Key Wait>")) == "Malik" &&
+                      Dialogue::displayName(U5::encodeText("Lord Stuart the Hungry\"")) == "Lord Stuart the Hungry" &&
+                      Dialogue::displayName(U5::encodeText("Eb\"")) == "Eb",
+                  "NPC names retain spoken introduction closing quotes");
             int commits = 0;
             ConversationEditor editor(
                 &p, "TOWNE.TLK",
@@ -3034,6 +3013,16 @@ int main(int argc, char **argv) {
                   "Avatar substitution is not inline with speech");
             check(p.data("TOWNE.TLK") == baseline && commits == 0,
                   "Opening a conversation rewrote its encoded bytes");
+            outline->setCurrentItem(treeItem(outline, "Name"));
+            editor.resize(1320, 960);
+            app.processEvents();
+            app.processEvents();
+            auto nameField = editor.findChild<QPlainTextEdit *>("conversationBlockText");
+            check(nameField && nameField->geometry().top() < 80 &&
+                      nameField->parentWidget()->height() < nameField->height() + 80,
+                  "Speech card expands to fill the viewport and pushes text downward");
+            editor.resize(1050, 720);
+
             const auto question = original.questions[0];
             auto chooseEntry = [&](int entry) {
                 QTreeWidgetItemIterator it(outline);
@@ -3047,6 +3036,10 @@ int main(int argc, char **argv) {
                 }
                 throw std::runtime_error("Question entry missing");
             };
+            check(editor.findChild<QWidget *>("conversationActionPane") &&
+                      editor.findChild<QListWidget *>("conversationAvailableActions") &&
+                      !editor.findChild<QToolButton *>("conversationInsert"),
+                  "Available actions are not in a persistent right-hand pane");
             chooseEntry(question.prompt);
             int sections = 0;
             for (auto group : editor.findChildren<QGroupBox *>())
@@ -3136,6 +3129,19 @@ int main(int argc, char **argv) {
             const QString screenshots = qEnvironmentVariable("IMPERA_WORKSHOP_SCREENSHOT_DIR");
             if (!screenshots.isEmpty())
                 editor.grab().save(screenshots + "/dialogue-redesign.png");
+            auto available = editor.findChild<QListWidget *>("conversationAvailableActions");
+            QListWidgetItem *avatarAction = nullptr;
+            for (int i = 0; i < available->count(); ++i)
+                if (available->item(i)->data(Qt::UserRole).toInt() == 129)
+                    avatarAction = available->item(i);
+            check(avatarAction && (avatarAction->flags() & Qt::ItemIsEnabled),
+                  "Avatar insertion is not available in the action pane");
+            QMetaObject::invokeMethod(available, "itemClicked", Qt::DirectConnection,
+                                      Q_ARG(QListWidgetItem *, avatarAction));
+            const auto inserted = Dialogue::parse(U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes);
+            check(inserted.entries[question.replies[0].response].bytes.endsWith(QByteArray::fromHex("8182")),
+                  "Action pane inserted unreachable text after the answer's terminal action");
+
         });
         test("Inline structure changes retain action identity and project undo", [&] {
             QTemporaryDir dir;
@@ -3791,7 +3797,7 @@ int main(int argc, char **argv) {
                     app.processEvents();
                     auto root = w.findChild<QStackedWidget *>("workspaces")->currentWidget();
                     auto modes = root->findChild<QTabWidget *>("characterModes");
-                    check(modes && modes->count() == 2, "Original character lacks unified modes");
+                    check(modes && modes->count() == 1 && modes->tabBar()->isHidden(), "Original NPC still has a schedule tab");
                     const auto captures = qEnvironmentVariable("IMPERA_WORKSHOP_SCREENSHOT_DIR");
                     for (int mode = 0; mode < modes->count(); ++mode) {
                         modes->setCurrentIndex(mode);
@@ -3805,6 +3811,26 @@ int main(int argc, char **argv) {
                                   "Could not capture character UI");
                         }
                     }
+                    break;
+                }
+                for (const auto &npc : originalCharacters) {
+                    if (npc.title != "Telila") continue;
+                    QTreeWidgetItemIterator it(characterTree);
+                    while (*it && (*it)->data(0, Qt::UserRole + 2).toString() != npc.id) ++it;
+                    check(bool(*it), "Telila navigation missing");
+                    characterTree->setCurrentItem(*it);
+                    app.processEvents();
+                    auto root = w.findChild<QStackedWidget *>("workspaces")->currentWidget();
+                    auto outline = root->findChild<QTreeWidget *>("conversationOutline");
+                    outline->setCurrentItem(treeItem(outline, "bard"));
+                    app.processEvents();
+                    app.processEvents();
+                    auto speech = root->findChild<QPlainTextEdit *>("conversationBlockText");
+                    check(speech && speech->geometry().top() < 80 &&
+                              speech->parentWidget()->height() < speech->height() + 80,
+                          "Original Telila response is vertically stretched");
+                    const auto captures = qEnvironmentVariable("IMPERA_WORKSHOP_SCREENSHOT_DIR");
+                    if (!captures.isEmpty()) w.grab().save(captures + "/workshop-telila-response.png");
                     break;
                 }
                 for (const QString &resource : {QString("TOWNE.DAT"), QString("BRIT.DAT"),

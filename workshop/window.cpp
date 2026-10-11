@@ -637,7 +637,15 @@ void WorkshopWindow::navigateContent(const QString &id) {
 }
 void WorkshopWindow::rebuildTree() {
     QSignalBlocker block(assets);
+    const bool sameWorkspace = assets->property("workspace").toString() == workspaceSelector->currentText();
+    const int oldScroll = assets->verticalScrollBar()->value();
+    QMap<QString, bool> expanded;
+    for (int i = 0; i < assets->topLevelItemCount(); ++i) {
+        auto group = assets->topLevelItem(i);
+        expanded[group->text(0).section(" *", 0, 0)] = group->isExpanded();
+    }
     assets->clear();
+    assets->setProperty("workspace", workspaceSelector->currentText());
     destinations = Workshop::contentDestinations(project);
     QMap<QString, QTreeWidgetItem *> groups;
     const bool characters = workspaceSelector->currentText() == "NPCs";
@@ -716,8 +724,14 @@ void WorkshopWindow::rebuildTree() {
         if (changedCount) group->setText(0, group->text(0) + QString(" * (%1)").arg(changedCount));
         group->setHidden(group->childCount() == 0);
     }
-    if (assets->currentItem())
-        assets->scrollToItem(assets->currentItem());
+    if (sameWorkspace) {
+        for (auto group : groups) {
+            const auto key = group->text(0).section(" *", 0, 0);
+            if (expanded.contains(key)) group->setExpanded(expanded[key]);
+        }
+        assets->doItemsLayout();
+        assets->verticalScrollBar()->setValue(oldScroll);
+    }
 }
 void WorkshopWindow::edit(const QMap<QString, QByteArray> &changes, const QString &description,
                           const QMap<QString, bool> &inclusion) {
@@ -1433,26 +1447,18 @@ QWidget *WorkshopWindow::characterEditor(const QString &name) {
     QVBoxLayout *layout;
     auto root = panel(&layout);
     root->setObjectName("characterWorkspace");
+    auto heading = new QHBoxLayout;
     auto title = new QLabel(selected.title + " — " + selected.group);
     title->setObjectName("characterTitle");
     title->setTextFormat(Qt::PlainText);
-    layout->addWidget(title);
-    auto provenance = new QLabel(selected.provenance.section('\n', 0, 1));
+    title->setToolTip(selected.provenance);
+    heading->addWidget(title, 1);
+    auto provenance = new QLabel(selected.provenance);
     provenance->setObjectName("characterProvenance");
     provenance->setTextFormat(Qt::PlainText);
-    provenance->setWordWrap(true);
-    provenance->setToolTip(
-        "Conversation edits affect every NPC listed here. Schedule changes "
-        "affect only the selected NPC.");
+    provenance->setToolTip(selected.provenance);
+    provenance->hide();
     layout->addWidget(provenance);
-    if (selected.character >= 0 && selected.conversation >= 0) {
-        auto users = new QPushButton("Dialogue users…");
-        users->setToolTip("List every scheduled NPC using this conversation, across all floors and times.");
-        connect(users, &QPushButton::clicked, root, [this, selected] {
-            QMessageBox::information(this, "NPCs sharing this dialogue", selected.provenance);
-        });
-        layout->addWidget(users);
-    }
     auto tabs = new QTabWidget;
     tabs->setObjectName("characterModes");
     layout->addWidget(tabs, 1);
@@ -1469,101 +1475,6 @@ QWidget *WorkshopWindow::characterEditor(const QString &name) {
     if (character >= 0) {
         const QString schedule = selected.scheduleResource;
         const int town = character / 32, slot = character % 32;
-        auto schedulePanel = new QWidget;
-        auto scheduleLayout = new QVBoxLayout(schedulePanel);
-        scheduleLayout->addWidget(
-            hint("Four daily schedule changes use three destinations. Changes 2 "
-                 "and 4 share their destination and behavior. Floor −1 is the "
-                 "basement. Unusual existing values are preserved."));
-        auto table = new QTableWidget(4, 5);
-        table->setObjectName("characterSchedule");
-        table->setHorizontalHeaderLabels({"Start hour", "X", "Y", "Floor", "Behavior"});
-        table->setVerticalHeaderLabels({"Change 1", "Change 2", "Change 3", "Change 4"});
-        table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-        const QStringList tips{"Hour this schedule begins (normally 0–23).",
-                               "Destination map column.", "Destination map row.",
-                               "Destination floor; −1 means basement.",
-                               "Engine behavior code; preserve unfamiliar values."};
-        auto load = [this, table, schedule, town, slot, tips] {
-            QSignalBlocker block(table);
-            const auto data = project.data(schedule);
-            for (int row = 0; row < 4; ++row)
-                for (int col = 0; col < 5; ++col) {
-                    const int location = MapNpcDocument::locationIndex(row);
-                    int off = town * 576 + slot * 16 +
-                              (col == 0   ? 12 + row
-                               : col == 1 ? 3 + location
-                               : col == 2 ? 6 + location
-                               : col == 3 ? 9 + location
-                                          : location);
-                    int value = U5::byte(data, off);
-                    if (col == 3 && value >= 128)
-                        value -= 256;
-                    auto item = new QTableWidgetItem(QString::number(value));
-                    item->setData(Qt::UserRole, off);
-                    item->setToolTip(tips[col] + ((row == 1 || row == 3) && col > 0
-                                                      ? " Shared by changes 2 and 4."
-                                                      : QString()));
-                    table->setItem(row, col, item);
-                }
-        };
-        load();
-        connect(table, &QTableWidget::itemChanged, root,
-                [this, table, schedule, load](QTableWidgetItem *item) {
-                    guard([&] {
-                        bool ok;
-                        const int value = item->text().toInt(&ok);
-                        const bool floor = item->column() == 3;
-                        require(ok && value >= (floor ? -128 : 0) && value <= (floor ? 127 : 255),
-                                "Schedule value is outside its byte range");
-                        auto data = project.data(schedule);
-                        data[item->data(Qt::UserRole).toInt()] = char(value);
-                        edit({{schedule, data}}, "Edit NPC schedule");
-                    });
-                    load();
-                });
-        scheduleLayout->addWidget(table);
-        auto properties = new QFormLayout;
-        auto appearance = new QSpinBox;
-        appearance->setObjectName("characterAppearance");
-        appearance->setRange(0, 255);
-        appearance->setValue(U5::byte(project.data(schedule), town * 576 + 512 + slot));
-        appearance->setToolTip(
-            "Engine appearance code; adding 256 gives the sprite tile number. Zero "
-            "disables this scheduled NPC. Use the map NPC inspector "
-            "for sprite previews.");
-        properties->addRow("Appearance code:", appearance);
-        connect(appearance, &QSpinBox::valueChanged, root, [this, schedule, town, slot](int value) {
-            auto data = project.data(schedule);
-            data[town * 576 + 512 + slot] = char(value);
-            edit({{schedule, data}}, "Change NPC appearance");
-        });
-        auto changeDialogue = new QPushButton("Change linked conversation…");
-        changeDialogue->setObjectName("changeCharacterConversation");
-        changeDialogue->setToolTip(
-            "Assign a conversation number in this NPC's dialogue bank. "
-            "Numbers without an editable conversation may invoke special game "
-            "dialogue. Shared conversations remain shared.");
-        properties->addRow("Conversation:", changeDialogue);
-        connect(changeDialogue, &QPushButton::clicked, root,
-                [this, schedule, town, slot, selected] {
-                    if (flushDraft && !flushDraft())
-                        return;
-                    bool ok = false;
-                    const int old = U5::byte(project.data(schedule), town * 576 + 544 + slot);
-                    const int value = QInputDialog::getInt(
-                        this, "Link conversation",
-                        "Conversation number (within this NPC's bank):", old, 0, 255, 1, &ok);
-                    if (!ok || value == old)
-                        return;
-                    auto data = project.data(schedule);
-                    data[town * 576 + 544 + slot] = char(value);
-                    edit({{schedule, data}}, "Link NPC conversation");
-                    // Resolve the stable character ID again: a missing/available
-                    // dialogue can change its backing resource.
-                    navigateContent(selected.id);
-                });
-        scheduleLayout->addLayout(properties);
         auto show = new QPushButton("Show NPC on map");
         show->setObjectName("showCharacterMap");
         show->setToolTip("Open this NPC's first scheduled floor in "
@@ -1588,21 +1499,10 @@ QWidget *WorkshopWindow::characterEditor(const QString &name) {
                 }
             statusBar()->showMessage("The scheduled floor has no map page", 5000);
         });
-        scheduleLayout->addWidget(show);
-        scheduleLayout->addStretch();
-        tabs->addTab(schedulePanel, "Schedule");
+        heading->addWidget(show);
     }
-    tabs->setCurrentIndex(qBound(0, editorState.value(name + "/characterTab"), tabs->count() - 1));
-    auto previous = std::make_shared<int>(tabs->currentIndex());
-    connect(tabs, &QTabWidget::currentChanged, root, [this, tabs, previous, name](int index) {
-        if (flushDraft && !flushDraft()) {
-            QSignalBlocker block(tabs);
-            tabs->setCurrentIndex(*previous);
-            return;
-        }
-        *previous = index;
-        editorState[name + "/characterTab"] = index;
-    });
+    layout->insertLayout(0, heading);
+    tabs->tabBar()->hide();
     return root;
 }
 QWidget *WorkshopWindow::dialogueEditor(const QString &name) {

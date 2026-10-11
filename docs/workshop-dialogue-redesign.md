@@ -8,6 +8,7 @@ All four implementation steps are now implemented on `feature/native-modding`, u
 
 ## Implemented interface
 
+- Speech cards keep their natural height at the top of the document, even in tall windows. Available actions occupy a persistent right-hand pane, with preview/playtest controls below them.
 - One authoring surface replaces the permanent editor/preview split. **Topics** collapses the outline. **Advanced…** opens tagged source and changes to **Back to conversation**; ordinary editing has no Apply button.
 - Speech uses expanding paragraphs. Avatar-name and rune controls appear as protected inline chips inside speech. Rune spans are tinted and italicized for authoring. Typing, cut, accessibility edits and ordinary paste cannot silently remove those controls; their context menu supports explicit insertion/removal. External clipboard text is always literal speech. Action cards have a menu for typed copy/paste, insertion, movement and removal.
 - Keyword chips wrap within the column and provide edit/remove menus and **+ Keyword**. Shared responses and stored matching order remain intact. Topic/answer operations are enabled for the applicable selection.
@@ -52,7 +53,7 @@ NPC browser       Conversation outline       Selected response
                                              Seek Chamfort in Yew.
                                              [End conversation]
 
-                                             Insert…     Playtest     Game preview
+                                             Available actions in the right-hand pane
 ```
 
 Use the existing global NPC browser without adding another NPC list. The outline remains a resizable secondary column. The response fills the remaining height. On narrow windows, make the outline collapsible; do not permanently open a preview beside or beneath the text.
@@ -72,7 +73,7 @@ Use two kinds of controls:
 
 A card normally shows a readable summary, such as “Attempt payment: 4 gold” or “If karma is at least 50 → Resistance password”. Selecting it opens its small parameter form. Forms use real engine inventory choices and named question destinations. Unknown operands remain explicit compatibility values. Failure behavior is available alongside the relevant action: payment can return to ordinary topics; question routing does not resume the remaining response.
 
-Insert… offers Text, Variable/Formatting and Action. Show move/delete controls on the selected card or via its context menu instead of repeating them everywhere. Every operation must also be keyboard-accessible. Do not rely solely on dragging or hover controls.
+The persistent right-hand action pane offers speech, variables, formatting and behavior. Click an action or press Enter to insert it into the selected response. Show move/delete controls on the selected card or via its context menu instead of repeating them everywhere. Every operation must also be keyboard-accessible. Do not rely solely on dragging or hover controls.
 
 First implementation should keep editable paragraphs and action widgets in one ordered document surface. A single rich-text widget with embedded interactive forms would require considerably more custom caret, selection, accessibility and clipboard work. It can be considered after the simpler surface is proven.
 

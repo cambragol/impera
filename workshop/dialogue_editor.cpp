@@ -120,6 +120,7 @@ ConversationEditor::ConversationEditor(
     auto heading = new QHBoxLayout;
     auto title = new QLabel("<b>Conversations</b>");
     heading->addWidget(title);
+    heading->addStretch();
     search = new QLineEdit;
     search->setPlaceholderText("Search NPC names, topics and dialogue…");
     search->setObjectName("conversationSearch");
@@ -160,7 +161,7 @@ ConversationEditor::ConversationEditor(
     split->addWidget(npcPane);
     for (int i = 0; i < conversations.size(); ++i) {
         auto d = parse(conversations[i].bytes);
-        QString name = d.entries.isEmpty() ? "Unnamed" : caption(d.entries[0].bytes);
+        QString name = d.entries.isEmpty() ? "Unnamed" : Dialogue::displayName(d.entries[0].bytes);
         if (name.isEmpty())
             name = "Unnamed";
         auto item = new QTreeWidgetItem(npcs, {name + QString(" · %1").arg(conversations[i].id)});
@@ -180,6 +181,7 @@ ConversationEditor::ConversationEditor(
     navigation->setObjectName("conversationNavigation");
     auto outlineToggle = button(heading, "Topics",
                                 [navigation] { navigation->setVisible(!navigation->isVisible()); });
+    outlineToggle->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
     outlineToggle->setToolTip("Show or hide the conversation outline to make more editing space.");
     auto nav = new QVBoxLayout(navigation);
     nav->setContentsMargins(0, 0, 0, 0);
@@ -268,16 +270,34 @@ ConversationEditor::ConversationEditor(
             changed();
         }
     });
-    auto actions = new QHBoxLayout;
-    auto insert = new QToolButton;
-    insert->setText("Insert…");
-    insert->setObjectName("conversationInsert");
-    insert->setPopupMode(QToolButton::InstantPopup);
-    auto insertMenu = new QMenu(insert);
-    insertMenu->addAction("Text", this, [this] { addBlock(true); });
-    insertMenu->addAction("Action or variable…", this, [this] { addBlock(false); });
-    insert->setMenu(insertMenu);
-    actions->addWidget(insert);
+    auto actionPane = new QWidget;
+    actionPane->setObjectName("conversationActionPane");
+    auto actions = new QVBoxLayout(actionPane);
+    actions->setAlignment(Qt::AlignTop);
+    actions->addWidget(new QLabel("Available actions"));
+    auto available = new QListWidget;
+    available->setObjectName("conversationAvailableActions");
+    auto addAvailable = [available](const QString &name, int code) {
+        auto item = new QListWidgetItem(name, available);
+        item->setData(Qt::UserRole, code);
+        item->setToolTip("Insert " + name.toLower() + " at the end of the selected response.");
+    };
+    addAvailable("Text paragraph", -1);
+    for (int code : {129, 142, 143, 130, 131, 132, 133, 134, 136, 137, 138, 139, 140, 254, 255})
+        addAvailable(actionName(code), code);
+    addAvailable("Explicit line break", 141);
+    addAvailable("Enter question", 145);
+    connect(available, &QListWidget::itemClicked, this, [this](QListWidgetItem *item) {
+        addBlock(item->data(Qt::UserRole).toInt() == -1, -1, -1, item->data(Qt::UserRole).toInt());
+    });
+    auto insertShortcut = new QShortcut(QKeySequence(Qt::Key_Return), available);
+    insertShortcut->setContext(Qt::WidgetShortcut);
+    connect(insertShortcut, &QShortcut::activated, this, [available] {
+        if (auto item = available->currentItem())
+            if (item->flags() & Qt::ItemIsEnabled)
+                emit available->itemClicked(item);
+    });
+    actions->addWidget(available, 1);
     button(actions, "Game preview", [this] { openAuxiliary(0); });
     button(actions, "Playtest", [this] { openAuxiliary(2); });
     auto advancedButton = button(actions, "Advanced…", [this] {
@@ -288,8 +308,8 @@ ConversationEditor::ConversationEditor(
     connect(tabs, &QTabWidget::currentChanged, advancedButton, [advancedButton](int index) {
         advancedButton->setText(index == 0 ? "Advanced…" : "Back to conversation");
     });
-    actions->addStretch();
-    detail->addLayout(actions);
+    actionPane->setMinimumWidth(190);
+    actionPane->setMaximumWidth(260);
     budget = new QLabel;
     budget->setTextInteractionFlags(Qt::LinksAccessibleByMouse | Qt::LinksAccessibleByKeyboard);
     connect(budget, &QLabel::linkActivated, this, [this] { openAuxiliary(1); });
@@ -446,10 +466,12 @@ ConversationEditor::ConversationEditor(
     auxiliaryLayout->addWidget(close);
     connect(close, &QDialogButtonBox::rejected, auxiliary, &QDialog::hide);
     split->addWidget(right);
+    split->addWidget(actionPane);
     split->setStretchFactor(0, 0);
     split->setStretchFactor(1, 0);
     split->setStretchFactor(2, 1);
-    split->setSizes({170, 235, 650});
+    split->setStretchFactor(3, 0);
+    split->setSizes({170, 235, 650, 210});
     timer.setSingleShot(true);
     timer.setInterval(650);
     connect(&timer, &QTimer::timeout, this, [this] { applyDraft(); });
@@ -716,6 +738,18 @@ void ConversationEditor::openAuxiliary(int tab) {
         resetSimulation();
 }
 void ConversationEditor::updateOutlineActions() {
+    auto available = findChild<QListWidget *>("conversationAvailableActions");
+    if (available) {
+        for (int i = 0; i < available->count(); ++i) {
+            auto item = available->item(i);
+            const int code = item->data(Qt::UserRole).toInt();
+            const bool enabled =
+                selected >= 0 && selected != doc.tail && !doc.rawEntries.contains(selected) &&
+                doc.structuralError.isEmpty() &&
+                (!doc.questions.isEmpty() || (code != 140 && code != 254 && code != 145));
+            item->setFlags(enabled ? Qt::ItemIsEnabled | Qt::ItemIsSelectable : Qt::NoItemFlags);
+        }
+    }
     bool rule = false;
     QVector<Rule> rules = doc.topics;
     for (const auto &q : doc.questions)
@@ -839,7 +873,9 @@ void ConversationEditor::buildBlocks() {
         auto group = new QGroupBox(title.size() > 45 ? title.left(42) + "…" : title);
         group->setToolTip(title);
         group->setProperty("dialogueSectionEntry", entry);
+        group->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
         auto layout = new QVBoxLayout(group);
+        layout->setAlignment(Qt::AlignTop);
         layout->setSizeConstraint(QLayout::SetMinimumSize);
         if (collapsible) {
             group->setCheckable(true);
@@ -855,7 +891,10 @@ void ConversationEditor::buildBlocks() {
         buildEntryBlocks(entry, content);
         auto insert = new QHBoxLayout;
         button(insert, "+ Text", [this, entry] { addBlock(true, entry); });
-        button(insert, "+ Action / variable", [this, entry] { addBlock(false, entry); });
+        button(insert, "Actions →", [this, entry] {
+            activateEntry(entry);
+            findChild<QListWidget *>("conversationAvailableActions")->setFocus();
+        });
         insert->addStretch();
         if (collapsible) {
             auto move = [this, entry](int delta, bool duplicate) {
@@ -957,7 +996,9 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
         group->setProperty("dialogueEntry", entry);
         group->setProperty("dialogueBlock", index);
         group->setProperty("dialogueOpcode", b.opcode);
+        group->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
         auto layout = new QVBoxLayout(group);
+        layout->setAlignment(Qt::AlignTop);
         layout->setSizeConstraint(QLayout::SetMinimumSize);
         layout->setContentsMargins(4, 2, 4, 2);
         auto tools = new QHBoxLayout;
@@ -1459,7 +1500,7 @@ void ConversationEditor::insertBlock(int entry, int before, const QByteArray &by
         install(next.bytes(), "Insert response block", entry);
     });
 }
-void ConversationEditor::addBlock(bool isText, int entry, int before) {
+void ConversationEditor::addBlock(bool isText, int entry, int before, int requestedCode) {
     if (entry < 0)
         entry = selected;
     if (!attempt([&] { before = resolveDisplayedBlock(entry, before); }))
@@ -1468,32 +1509,46 @@ void ConversationEditor::addBlock(bool isText, int entry, int before) {
         doc.rawEntries.contains(entry))
         return;
     attempt([&] {
+        if (before < 0) {
+            const auto existing = blocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
+            if (!existing.isEmpty()) {
+                const int terminal = existing.last().opcode;
+                if (terminal == 130 || terminal == 255 || (terminal >= 145 && terminal <= 159))
+                    before = existing.size() - 1;
+            }
+        }
         QByteArray bytes;
         if (isText)
             bytes = text("New text.");
         else {
-            QDialog dlg(this);
-            dlg.setWindowTitle("Insert action or variable");
-            auto layout = new QVBoxLayout(&dlg);
-            auto choice = new QComboBox;
-            choice->setObjectName("conversationActionChoice");
-            for (int code :
-                 {129, 142, 130, 131, 132, 133, 134, 136, 137, 138, 139, 140, 143, 254, 255}) {
-                if ((code == 140 || code == 254) && doc.questions.isEmpty())
-                    continue;
-                choice->addItem(actionName(code), code);
+            int code = requestedCode;
+            if (code == -1) {
+                QDialog dlg(this);
+                dlg.setWindowTitle("Insert action or variable");
+                auto layout = new QVBoxLayout(&dlg);
+                auto choice = new QComboBox;
+                choice->setObjectName("conversationActionChoice");
+                for (int code :
+                     {129, 142, 130, 131, 132, 133, 134, 136, 137, 138, 139, 140, 143, 254, 255}) {
+                    if ((code == 140 || code == 254) && doc.questions.isEmpty())
+                        continue;
+                    choice->addItem(actionName(code), code);
+                }
+                choice->addItem("Explicit line break", 141);
+                if (!doc.questions.isEmpty())
+                    choice->addItem("Enter question", 145);
+                layout->addWidget(choice);
+                auto buttons =
+                    new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+                layout->addWidget(buttons);
+                connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+                connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+                if (dlg.exec() != QDialog::Accepted)
+                    return;
+                code = choice->currentData().toInt();
             }
-            choice->addItem("Explicit line break", 141);
-            if (!doc.questions.isEmpty())
-                choice->addItem("Enter question", 145);
-            layout->addWidget(choice);
-            auto buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
-            layout->addWidget(buttons);
-            connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
-            connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-            if (dlg.exec() != QDialog::Accepted)
-                return;
-            const int code = choice->currentData().toInt();
+            U5::require(!doc.questions.isEmpty() || (code != 140 && code != 254 && code != 145),
+                        "Add a question before inserting a branch to it");
             const int label = doc.questions.isEmpty() ? 0 : doc.questions.first().label;
             bytes = code == 141 ? text("\n")
                                 : action(code == 145 ? 144 + label : code,

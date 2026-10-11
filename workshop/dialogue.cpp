@@ -147,6 +147,18 @@ Document parse(const QByteArray &bytes) {
     }
     return d;
 }
+QString displayName(const QByteArray &bytes) {
+    QString name;
+    for (const auto &block : blocks(bytes)) {
+        if (block.opcode >= 0) break;
+        name += plain(block.bytes);
+    }
+    name = name.simplified();
+    // Some name strings include the closing quote for the game's spoken introduction.
+    // Keep that punctuation in the resource, but omit it from navigation labels.
+    while (name.endsWith('"')) name.chop(1);
+    return name.trimmed();
+}
 QString plain(const QByteArray &b) {
     QString out = U5::decodeText(b);
     // Dictionary expansion mirrors the engine's implicit surrounding word

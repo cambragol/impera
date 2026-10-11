@@ -40,6 +40,7 @@ Document parse(const QByteArray &bytes);
 QVector<Block> blocks(const QByteArray &bytes);
 int operandCount(int opcode);
 QString plain(const QByteArray &bytes);
+QString displayName(const QByteArray &bytes);
 QByteArray text(const QString &plain);
 QString actionName(int opcode);
 QMap<int, QString> inventoryOptions();
