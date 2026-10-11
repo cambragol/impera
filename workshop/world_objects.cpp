@@ -1,4 +1,5 @@
 #include "world_objects.h"
+#include "map_entities.h"
 #include "../src/tiles.h"
 #include <QtWidgets>
 #include <memory>
@@ -68,6 +69,8 @@ static QString objectName(int shape) {
         return "Frigate";
     if (shape >= TILE_ACTOR_SKIFF && shape <= TILE_ACTOR_SKIFF + 3)
         return "Skiff";
+    if (Workshop::monsterShapes().contains(shape))
+        return Workshop::actorName(shape);
     return QString("World object (shape %1)").arg(shape);
 }
 QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit commit,
@@ -140,6 +143,8 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
     auto type = new QComboBox;
     type->setObjectName("worldObjectType");
     for (int tile : {1, 2, 15, 16, 17, 25, 27, 30, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43})
+        type->addItem(objectName(tile), tile);
+    for (int tile : Workshop::monsterShapes())
         type->addItem(objectName(tile), tile);
     type->setToolTip("Choose a verified world object shape. Other inherited shapes are retained, "
                      "with unsupported properties read-only.");
@@ -314,7 +319,7 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
                          [=](int) { change(); });
     QObject::connect(add, &QPushButton::clicked, root, [=] {
         auto b = WorldObjects::effective(*project, world->currentIndex());
-        for (int slot = 1; slot < 32; ++slot)
+        for (int slot = 1; slot < (world->currentIndex() ? 28 : 32); ++slot)
             if (!uchar(b[slot * 8])) {
                 QByteArray r(8, 0);
                 r[0] = r[1] = 36;

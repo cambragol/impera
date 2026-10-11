@@ -16,7 +16,7 @@ struct MapViewState {
 
 class MapDocument {
   public:
-    MapDocument(Project *project, const QString &resource);
+    MapDocument(const Project *project, const QString &resource);
     QVector<U5::MapPage> pages;
     QByteArray terrain(int page, bool original = false) const;
     QMap<QString, QByteArray> changes(int page, const QByteArray &terrain) const;
@@ -26,7 +26,7 @@ class MapDocument {
     QImage terrainImage(int page, const QVector<QImage> &tiles, bool ids) const;
 
   private:
-    Project *project;
+    const Project *project;
     QString resource;
 };
 
@@ -97,6 +97,12 @@ class MapCanvas : public QWidget {
     QPoint cellAt(QPointF position) const;
     bool painting() const { return stroke || npcDrag; }
     void cancelStroke();
+    std::function<bool(QPoint)> placeItem;
+    std::function<void()> deleteItem;
+    int placementTile = -1;
+    bool repeatPlacement = false;
+    void beginPlacement(int tile, bool repeat, std::function<bool(QPoint)> place);
+    bool placing() const { return bool(placeItem); }
 
   protected:
     void paintEvent(QPaintEvent *) override;
@@ -247,6 +253,16 @@ class MapWorkspace : public QWidget {
     std::function<void(const QString &)> navigateResource;
     void refreshNpcs();
     void refreshCombat();
+    void beginAdd(int kind);
+    bool placeAddedItem(int kind, int appearance, int conversation, QString name, QPoint cell);
+    void deleteSelectedItem();
+    void setItemMode(const QString &mode);
+    QComboBox *npcAppearance = nullptr, *npcDialogue = nullptr, *npcBehavior = nullptr;
+    QComboBox *monsterAppearance = nullptr, *triggerTile = nullptr;
+    QWidget *triggerProperties = nullptr;
+    QSpinBox *triggerX[2]{}, *triggerY[2]{};
+    QLineEdit *npcNameField = nullptr;
+    void editNpcProperties();
     void createCombatInspector(QVBoxLayout *layout);
     QComboBox *combatEntry = nullptr, *combatEntity = nullptr;
     QCheckBox *combatPreview = nullptr;

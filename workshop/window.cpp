@@ -1195,7 +1195,19 @@ QWidget *WorkshopWindow::mapEditor(const QString &name) {
     auto workspace = new MapWorkspace(
         &project, name, &mapViewStates, &editorState,
         [this](const QMap<QString, QByteArray> &changes, const QString &description) {
-            return guard([&] { edit(changes, description); });
+            return guard([&] {
+                Project candidate = project;
+                QMap<QString, bool> inclusion;
+                for (auto it = changes.begin(); it != changes.end(); ++it) {
+                    candidate.resources[it.key()].edited = it.value();
+                    if (it.key() == "BRIT.OOL" || it.key() == "UNDER.OOL") {
+                        inclusion[it.key()] = true;
+                        candidate.resources[it.key()].included = true;
+                    }
+                }
+                candidate.validate();
+                edit(changes, description, inclusion);
+            });
         },
         [this](const QString &resource) { selectResource(resource); }, &mapBrushes);
     workspace->locationChanged = [this] { rebuildTree(); };

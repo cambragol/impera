@@ -1,4 +1,5 @@
 #include "location_text.h"
+#include "map_entities.h"
 #include "map_editor.h"
 #include "sign_borders.h"
 #include "text_preview.h"
@@ -477,6 +478,8 @@ QWidget *locationTextEditor(Project *project, const QString &resource, TextCommi
         add->setToolTip("Add a text record at the selected map cell without painting terrain. Use "
                         "Look on a sign tile to read it.");
         form->addWidget(add);
+        if (context.canvas)
+            add->hide();
         auto controls = new QHBoxLayout;
         auto x = new QSpinBox;
         auto y = new QSpinBox;
@@ -489,6 +492,43 @@ QWidget *locationTextEditor(Project *project, const QString &resource, TextCommi
         controls->addWidget(new QLabel("Y"));
         controls->addWidget(y);
         form->insertLayout(1, controls);
+        if (context.canvas) {
+            auto appearanceRow = new QHBoxLayout;
+            auto appearance = new QComboBox;
+            appearance->setObjectName("mapSignAppearance");
+            appearance->addItem("Sign", 0xf8);
+            appearance->addItem("Gravestone", 0x8a);
+            appearance->addItem("Cross", 0x89);
+            appearance->setToolTip(
+                "Change the visible sign tile; text stays linked to this map cell.");
+            appearanceRow->addWidget(new QLabel("Appearance"));
+            appearanceRow->addWidget(appearance, 1);
+            form->insertLayout(2, appearanceRow);
+            QObject::connect(appearance, &QComboBox::activated, root, [=] {
+                if (!list->currentItem())
+                    return;
+                try {
+                    auto record = records->at(list->currentItem()->data(Qt::UserRole).toInt());
+                    MapDocument doc(project, context.resource);
+                    auto terrain = doc.terrain(context.page);
+                    terrain[record.y * canvas->side + record.x] =
+                        char(appearance->currentData().toInt());
+                    if (commit(doc.changes(context.page, terrain), "Change sign appearance")) {
+                        canvas->ids = doc.terrain(context.page);
+                        canvas->update();
+                    }
+                } catch (const std::exception &e) {
+                    QMessageBox::warning(root, "Cannot change sign", e.what());
+                }
+            });
+            QObject::connect(list, &QListWidget::currentRowChanged, root, [=](int row) {
+                if (row < 0 || !list->item(row))
+                    return;
+                auto record = records->at(list->item(row)->data(Qt::UserRole).toInt());
+                appearance->setCurrentIndex(appearance->findData(
+                    U5::byte(canvas->ids, record.y * canvas->side + record.x)));
+            });
+        }
         text->setToolTip("ASCII letters use the normal font; [byte:NN] preserves exact runic or "
                          "decorative glyphs. Newlines use normal-font line breaks.");
         QObject::connect(x, &QSpinBox::valueChanged, root,
@@ -605,12 +645,26 @@ QWidget *locationTextEditor(Project *project, const QString &resource, TextCommi
                 if (!item)
                     return;
                 auto next = *records;
-                auto &r = next[item->data(Qt::UserRole).toInt()];
+                const int selected = item->data(Qt::UserRole).toInt();
+                auto &r = next[selected];
+                QPoint oldCell(r.x, r.y);
+                for (int i = 0; i < next.size(); i++)
+                    if (i != selected)
+                        require(next[i].map != r.map || next[i].floor != r.floor ||
+                                    next[i].x != x->value() || next[i].y != y->value(),
+                                "A sign already exists at this destination");
                 r.x = x->value();
                 r.y = y->value();
                 r.text = encodeSign(text->toPlainText());
                 auto bytes = writeSigns(project->data(resource), next);
-                if (commit({{resource, bytes}}, "Edit sign")) {
+                QMap<QString, QByteArray> changes{{resource, bytes}};
+                if (context.canvas && !context.resource.isEmpty() && oldCell != QPoint(r.x, r.y)) {
+                    auto terrain = moveSignTerrain(*project, context.resource, context.page,
+                                                   oldCell, {r.x, r.y});
+                    for (auto it = terrain.begin(); it != terrain.end(); ++it)
+                        changes[it.key()] = it.value();
+                }
+                if (commit(changes, "Edit sign")) {
                     text->document()->setModified(false);
                     int row = list->currentRow();
                     *records = next;
@@ -695,6 +749,8 @@ QWidget *locationTextEditor(Project *project, const QString &resource, TextCommi
         remove->setToolTip("Remove only this text record. Terrain is unchanged; Look then uses the "
                            "engine fallback.");
         form->addWidget(remove);
+        if (context.canvas)
+            remove->hide();
         QObject::connect(remove, &QPushButton::clicked, root, [=] {
             if (text->document()->isModified()) {
                 apply->click();

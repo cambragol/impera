@@ -1,5 +1,6 @@
 #include "content_navigation.h"
 #include "contents_editor.h"
+#include "map_entities.h"
 #include "dialogue.h"
 #include "dialogue_editor.h"
 #include "dialogue_preview.h"
@@ -1269,7 +1270,9 @@ int main(int argc, char **argv) {
             const QByteArray terrain(16384, char(8));
             file(dir.path() + "/TOWNE.DAT", terrain);
             QByteArray npcs(4608, 0);
-            npcs[3] = 2; npcs[6] = 3; npcs[512] = 25;
+            npcs[19] = 2;
+            npcs[22] = 3;
+            npcs[513] = 25;
             file(dir.path() + "/TOWNE.NPC", npcs);
             QByteArray seed(66, 0); seed += QByteArray::fromHex("ffff");
             file(dir.path() + "/SIGNS.DAT", Workshop::writeSigns(seed,
@@ -1296,7 +1299,8 @@ int main(int argc, char **argv) {
                 app.processEvents();
             };
             press({2, 3}); release({3, 4});
-            check(canvas->selectedNpc == 0 && U5::byte(w.projectForTests().data("TOWNE.NPC"), 3) == 3,
+            check(canvas->selectedNpc == 1 &&
+                      U5::byte(w.projectForTests().data("TOWNE.NPC"), 19) == 3,
                   "Unified selector did not select and move an NPC");
             press({5, 6}); release({7, 8});
             auto signs = Workshop::readSigns(w.projectForTests().data("SIGNS.DAT"));
@@ -1306,7 +1310,8 @@ int main(int argc, char **argv) {
             auto draft = root->findChild<QPlainTextEdit *>("locationTextDraft");
             draft->selectAll(); draft->insertPlainText("Edited sign");
             press({3, 4}); release({3, 4});
-            check(modes->tabText(modes->currentIndex()) == "NPCs / Schedules" && canvas->selectedNpc == 0,
+            check(modes->tabText(modes->currentIndex()) == "NPCs / Schedules" &&
+                      canvas->selectedNpc == 1,
                   "Selecting an NPC from the sign inspector did not switch inspectors");
             check(Workshop::signSource(Workshop::readSigns(w.projectForTests().data("SIGNS.DAT"))[0].text) == "Edited sign",
                   "Selecting an NPC discarded a pending sign draft");
@@ -1321,9 +1326,9 @@ int main(int argc, char **argv) {
             const QByteArray terrain(16384, char(0xf8));
             file(dir.path() + "/TOWNE.DAT", terrain);
             QByteArray npcs(4608, 0);
-            npcs[3] = 2;
-            npcs[6] = 3;
-            npcs[512] = 25;
+            npcs[19] = 2;
+            npcs[22] = 3;
+            npcs[513] = 25;
             file(dir.path() + "/TOWNE.NPC", npcs);
             file(dir.path() + "/IBM.CH", QByteArray(1024, char(255)));
             file(dir.path() + "/RUNES.CH", QByteArray(1024, char(255)));
@@ -1380,7 +1385,7 @@ int main(int argc, char **argv) {
                       Workshop::readSigns(w.projectForTests().data("SIGNS.DAT"))[0].text) ==
                       "Changed ground",
                   "Mode switch lost sign draft");
-            check(canvas->actors.size() == 32 && canvas->actors[0].tile == 281,
+            check(canvas->actors.size() == 1 && canvas->actors[0].tile == 281,
                   "Sign markers leaked into character mode");
             setMode("Signs");
             floor->setCurrentIndex(floor->findData(1));
@@ -2011,6 +2016,213 @@ int main(int argc, char **argv) {
             }), "Initial object precedence was not explained");
             project.resources["INIT.OOL"].edited.resize(255);
             rejects([&] { project.validate(); });
+        });
+        test("Add map items respects native identities, capacities and package persistence", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            p.resources["TOWNE.DAT"] = {QByteArray(16384, 5), QByteArray(16384, 5)};
+            p.resources["TOWNE.NPC"] = {QByteArray(4608, 0), QByteArray(4608, 0)};
+            p.resources["TOWNE.TLK"] = {QByteArray::fromHex("0000"), QByteArray::fromHex("0000")};
+            auto seed = QByteArray(66, 0) + QByteArray::fromHex("ffff");
+            p.resources["SIGNS.DAT"] = {seed, seed};
+            p.resources["INIT.GAM"].edited[0x5b4] = char(255);
+            auto install = [&](const Workshop::MapItemEdit &edit) {
+                for (auto it = edit.changes.begin(); it != edit.changes.end(); ++it) {
+                    p.resources[it.key()].edited = it.value();
+                    if (it.key().endsWith(".OOL"))
+                        p.resources[it.key()].included = true;
+                }
+            };
+            auto npc = Workshop::addMapItem(p, "TOWNE.DAT", 0, {6, 7}, Workshop::MapItemKind::Npc,
+                                            80, -1, "New friend");
+            check(npc.slot == 1 && npc.changes.contains("TOWNE.TLK") &&
+                      !U5::byte(npc.changes["TOWNE.NPC"], 512),
+                  "NPC creation reused party slot or omitted conversation");
+            install(npc);
+            MapNpcDocument records(&p, "TOWNE.NPC");
+            for (int slot = 0; slot < 4; slot++) {
+                auto loc = records.location(0, 1, slot);
+                check(loc.x == 6 && loc.y == 7 && loc.floor == 0 &&
+                          records.hour(0, 1, slot) == slot * 6,
+                      "New NPC destinations are uninitialized");
+            }
+            check(!(U5::byte(p.data("INIT.GAM"), 0x5b4) & 2), "New NPC retained a killed flag");
+            int conversation = records.dialogue(0, 1);
+            auto tlk = p.data("TOWNE.TLK");
+            auto shared = Workshop::addMapItem(p, "TOWNE.DAT", 0, {6, 7},
+                                               Workshop::MapItemKind::Npc, 84, conversation);
+            check(shared.slot == 2 && !shared.changes.contains("TOWNE.TLK"),
+                  "Sharing a conversation duplicated it");
+            install(shared);
+            auto monster = Workshop::addMapItem(p, "TOWNE.DAT", 0, {9, 8},
+                                                Workshop::MapItemKind::Monster, 144);
+            install(monster);
+            check(records.location(0, monster.slot, 0).ai == 5 &&
+                      records.dialogue(0, monster.slot) == 0,
+                  "Settlement monster did not receive attack behavior");
+            auto sign =
+                Workshop::addMapItem(p, "TOWNE.DAT", 0, {10, 11}, Workshop::MapItemKind::Sign);
+            install(sign);
+            check(MapDocument(&p, "TOWNE.DAT").terrain(0)[11 * 32 + 10] == char(0xf8),
+                  "New sign has no visible sign tile");
+            auto terrain = Workshop::moveSignTerrain(p, "TOWNE.DAT", 0, {10, 11}, {12, 13});
+            check(terrain["TOWNE.DAT"][11 * 32 + 10] == 5 &&
+                      terrain["TOWNE.DAT"][13 * 32 + 12] == char(0xf8),
+                  "Moving sign failed to move its visible tile");
+            rejects([&] {
+                Workshop::addMapItem(p, "TOWNE.DAT", 0, {10, 11}, Workshop::MapItemKind::Sign);
+            });
+            auto container =
+                Workshop::addMapItem(p, "TOWNE.DAT", 0, {14, 15}, Workshop::MapItemKind::Container);
+            install(container);
+            auto defs = Workshop::readContents(p.data("CONTENTS.OVR"));
+            check(defs.size() == 1 && defs[0].action == 1 && defs[0].slot == 255 &&
+                      p.data("TOWNE.DAT") == sign.changes["TOWNE.DAT"],
+                  "Container changed terrain or lacks stable identity");
+            auto hidden = Workshop::addMapItem(p, "TOWNE.DAT", 0, {16, 17},
+                                               Workshop::MapItemKind::HiddenContents);
+            install(hidden);
+            rejects([&] {
+                Workshop::addMapItem(p, "TOWNE.DAT", 0, {14, 15},
+                                     Workshop::MapItemKind::HiddenContents);
+            });
+            p.validate();
+            Project imported = p;
+            for (auto it = imported.resources.begin(); it != imported.resources.end(); ++it) {
+                it->edited = it->original;
+                it->included = false;
+            }
+            imported.importPackage(p.package());
+            check(imported.data("CONTENTS.OVR") == p.data("CONTENTS.OVR") &&
+                      imported.data("TOWNE.NPC") == p.data("TOWNE.NPC") &&
+                      imported.data("TOWNE.TLK") == tlk,
+                  "Entity package roundtrip failed");
+            auto deleted =
+                Workshop::deleteMapItem(p, "TOWNE.DAT", 0, "NPCs / Schedules", 1, {6, 7});
+            check(!U5::byte(deleted["TOWNE.NPC"], 513) && !deleted.contains("TOWNE.TLK"),
+                  "Deleting shared NPC deleted its conversation");
+            rejects(
+                [&] { Workshop::deleteMapItem(p, "TOWNE.DAT", 0, "NPCs / Schedules", 0, {0, 0}); });
+            for (int i = 1; i < 32; i++)
+                p.resources["TOWNE.NPC"].edited[512 + i] = 80;
+            auto before = p.data("TOWNE.NPC");
+            rejects([&] {
+                Workshop::addMapItem(p, "TOWNE.DAT", 0, {1, 1}, Workshop::MapItemKind::Npc);
+            });
+            check(p.data("TOWNE.NPC") == before, "Failed placement changed existing NPCs");
+        });
+        test("World and combat Add items reserve runtime slots and preserve metadata", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            p.resources["UNDER.DAT"] = {QByteArray(65536, 1), QByteArray(65536, 1)};
+            for (auto r : {"INIT.OOL", "BRIT.OOL", "UNDER.OOL"})
+                p.resources[r] = {QByteArray(256, 0), QByteArray(256, 0)};
+            auto horse =
+                Workshop::addMapItem(p, "UNDER.DAT", 0, {2, 3}, Workshop::MapItemKind::Horse);
+            check(horse.slot == 1 && U5::byte(horse.changes["UNDER.OOL"], 8) == 16 &&
+                      U5::byte(horse.changes["UNDER.OOL"], 12) == 255,
+                  "Horse shape or world is wrong");
+            p.resources["UNDER.OOL"].edited = horse.changes["UNDER.OOL"];
+            p.resources["UNDER.OOL"].included = true;
+            for (int i = 1; i < 28; i++) {
+                p.resources["UNDER.OOL"].edited[i * 8] = 16;
+                p.resources["UNDER.OOL"].edited[i * 8 + 1] = 16;
+                p.resources["UNDER.OOL"].edited[i * 8 + 4] = char(255);
+            }
+            rejects([&] {
+                Workshop::addMapItem(p, "UNDER.DAT", 0, {2, 3}, Workshop::MapItemKind::Skiff);
+            });
+            QByteArray cbt(112 * 352, char(255));
+            for (int page = 0; page < 112; page++)
+                for (int i = 0; i < 16; i++)
+                    cbt[page * 352 + 5 * 32 + 11 + i] = 0;
+            p.resources["DUNGEON.CBT"] = {cbt, cbt};
+            auto monster = Workshop::addMapItem(p, "DUNGEON.CBT", 4, {3, 4},
+                                                Workshop::MapItemKind::Monster, 192);
+            check(monster.slot == 6 &&
+                      U5::byte(monster.changes["DUNGEON.CBT"], 4 * 352 + 5 * 32 + 11) == 192,
+                  "Combat monster type wrong");
+            check(monster.changes["DUNGEON.CBT"].left(4 * 352) == cbt.left(4 * 352) &&
+                      monster.changes["DUNGEON.CBT"].mid(5 * 352) == cbt.mid(5 * 352),
+                  "Adding monster changed other rooms");
+            p.resources["DUNGEON.CBT"].edited = monster.changes["DUNGEON.CBT"];
+            auto trigger =
+                Workshop::addMapItem(p, "DUNGEON.CBT", 4, {5, 6}, Workshop::MapItemKind::Trigger);
+            check(trigger.slot == 22 &&
+                      U5::byte(trigger.changes["DUNGEON.CBT"], 4 * 352 + 8 * 32 + 11) == 5,
+                  "Trigger was not initialized");
+            auto remove = Workshop::deleteMapItem(p, "DUNGEON.CBT", 4, "Encounter", 6, {3, 4});
+            check(!U5::byte(remove["DUNGEON.CBT"], 4 * 352 + 5 * 32 + 11) &&
+                      U5::byte(remove["DUNGEON.CBT"], 4 * 352 + 6 * 32 + 11) == 255,
+                  "Deleted monster remains active");
+            rejects([&] { Workshop::deleteMapItem(p, "DUNGEON.CBT", 4, "Encounter", 0, {0, 0}); });
+        });
+        test("Add placement previews, repeated stamping, cancellation and map undo", [&] {
+            MapCanvas canvas;
+            canvas.side = 8;
+            canvas.ids = QByteArray(64, 5);
+            canvas.zoom = 1;
+            canvas.resizeMap();
+            int placed = 0;
+            auto callback = [&](QPoint cell) {
+                check(cell == QPoint(2, 3), "Placement cell wrong");
+                placed++;
+                return true;
+            };
+            auto mouse = [&](QEvent::Type type) {
+                QPointF pos(40, 56);
+                QMouseEvent e(type, pos, pos, Qt::LeftButton,
+                              type == QEvent::MouseButtonPress ? Qt::LeftButton : Qt::NoButton,
+                              Qt::NoModifier);
+                QApplication::sendEvent(&canvas, &e);
+            };
+            canvas.beginPlacement(-1, false, callback);
+            mouse(QEvent::MouseMove);
+            check(!placed, "Preview committed placement");
+            QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+            QApplication::sendEvent(&canvas, &escape);
+            mouse(QEvent::MouseButtonRelease);
+            check(!placed && !canvas.placing(), "Cancelled placement committed");
+            canvas.beginPlacement(-1, true, callback);
+            mouse(QEvent::MouseButtonPress);
+            mouse(QEvent::MouseButtonRelease);
+            mouse(QEvent::MouseButtonPress);
+            check(placed == 2 && canvas.placing() && canvas.ids == QByteArray(64, 5),
+                  "Repeat placement paints terrain or stops prematurely");
+            canvas.cancelStroke();
+            canvas.beginPlacement(-1, false, callback);
+            mouse(QEvent::MouseButtonPress);
+            check(!canvas.placing(), "Single placement remained active");
+            QTemporaryDir dir;
+            fixture(dir.path());
+            file(dir.path() + "/TOWNE.DAT", QByteArray(16384, 5));
+            WorkshopWindow w;
+            check(w.openGame(dir.path()), "Placement fixture failed");
+            w.selectResource("TOWNE.DAT");
+            w.show();
+            app.processEvents();
+            auto root = w.findChild<QStackedWidget *>("workspaces")->currentWidget();
+            auto add = root->findChild<QAction *>("addMapItem3");
+            check(add, "No Add container action");
+            add->trigger();
+            auto map = dynamic_cast<MapCanvas *>(root->findChild<QWidget *>("mapCanvas"));
+            QPointF pos(2.5 * 16 * map->zoom, 3.5 * 16 * map->zoom);
+            QMouseEvent press(QEvent::MouseButtonPress, pos, pos, Qt::LeftButton, Qt::LeftButton,
+                              Qt::NoModifier);
+            QApplication::sendEvent(map, &press);
+            auto defs = Workshop::readContents(w.projectForTests().data("CONTENTS.OVR"));
+            check(defs.size() == 1 && defs[0].x == 2 && defs[0].y == 3 &&
+                      root->findChild<QComboBox *>("contentsMode"),
+                  "Add did not select container inspector");
+            map->cancelStroke();
+            for (auto action : w.findChildren<QAction *>())
+                if (action->shortcut() == QKeySequence::Undo) {
+                    action->trigger();
+                    break;
+                }
+            app.processEvents();
+            check(w.projectForTests().data("CONTENTS.OVR").isEmpty(),
+                  "Undo did not remove placed container");
         });
         test("Lossless dialogue structure", [] {
             auto bytes =

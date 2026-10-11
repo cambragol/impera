@@ -1,4 +1,6 @@
 #include "map_editor.h"
+#include "map_entities.h"
+#include "world_objects.h"
 #include "../src/tiles.h"
 #include "contents_editor.h"
 #include "dialogue.h"
@@ -10,7 +12,7 @@ using U5::require;
 bool MapDocument::supported(const QString &r) {
     return Workshop::capability(r).editor == Workshop::EditorKind::Map;
 }
-MapDocument::MapDocument(Project *p, const QString &r) : project(p), resource(r) {
+MapDocument::MapDocument(const Project *p, const QString &r) : project(p), resource(r) {
     pages = U5::mapPages(resource, project->data(resource));
 }
 QByteArray MapDocument::terrain(int index, bool original) const {
@@ -182,6 +184,9 @@ void MapCanvas::paintEvent(QPaintEvent *e) {
         if (a.x >= 0 && a.y >= 0 && a.x < side && a.y < rowCount() && a.tile >= 0 &&
             a.tile < tiles.size() && a.label.isEmpty())
             p.drawImage(QRectF(a.x * cell, a.y * cell, cell, cell), tiles[a.tile]);
+    for (auto actor : contextActors)
+        if (actor.tile >= 0 && actor.tile < tiles.size())
+            p.drawImage(QRectF(actor.x * cell, actor.y * cell, cell, cell), tiles[actor.tile]);
     if (tool == InspectNpc) {
         if (showContentsMarkers)
             for (auto marker : contentsMarkers) {
@@ -189,9 +194,7 @@ void MapCanvas::paintEvent(QPaintEvent *e) {
                 p.drawEllipse(QRectF(marker.x * cell + cell * .68, marker.y * cell + cell * .08,
                                      cell * .22, cell * .22));
             }
-        for (auto actor : contextActors)
-            if (actor.tile >= 0 && actor.tile < tiles.size())
-                p.drawImage(QRectF(actor.x * cell, actor.y * cell, cell, cell), tiles[actor.tile]);
+
         for (auto actor : actors)
             if (!actor.label.isEmpty()) {
                 QRectF r(actor.x * cell, actor.y * cell, cell, cell);
@@ -263,12 +266,21 @@ void MapCanvas::paintEvent(QPaintEvent *e) {
     }
     if (hover.x() >= 0) {
         QRectF target(hover.x() * cell, hover.y() * cell, cell, cell);
-        if (!pasting() && tool == 0 && brush >= 0 && brush < tiles.size()) {
+        if (!pasting() && !placing() && tool == 0 && brush >= 0 && brush < tiles.size()) {
             p.setOpacity(0.35);
             p.drawImage(target, tiles[brush]);
             p.setOpacity(1);
         }
         p.setPen(QPen(QColor("#f2ce65"), 2));
+        p.drawRect(target.adjusted(1, 1, -1, -1));
+    }
+    if (placing() && hover.x() >= 0) {
+        QRectF target(hover.x() * cell, hover.y() * cell, cell, cell);
+        p.setOpacity(.65);
+        if (placementTile >= 0 && placementTile < tiles.size())
+            p.drawImage(target, tiles[placementTile]);
+        p.setOpacity(1);
+        p.setPen(QPen(QColor("#72caff"), 2, Qt::DashLine));
         p.drawRect(target.adjusted(1, 1, -1, -1));
     }
 }
@@ -299,7 +311,7 @@ void MapCanvas::point(QPointF position, bool draw) {
     auto cell = cellAt(position);
     auto previous = hover;
     hover = cell;
-    if (pasting())
+    if (pasting() || placing())
         update();
     if (previous != hover) {
         for (auto cell : {previous, hover})
@@ -337,12 +349,38 @@ void MapCanvas::point(QPointF position, bool draw) {
         }
     }
 }
+void MapCanvas::beginPlacement(int tile, bool repeat, std::function<bool(QPoint)> place) {
+    cancelStroke();
+    placementTile = tile;
+    repeatPlacement = repeat;
+    placeItem = std::move(place);
+    setCursor(Qt::CrossCursor);
+    setFocus(Qt::OtherFocusReason);
+    update();
+}
 void MapCanvas::mousePressEvent(QMouseEvent *e) {
     setFocus(Qt::MouseFocusReason);
     auto cell = cellAt(e->position());
     if (cell.x() < 0)
         return;
     keyboardCell = cell;
+    if (placing()) {
+        if (e->button() == Qt::RightButton) {
+            cancelStroke();
+            return;
+        }
+        if (e->button() == Qt::LeftButton) {
+            auto place = placeItem;
+            const bool repeat = repeatPlacement;
+            if (place(cell) && !repeat) {
+                placeItem = {};
+                placementTile = -1;
+                unsetCursor();
+            }
+            update();
+        }
+        return;
+    }
     if (e->button() == Qt::RightButton ||
         (e->button() == Qt::LeftButton && tool == 1 && !pasting())) {
         if (pick)
@@ -433,6 +471,9 @@ void MapCanvas::mouseReleaseEvent(QMouseEvent *e) {
         finishEdit();
 }
 void MapCanvas::cancelStroke() {
+    placeItem = {};
+    placementTile = -1;
+    unsetCursor();
     npcDrag = false;
     update();
     if (stroke) {
@@ -589,8 +630,25 @@ void MapCanvas::leaveEvent(QEvent *) {
     update();
 }
 void MapCanvas::keyPressEvent(QKeyEvent *e) {
+    if (e->key() == Qt::Key_Delete && tool == InspectNpc && !placing() && deleteItem) {
+        deleteItem();
+        e->accept();
+        return;
+    }
+    if (placing() && (e->key() == Qt::Key_Enter || e->key() == Qt::Key_Return)) {
+        auto place = placeItem;
+        bool repeat = repeatPlacement;
+        if (place(keyboardCell) && !repeat) {
+            placeItem = {};
+            placementTile = -1;
+            unsetCursor();
+        }
+        update();
+        e->accept();
+        return;
+    }
     if (e->key() == Qt::Key_Escape) {
-        bool pending = stroke || npcDrag || pasting();
+        bool pending = stroke || npcDrag || pasting() || placing();
         cancelStroke();
         if (!pending)
             clearSelection();
@@ -1453,6 +1511,18 @@ void MapWorkspace::enableLocationModes(const QStringList &names, LocationLayerFa
     locationModes->setParent(this);
     locationModes->hide();
     canvas->prepareSelection = [this](QPoint cell) { return selectMapItem(cell); };
+    auto add = new QToolButton;
+    add->setText("Add…");
+    add->setObjectName("mapAddMenu");
+    add->setToolTip("Place a new map item, then edit its properties on the right.");
+    add->setPopupMode(QToolButton::InstantPopup);
+    auto addMenu = new QMenu(add);
+    for (auto kind : Workshop::availableMapItems(*project, resource)) {
+        auto action = addMenu->addAction(Workshop::mapItemName(kind));
+        action->setObjectName("addMapItem" + QString::number(int(kind)));
+        connect(action, &QAction::triggered, this, [this, kind] { beginAdd(int(kind)); });
+    }
+    add->setMenu(addMenu);
     auto extras = new QToolButton;
     extras->setText("Map items");
     extras->setObjectName("mapItemsMenu");
@@ -1462,12 +1532,27 @@ void MapWorkspace::enableLocationModes(const QStringList &names, LocationLayerFa
         const auto name = names[index];
         if (name == "Signs" || name == "Starting Objects" || name == "Encounter Details" ||
             name == "Contents")
-            menu->addAction(name == "Signs" ? "Add / edit signs" : name, this,
-                            [this, index] { locationModes->setCurrentIndex(index); });
+            menu->addAction(name, this, [this, index] { locationModes->setCurrentIndex(index); });
     }
-    if (auto row = findChild<QHBoxLayout *>("mapToolRow"))
-        row->insertWidget(7, extras);
+    extras->setMenu(menu);
+    if (auto row = findChild<QHBoxLayout *>("mapToolRow")) {
+        row->insertWidget(7, add);
+        row->insertWidget(8, extras);
+    }
     extras->setVisible(!menu->isEmpty());
+    canvas->deleteItem = [this] { deleteSelectedItem(); };
+    auto remove = new QToolButton;
+    remove->setObjectName("mapDeleteItem");
+    remove->setAccessibleName("Delete map item");
+    remove->setIcon(style()->standardIcon(QStyle::SP_TrashIcon));
+    remove->setToolTip(
+        "Delete selected map item (Delete). Undo restores the item and its attached data.");
+    connect(remove, &QToolButton::clicked, this, [this] {
+        if (canvas->tool == MapCanvas::InspectNpc)
+            deleteSelectedItem();
+    });
+    if (auto row = findChild<QHBoxLayout *>("mapToolRow"))
+        row->insertWidget(9, remove);
     auto markers = new QCheckBox("Contents markers");
     markers->setObjectName("contentsMarkersToggle");
     markers->setToolTip(
@@ -1478,7 +1563,7 @@ void MapWorkspace::enableLocationModes(const QStringList &names, LocationLayerFa
         canvas->update();
     });
     if (auto row = findChild<QHBoxLayout *>("mapToolRow"))
-        row->insertWidget(8, markers);
+        row->insertWidget(10, markers);
     tool->button(MapCanvas::InspectNpc)
         ->setToolTip("Select / Move — select an NPC, sign or map item and drag to move it.");
     tool->button(MapCanvas::InspectNpc)->setAccessibleName("Select / Move");
@@ -1585,7 +1670,7 @@ void MapWorkspace::applyLocationMode() {
 }
 bool MapWorkspace::selectMapItem(QPoint cell) {
     const auto &page = document.pages[currentPage()];
-    int npcMode = -1, signMode = -1, contentsMode = -1;
+    int npcMode = -1, signMode = -1, contentsMode = -1, objectMode = -1, encounterMode = -1;
     for (int i = 0; i < locationModes->count(); ++i) {
         if (locationModes->tabText(i) == "NPCs / Schedules")
             npcMode = i;
@@ -1593,8 +1678,36 @@ bool MapWorkspace::selectMapItem(QPoint cell) {
             contentsMode = i;
         if (locationModes->tabText(i) == "Signs")
             signMode = i;
+        if (locationModes->tabText(i) == "Starting Objects")
+            objectMode = i;
+        if (locationModes->tabText(i) == "Encounter")
+            encounterMode = i;
     }
     bool npcHit = false, signHit = false, signRecordHit = false;
+    bool objectHit = false, encounterHit = false;
+    if (objectMode >= 0) {
+        auto b = Workshop::WorldObjects::effective(*project, resource == "UNDER.DAT");
+        for (int i = 1; i < 32; i++)
+            objectHit |= U5::byte(b, i * 8) != 0 && U5::byte(b,i*8)!=1 && U5::byte(b, i * 8 + 2) == unsigned(cell.x()) &&
+                         U5::byte(b, i * 8 + 3) == unsigned(cell.y());
+    }
+    if (encounterMode >= 0) {
+        auto b = project->data(resource);
+        int base = page.offset;
+        for (int i = 0; i < 16; i++)
+            encounterHit |= (resource == "BRIT.CBT" || U5::byte(b, base + 5 * 32 + 11 + i)) &&
+                            U5::byte(b, base + 6 * 32 + 11 + i) == unsigned(cell.x()) &&
+                            U5::byte(b, base + 7 * 32 + 11 + i) == unsigned(cell.y());
+        for (int i = 0; i < 8; i++)
+            encounterHit |= U5::byte(b, base + 8 * 32 + 11 + i) == unsigned(cell.x()) &&
+                            U5::byte(b, base + 8 * 32 + 19 + i) == unsigned(cell.y());
+        for (int i = 0; i < 6; i++) {
+            const int rows[] = {4, 1, 3, 2};
+            int offset = base + rows[combatEntry->currentIndex()] * 32;
+            encounterHit |= U5::byte(b, offset + 11 + i) == unsigned(cell.x()) &&
+                            U5::byte(b, offset + 17 + i) == unsigned(cell.y());
+        }
+    }
     const int signMap =
         resource == "BRIT.DAT"
             ? 0
@@ -1603,7 +1716,7 @@ bool MapWorkspace::selectMapItem(QPoint cell) {
                   page.settlement + 1;
     if (npcMode >= 0 && page.settlement >= 0 && project->data(npcResource).size() == 4608) {
         MapNpcDocument npcs(project, npcResource);
-        for (int id = 0; id < 32; ++id) {
+        for (int id = 1; id < 32; ++id) {
             auto position = npcs.location(page.settlement, id, schedule->currentIndex());
             npcHit |= U5::byte(project->data(npcResource), page.settlement * 576 + 512 + id) != 0 &&
                       position.floor == page.floor && position.x == cell.x() &&
@@ -1626,43 +1739,32 @@ bool MapWorkspace::selectMapItem(QPoint cell) {
         contentsMode >= 0 && Workshop::contentsHit(*project, contentsTarget, cell);
     const int selectedTile =
         U5::byte(document.terrain(currentPage()), cell.y() * page.side + cell.x());
-    const bool containerTile = selectedTile == 0x96 || selectedTile == 0x97 ||
-                               selectedTile == 0x98 || selectedTile == 0x99;
-    // Keep existing encounter/starting-object handles selectable. An empty map
-    // cell offers new contents, but must not steal a drag from a visible entity.
-    if (!contentsHit && (locationModes->tabText(activeMode) == "Encounter" ||
-                         locationModes->tabText(activeMode) == "Starting Objects")) {
-        for (const auto &actor : canvas->actors)
-            if (actor.x == cell.x() && actor.y == cell.y())
-                return true;
-    }
-    int target = npcHit              ? npcMode
-                 : signHit           ? signMode
-                 : contentsMode >= 0 ? contentsMode
-                                     : activeMode;
-    if ((npcHit || signHit) && (contentsHit || containerTile)) {
-        QStringList choices;
-        if (npcHit)
-            choices << "NPC";
-        if (signHit)
-            choices << "Sign";
-        choices << "Contents";
+    const bool containerTile = selectedTile == TILE_MAP_BARREL || selectedTile == TILE_MAP_TRUNK ||
+                               selectedTile == TILE_MAP_DRESSER || selectedTile == TILE_MAP_DESK ||
+                               selectedTile == TILE_MAP_VANITY;
+    QStringList choices;
+    QList<int> modes;
+    auto offer = [&](bool hit, QString label, int mode) {
+        if (hit) {
+            choices.append(label);
+            modes.append(mode);
+        }
+    };
+    offer(npcHit, "NPC", npcMode);
+    offer(signHit, "Sign", signMode);
+    offer(contentsHit || containerTile, "Contents", contentsMode);
+    offer(objectHit, "World object", objectMode);
+    offer(encounterHit, "Encounter", encounterMode);
+    int target = modes.isEmpty() ? contentsMode : modes.first();
+    if (target < 0)
+        target = activeMode;
+    if (choices.size() > 1) {
         bool ok = false;
         auto choice =
             QInputDialog::getItem(this, "Select map item", "Item", choices, 0, false, &ok);
         if (!ok)
             return false;
-        target = choice == "NPC" ? npcMode : choice == "Sign" ? signMode : contentsMode;
-        npcHit = false;
-        signHit = false;
-    }
-    if (npcHit && signHit) {
-        bool ok = false;
-        const auto choice =
-            QInputDialog::getItem(this, "Select map item", "Item", {"NPC", "Sign"}, 0, false, &ok);
-        if (!ok)
-            return false;
-        target = choice == "NPC" ? npcMode : signMode;
+        target = modes[choices.indexOf(choice)];
     }
     if (target != activeMode) {
         locationModes->setCurrentIndex(target);
@@ -1693,13 +1795,32 @@ bool MapWorkspace::selectMapItem(QPoint cell) {
 void MapWorkspace::refreshContextActors() {
     canvas->contextActors.clear();
     const auto &page = document.pages[currentPage()];
+    if ((resource == "BRIT.DAT" || resource == "UNDER.DAT") &&
+        project->resources.contains("INIT.OOL") && project->resources.contains("BRIT.OOL") &&
+        project->resources.contains("UNDER.OOL") &&
+        locationModes->tabText(activeMode) != "Starting Objects") {
+        auto b = Workshop::WorldObjects::effective(*project, resource == "UNDER.DAT");
+        for (int i = 1; i < 32; i++)
+            if (U5::byte(b, i * 8) &&
+                !(U5::byte(b, i * 8) == 1 && locationModes->tabText(activeMode) == "Contents"))
+                canvas->contextActors.append({int(U5::byte(b, i * 8 + 2)),
+                                              int(U5::byte(b, i * 8 + 3)),
+                                              256 + int(U5::byte(b, i * 8)),
+                                              i,
+                                              {}});
+    }
+    if (locationModes->tabText(activeMode) != "Contents")
+        for (auto d : Workshop::mapContents(
+                 *project, Workshop::contentsTarget(resource, page, currentPage())))
+            if (d.action && d.slot == 255)
+                canvas->contextActors.append({d.x, d.y, 257, -1, {}});
     if (!externalMode() || page.settlement < 0 || !project->resources.contains(npcResource) ||
         project->data(npcResource).size() != 4608)
         return;
     MapNpcDocument npcs(project, npcResource);
-    for (int id = 0; id < 32; ++id) {
+    for (int id = 1; id < 32; id++) {
         auto position = npcs.location(page.settlement, id, schedule->currentIndex());
-        if (U5::byte(project->data(npcResource), page.settlement * 576 + 512 + id) != 0 &&
+        if (U5::byte(project->data(npcResource), page.settlement * 576 + 512 + id) &&
             position.floor == page.floor && position.x < 32 && position.y < 32)
             canvas->contextActors.append(
                 {position.x, position.y, npcs.sprite(page.settlement, id), id, {}});
@@ -1924,7 +2045,11 @@ void MapWorkspace::loadPage() {
 QString MapWorkspace::npcName(int npc) const {
     MapNpcDocument npcs(project, npcResource);
     int id = npcs.dialogue(document.pages[currentPage()].settlement, npc);
-    return npcNames.value(id, QString("Unnamed NPC %1").arg(npc + 1));
+    return npcNames.value(
+        id,
+        npcs.sprite(document.pages[currentPage()].settlement, npc) >= 384
+            ? Workshop::actorName(npcs.sprite(document.pages[currentPage()].settlement, npc) - 256)
+            : QString("Unnamed NPC %1").arg(npc + 1));
 }
 void MapWorkspace::createNpcInspector(QVBoxLayout *layout) {
     auto title = new QLabel("NPC schedule");
@@ -1960,6 +2085,64 @@ void MapWorkspace::createNpcInspector(QVBoxLayout *layout) {
                              "existing unusual values are preserved.");
     form->setRowWrapPolicy(QFormLayout::WrapLongRows);
     form->addRow("Start hour", npcStartHour);
+    npcNameField = new QLineEdit;
+    npcNameField->setObjectName("mapNpcName");
+    npcNameField->setToolTip("Name in the linked conversation. Changing it also affects NPCs "
+                             "sharing that conversation.");
+    form->addRow("Name", npcNameField);
+    connect(npcNameField, &QLineEdit::editingFinished, this, [this] {
+        if (canvas->selectedNpc < 1 || !project->resources.contains(talkResource))
+            return;
+        try {
+            MapNpcDocument npcs(project, npcResource);
+            int id = npcs.dialogue(document.pages[currentPage()].settlement, canvas->selectedNpc);
+            auto entries = U5::readDialogue(project->data(talkResource));
+            for (auto &e : entries)
+                if (int(e.id) == id) {
+                    auto doc = Dialogue::parse(e.bytes);
+                    require(doc.structuralError.isEmpty(), "This conversation cannot be renamed");
+                    auto text = Dialogue::text(npcNameField->text().trimmed());
+                    require(!text.isEmpty(), "Enter an NPC name");
+                    if (text == doc.entries[0].bytes)
+                        return;
+                    doc.entries[0].bytes = text;
+                    e.bytes = doc.bytes();
+                    if (commitResources({{talkResource, U5::writeDialogue(entries)}}, "Rename NPC"))
+                        refreshNpcs();
+                    break;
+                }
+        } catch (const std::exception &e) {
+            QMessageBox::warning(this, "Cannot rename NPC", e.what());
+            refreshNpcs();
+        }
+    });
+    npcAppearance = new QComboBox;
+    npcAppearance->setObjectName("mapNpcAppearance");
+    for (int shape = 64; shape < 128; shape += 4)
+        if (Workshop::actorName(shape) != "x")
+            npcAppearance->addItem(Workshop::actorName(shape), shape);
+    for (int shape : Workshop::monsterShapes())
+        npcAppearance->addItem(Workshop::actorName(shape), shape);
+    npcAppearance->setToolTip("Appearance of this NPC on the map.");
+    form->addRow("Appearance", npcAppearance);
+    npcDialogue = new QComboBox;
+    npcDialogue->setObjectName("mapNpcDialogue");
+    npcDialogue->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    npcDialogue->setMinimumContentsLength(12);
+    npcDialogue->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    npcDialogue->setToolTip("Link an existing conversation. Shared conversations stay shared.");
+    form->addRow("Conversation", npcDialogue);
+    npcBehavior = new QComboBox;
+    npcBehavior->setObjectName("mapNpcBehavior");
+    npcBehavior->addItem("Stay here", 0);
+    npcBehavior->addItem("Wander nearby", 1);
+    npcBehavior->addItem("Wander freely", 2);
+    npcBehavior->addItem("Attack", 5);
+    npcBehavior->setToolTip("Behavior during the selected schedule period.");
+    form->addRow("Behavior", npcBehavior);
+    for (auto field : {npcAppearance, npcDialogue, npcBehavior})
+        connect(field, &QComboBox::activated, this, [this] { editNpcProperties(); });
+
     npcX = new QSpinBox;
     npcX->setToolTip("Destination column for the selected schedule change. Changes 2 and 4 share a "
                      "destination.");
@@ -2122,8 +2305,11 @@ void MapWorkspace::refreshNpcs() {
     int slot = schedule->currentIndex();
     for (int npc = 0; npc < 32; ++npc) {
         npcList->addItem(QString("%1 · %2").arg(npc + 1).arg(npcName(npc)));
+        if(auto list=qobject_cast<QListView *>(npcList->view()))
+            list->setRowHidden(npc,npc==0 || !U5::byte(project->data(npcResource),mp.settlement*576+512+npc));
         auto loc = npcs.location(mp.settlement, npc, slot);
-        if (loc.floor == mp.floor && loc.x < 32 && loc.y < 32)
+        if (npc > 0 && U5::byte(project->data(npcResource), mp.settlement * 576 + 512 + npc) &&
+            loc.floor == mp.floor && loc.x < 32 && loc.y < 32)
             canvas->actors.append({loc.x, loc.y, npcs.sprite(mp.settlement, npc), npc});
     }
     {
@@ -2157,10 +2343,26 @@ void MapWorkspace::refreshNpcs() {
         npcInfo->setText("No NPC selected");
         npcSprite->clear();
         npcStartHour->setEnabled(false);
+        npcNameField->setEnabled(false);
+        npcAppearance->setEnabled(false);
+        npcDialogue->setEnabled(false);
+        npcBehavior->setEnabled(false);
         canvas->update();
         return;
     }
     auto loc = npcs.location(mp.settlement, npc, slot);
+    npcAppearance->setEnabled(true);
+    npcDialogue->setEnabled(true);
+    npcBehavior->setEnabled(true);
+    npcNameField->setText(npcName(npc));
+    npcNameField->setEnabled(conversationIndices.contains(npcs.dialogue(mp.settlement, npc)));
+    npcAppearance->setCurrentIndex(npcAppearance->findData(npcs.sprite(mp.settlement, npc) - 256));
+    npcDialogue->clear();
+    for (auto it = conversationIndices.begin(); it != conversationIndices.end(); ++it)
+        npcDialogue->addItem(npcNames.value(it.key(), QString("Conversation %1").arg(it.key())),
+                             it.key());
+    npcDialogue->setCurrentIndex(npcDialogue->findData(npcs.dialogue(mp.settlement, npc)));
+    npcBehavior->setCurrentIndex(npcBehavior->findData(loc.ai));
     npcStartHour->setEnabled(true);
     npcStartHour->setValue(npcs.hour(mp.settlement, npc, slot));
     npcX->setValue(loc.x);
@@ -2339,6 +2541,67 @@ void MapWorkspace::createCombatInspector(QVBoxLayout *layout) {
     combatInfo->setWordWrap(true);
     combatInfo->setTextFormat(Qt::PlainText);
     layout->addWidget(combatInfo);
+    monsterAppearance = new QComboBox;
+    monsterAppearance->setObjectName("combatMonsterAppearance");
+    monsterAppearance->setToolTip("Monster species for this combat-room placement.");
+    for (int shape : Workshop::monsterShapes())
+        monsterAppearance->addItem(Workshop::actorName(shape), shape);
+    layout->addWidget(monsterAppearance);
+    connect(monsterAppearance, &QComboBox::activated, this, [this] {
+        int entity = canvas->selectedNpc;
+        if (resource != "DUNGEON.CBT" || entity < 6 || entity >= 22)
+            return;
+        auto bytes = project->data(resource);
+        bytes[document.pages[currentPage()].offset + 5 * 32 + 11 + entity - 6] =
+            char(monsterAppearance->currentData().toInt());
+        if (commitResources({{resource, bytes}}, "Change monster"))
+            refreshCombat();
+    });
+    triggerProperties = new QWidget;
+    auto triggerForm = new QFormLayout(triggerProperties);
+    triggerForm->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    triggerTile = new QComboBox;
+    triggerTile->setObjectName("combatTriggerTile");
+    triggerTile->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    triggerTile->setMinimumContentsLength(12);
+    triggerTile->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    triggerTile->setToolTip("Tile placed at both destinations when a party member steps here.");
+    for (int id = 0; id < 256; id++)
+        triggerTile->addItem(MapDocument::tileName(id), id);
+    triggerForm->addRow("Replace with", triggerTile);
+    auto editTrigger = [this] {
+        int entity = canvas->selectedNpc;
+        if (entity < 22 || entity >= 30)
+            return;
+        auto b = project->data(resource);
+        int base = document.pages[currentPage()].offset, i = entity - 22;
+        b[base + 11 + i] = char(triggerTile->currentData().toInt());
+        for (int j = 0; j < 2; j++) {
+            b[base + (9 + j) * 32 + 11 + i] = char(triggerX[j]->value());
+            b[base + (9 + j) * 32 + 19 + i] = char(triggerY[j]->value());
+        }
+        if (commitResources({{resource, b}}, "Edit trigger destinations"))
+            refreshCombat();
+    };
+    connect(triggerTile, &QComboBox::activated, this, [editTrigger] { editTrigger(); });
+    for (int j = 0; j < 2; j++) {
+        auto row = new QHBoxLayout;
+        triggerX[j] = new QSpinBox;
+        triggerY[j] = new QSpinBox;
+        for (auto spin : {triggerX[j], triggerY[j]}) {
+            spin->setRange(0, 255);
+            spin->setToolTip("Destination coordinate, 0–10. 255 disables this destination.");
+            connect(spin, &QSpinBox::editingFinished, this, editTrigger);
+        }
+        triggerX[j]->setObjectName(QString("combatTriggerX%1").arg(j));
+        triggerY[j]->setObjectName(QString("combatTriggerY%1").arg(j));
+        row->addWidget(new QLabel("X"));
+        row->addWidget(triggerX[j]);
+        row->addWidget(new QLabel("Y"));
+        row->addWidget(triggerY[j]);
+        triggerForm->addRow(QString("Destination %1").arg(j + 1), row);
+    }
+    layout->addWidget(triggerProperties);
     combatPreview = new QCheckBox("Preview trigger result");
     combatPreview->setToolTip(
         "Preview terrain changes caused by the selected trigger without modifying the map.");
@@ -2378,8 +2641,8 @@ void MapWorkspace::refreshCombat() {
         QString label = entity < 6    ? QString("P%1").arg(entity + 1)
                         : entity < 22 ? QString("M%1").arg(entity - 5)
                                       : QString("T%1").arg(entity - 21);
-        bool enabled =
-            entity < 6 || entity >= 22 || U5::byte(bytes, base + 5 * 32 + 11 + entity - 6) != 0;
+        bool enabled = entity < 6 || entity >= 22 || resource == "BRIT.CBT" ||
+                       U5::byte(bytes, base + 5 * 32 + 11 + entity - 6) != 0;
         combatEntity->addItem(QString("%1 · (%2, %3)%4")
                                   .arg(label)
                                   .arg(x)
@@ -2387,7 +2650,12 @@ void MapWorkspace::refreshCombat() {
                                   .arg(!enabled           ? " · disabled"
                                        : x > 10 || y > 10 ? " · outside"
                                                           : ""));
-        canvas->actors.append({x, y, 0, entity, label});
+        if (enabled && x < 11 && y < 11)
+            canvas->actors.append({x, y,
+                                   entity >= 6 && entity < 22 && resource == "DUNGEON.CBT"
+                                       ? 256 + int(U5::byte(bytes, base + 5 * 32 + 11 + entity - 6))
+                                       : 0,
+                                   entity, label});
         if (entity != canvas->selectedNpc)
             continue;
         info = combatEntity->itemText(entity);
@@ -2413,6 +2681,20 @@ void MapWorkspace::refreshCombat() {
     }
     combatEntity->setCurrentIndex(canvas->selectedNpc);
     combatInfo->setText(info.isEmpty() ? "Select a marker or record." : info);
+    monsterAppearance->setVisible(resource == "DUNGEON.CBT" && canvas->selectedNpc >= 6 &&
+                                  canvas->selectedNpc < 22);
+    if (monsterAppearance->isVisible())
+        monsterAppearance->setCurrentIndex(monsterAppearance->findData(
+            U5::byte(bytes, base + 5 * 32 + 11 + canvas->selectedNpc - 6)));
+    triggerProperties->setVisible(canvas->selectedNpc >= 22);
+    if (canvas->selectedNpc >= 22) {
+        int i = canvas->selectedNpc - 22;
+        triggerTile->setCurrentIndex(triggerTile->findData(U5::byte(bytes, base + 11 + i)));
+        for (int j = 0; j < 2; j++) {
+            triggerX[j]->setValue(U5::byte(bytes, base + (9 + j) * 32 + 11 + i));
+            triggerY[j]->setValue(U5::byte(bytes, base + (9 + j) * 32 + 19 + i));
+        }
+    }
     combatPreview->setEnabled(canvas->selectedNpc >= 22);
     canvas->update();
 }
@@ -2721,4 +3003,168 @@ QImage MapDocument::terrainImage(int page, const QVector<QImage> &tiles, bool id
                 painter.drawImage(x * 16, y * 16, tiles[U5::byte(cells, y * side + x)]);
     }
     return image;
+}
+
+void MapWorkspace::setItemMode(const QString &mode) {
+    for (int i = 0; i < locationModes->count(); ++i)
+        if (locationModes->tabText(i) == mode) {
+            if (activeMode == i)
+                applyLocationMode();
+            else
+                locationModes->setCurrentIndex(i);
+            return;
+        }
+}
+void MapWorkspace::beginAdd(int value) {
+    try {
+        if (!flushLocationMode())
+            return;
+        auto kind = Workshop::MapItemKind(value);
+        int appearance = -1, conversation = -1;
+        QString name = "New NPC";
+        if (kind == Workshop::MapItemKind::Npc ||
+            (kind == Workshop::MapItemKind::Monster && resource != "BRIT.CBT")) {
+            QDialog dialog(this);
+            dialog.setWindowTitle("Add " + Workshop::mapItemName(kind));
+            auto layout = new QFormLayout(&dialog);
+            auto names = new QLineEdit(name, &dialog);
+            auto shapes = new QComboBox(&dialog);
+            auto conversations = new QComboBox(&dialog);
+            names->setVisible(kind == Workshop::MapItemKind::Npc);
+            conversations->setVisible(kind == Workshop::MapItemKind::Npc);
+            if (kind == Workshop::MapItemKind::Npc) {
+                layout->addRow("Name", names);
+                for (int shape = 64; shape < 128; shape += 4)
+                    if (Workshop::actorName(shape) != "x")
+                        shapes->addItem(QIcon(QPixmap::fromImage(canvas->tiles.value(256 + shape))),
+                                        Workshop::actorName(shape), shape);
+                shapes->setCurrentIndex(shapes->findData(80));
+                conversations->addItem("New conversation", -1);
+                if (project->resources.contains(talkResource))
+                    for (auto e : U5::readDialogue(project->data(talkResource))) {
+                        auto doc = Dialogue::parse(e.bytes);
+                        if (e.id > 0 && e.id < 128 && doc.structuralError.isEmpty())
+                            conversations->addItem(Dialogue::displayName(doc.entries[0].bytes),
+                                                   int(e.id));
+                    }
+                layout->addRow("Conversation", conversations);
+                conversations->setToolTip("Create a conversation or share an existing one.");
+                connect(conversations, &QComboBox::currentIndexChanged, &dialog,
+                        [=] { names->setEnabled(conversations->currentData().toInt() < 0); });
+            } else
+                for (int shape : Workshop::monsterShapes())
+                    shapes->addItem(QIcon(QPixmap::fromImage(canvas->tiles.value(256 + shape))),
+                                    Workshop::actorName(shape), shape);
+            shapes->setToolTip("Choose the artwork and native creature type.");
+            layout->addRow("Appearance", shapes);
+            auto buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+            layout->addRow(buttons);
+            connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+            connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+            if (dialog.exec() != QDialog::Accepted)
+                return;
+            appearance = shapes->currentData().toInt();
+            name = names->text().trimmed();
+            conversation =
+                kind == Workshop::MapItemKind::Npc ? conversations->currentData().toInt() : -1;
+            if (name.isEmpty())
+                name = "New NPC";
+        }
+        int tile = kind == Workshop::MapItemKind::Sign        ? 0xf8
+                   : kind == Workshop::MapItemKind::Container ? 257
+                   : kind == Workshop::MapItemKind::Horse     ? 272
+                   : kind == Workshop::MapItemKind::Skiff     ? 296
+                   : kind == Workshop::MapItemKind::Frigate   ? 288
+                   : kind == Workshop::MapItemKind::Carpet    ? 283
+                   : appearance >= 0                          ? 256 + appearance
+                                                              : -1;
+        canvas->beginPlacement(
+            tile, kind != Workshop::MapItemKind::Npc && kind != Workshop::MapItemKind::Sign,
+            [this, value, appearance, conversation, name](QPoint cell) {
+                return placeAddedItem(value, appearance, conversation, name, cell);
+            });
+    } catch (const std::exception &error) {
+        QMessageBox::warning(this, "Cannot add map item", error.what());
+    }
+}
+bool MapWorkspace::placeAddedItem(int value, int appearance, int conversation, QString name,
+                                  QPoint cell) {
+    try {
+        auto kind = Workshop::MapItemKind(value);
+        // Mode changes cancel gestures; retain the placement callback for repeat stamping.
+        auto place = canvas->placeItem;
+        int tile = canvas->placementTile;
+        bool repeat = canvas->repeatPlacement;
+        auto edit = Workshop::addMapItem(*project, resource, currentPage(), cell, kind, appearance,
+                                         conversation, name);
+        if (!commitResources(edit.changes, "Add " + Workshop::mapItemName(kind)))
+            return false;
+        canvas->keyboardCell = cell;
+        if (edit.mode == "Starting Objects")
+            (*navigation)["objects/slot"] = edit.slot;
+        setItemMode(edit.mode);
+        canvas->keyboardCell = cell;
+        if (edit.mode == "NPCs / Schedules" || edit.mode == "Encounter")
+            selectNpc(edit.slot);
+        else if (edit.mode == "Contents" && locationLayer) {
+            auto scroll = qobject_cast<QScrollArea *>(locationLayer);
+            if (auto editor = dynamic_cast<Workshop::ContentsEditor *>(scroll->widget()))
+                editor->selectCell(cell);
+        } else if (edit.mode == "Signs") {
+            for (auto actor : canvas->actors)
+                if (actor.x == cell.x() && actor.y == cell.y() && canvas->chooseNpc)
+                    canvas->chooseNpc(actor.npc);
+        }
+        if (repeat)
+            canvas->beginPlacement(tile, true, place);
+        else {
+            canvas->tool = MapCanvas::InspectNpc;
+            tool->button(canvas->tool)->setChecked(true);
+        }
+        saveView();
+        return true;
+    } catch (const std::exception &error) {
+        QMessageBox::warning(this, "Cannot add map item", error.what());
+        return false;
+    }
+}
+void MapWorkspace::deleteSelectedItem() {
+    if (!locationModes || !flushLocationMode())
+        return;
+    try {
+        QPoint cell = canvas->keyboardCell;
+        for (auto actor : canvas->actors)
+            if (actor.npc == canvas->selectedNpc)
+                cell = {actor.x, actor.y};
+        const auto mode = locationModes->tabText(activeMode);
+        auto changes = Workshop::deleteMapItem(*project, resource, currentPage(), mode,
+                                               canvas->selectedNpc, cell);
+        if (commitResources(changes, "Delete map item")) {
+            canvas->selectedNpc = -1;
+            (*states)[key].npc = -1;
+            (*navigation)["objects/slot"] = -1;
+            applyLocationMode();
+            saveView();
+        }
+    } catch (const std::exception &error) {
+        QMessageBox::warning(this, "Cannot delete map item", error.what());
+    }
+}
+void MapWorkspace::editNpcProperties() {
+    int slot = canvas->selectedNpc;
+    if (slot <= 0 || slot >= 32)
+        return;
+    int start = document.pages[currentPage()].settlement * 576;
+    auto bytes = project->data(npcResource);
+    if (npcAppearance->currentIndex() >= 0)
+        bytes[start + 512 + slot] = char(npcAppearance->currentData().toInt());
+    if (npcDialogue->currentIndex() >= 0)
+        bytes[start + 544 + slot] = char(npcDialogue->currentData().toInt());
+    if (npcBehavior->currentIndex() >= 0)
+        bytes[start + slot * 16 + MapNpcDocument::locationIndex(schedule->currentIndex())] =
+            char(npcBehavior->currentData().toInt());
+    if (commitResources({{npcResource, bytes}}, "Edit NPC properties")) {
+        refreshNpcs();
+        saveView();
+    }
 }

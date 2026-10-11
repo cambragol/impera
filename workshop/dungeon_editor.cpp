@@ -1,5 +1,6 @@
 #include "dungeon_editor.h"
 #include "contents_editor.h"
+#include "map_entities.h"
 #include "dungeon_names.h"
 namespace Workshop {
 DungeonDocument::DungeonDocument(const Project *p) : project(p) {
@@ -282,6 +283,60 @@ DungeonWorkspace::DungeonWorkspace(
         inspectors->setCurrentWidget(*contentsPanel);
         (*contentsPanel)->selectCell(cell);
         return true;
+    };
+    auto addMenuButton = new QToolButton;
+    addMenuButton->setText("Add…");
+    addMenuButton->setObjectName("dungeonAddMenu");
+    addMenuButton->setPopupMode(QToolButton::InstantPopup);
+    addMenuButton->setToolTip("Place a container or hidden contents on this dungeon level.");
+    auto addMenu = new QMenu(addMenuButton);
+    for (bool container : {true, false}) {
+        auto action = addMenu->addAction(container ? "Container" : "Hidden contents");
+        connect(action, &QAction::triggered, this, [=] {
+            canvas->beginPlacement(container ? 0x40 : -1, true, [=](QPoint cell) {
+                try {
+                    auto bytes =
+                        addContentsAt(*p, {0, 33 + dungeon->currentIndex(), floor->currentIndex()},
+                                      cell, container);
+                    if (!commit({{"CONTENTS.OVR", bytes}},
+                                container ? "Add dungeon container" : "Add hidden contents"))
+                        return false;
+                    canvas->tool = MapCanvas::InspectNpc;
+                    toolGroup->button(MapCanvas::InspectNpc)->setChecked(true);
+                    canvas->prepareSelection(cell);
+                    canvas->update();
+                    return true;
+                } catch (const std::exception &e) {
+                    QMessageBox::warning(this, "Cannot add map item", e.what());
+                    return false;
+                }
+            });
+        });
+    }
+    addMenuButton->setMenu(addMenu);
+    tools->insertWidget(7, addMenuButton);
+    canvas->deleteItem = [=] {
+        try {
+            auto target = ContentsTarget{0, 33 + dungeon->currentIndex(), floor->currentIndex()};
+            auto cell = canvas->keyboardCell;
+            for (auto actor : canvas->actors)
+                if (actor.npc == canvas->selectedNpc)
+                    cell = {actor.x, actor.y};
+            auto defs = readContents(p->data("CONTENTS.OVR"));
+            bool removed = false;
+            for (int i = defs.size() - 1; i >= 0; i--)
+                if (defs[i].kind == target.kind && defs[i].map == target.map &&
+                    defs[i].floor == target.floor && defs[i].x == cell.x() &&
+                    defs[i].y == cell.y()) {
+                    defs.removeAt(i);
+                    removed = true;
+                }
+            if (removed && commit({{"CONTENTS.OVR", writeContents(defs, p->data("CONTENTS.OVR"))}},
+                                  "Delete dungeon contents"))
+                canvas->prepareSelection(cell);
+        } catch (const std::exception &e) {
+            QMessageBox::warning(this, "Cannot delete contents", e.what());
+        }
     };
     layout->addLayout(split, 1);
     auto status = new QLabel;

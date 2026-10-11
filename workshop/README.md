@@ -505,3 +505,14 @@ Settlements, both world maps, dungeon levels and encounter templates are support
 Contents edits export package version 4 and require the matching Impera build.
 See [map contents and containers](../docs/workshop-containers-plan.md) for usage,
 save compatibility, encounter lifetime and current limits.
+
+### Add map items
+
+Use **Add…** in the map tool row to place NPCs, monsters, signs, containers or
+hidden contents. Worlds also offer horses, skiffs, frigates and magic carpets;
+dungeon combat rooms offer triggers. Click to place, then use the right inspector.
+**Select / Move** selects and drags existing items; **Delete** removes the selected
+item. Placement, attached data and deletion support Undo.
+
+See [adding map items](../docs/workshop-add-map-items.md) for map-specific behavior,
+capacity limits, save compatibility, and the audit of other behavior-bearing tiles.
