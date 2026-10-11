@@ -228,11 +228,6 @@ QWidget *sceneEditor(Project *project, const QString &resource, TextCommit commi
     canvas->pick = [=](int i) { palette->setCurrentRow(i); };
     split->addWidget(palette);
     mapLayout->addWidget(split, 1);
-    auto mapNote = new QLabel("Stored terrain only. Actors, camera timing and scripted effects in "
-                              "these four scenes are placed by engine code.");
-    mapNote->setWordWrap(true);
-    mapNote->setToolTip("Map edits preserve row padding and do not change coded actor placement.");
-    mapLayout->addWidget(mapNote);
     tabs->addTab(mapPage, "Map");
     auto messages = new QWidget;
     auto messageLayout = new QVBoxLayout(messages);
@@ -617,18 +612,8 @@ QWidget *sceneEditor(Project *project, const QString &resource, TextCommit commi
         }
         *nestedFlush = {};
         QString msg = scene == 3 ? "ENDMSG.DAT" : scene == 4 ? "QUESTION.DAT" : "MISCMSG.DAT";
-        auto explanation = new QLabel;
-        explanation->setWordWrap(true);
-        explanation->setText(
-            scene == 4   ? "Character-creation prose and virtue questions. Scene titles and "
-                           "instruction timing are coded separately."
-            : scene == 3 ? "Final-rescue messages, called by the ending sequence."
-            : scene == 0 ? "Blackthorn interrogation messages, called by the imprisonment sequence."
-                         : "Shrine and Codex share this message bank, including virtue teachings. "
-                           "Runtime entry points are shown in tooltips.");
         auto wrapper = new QWidget;
         auto ml = new QVBoxLayout(wrapper);
-        ml->addWidget(explanation);
         if (project->resources.contains(msg)) {
             auto editor = narrativeEditor(project, msg, commit, state, nestedFlush.get());
             ml->addWidget(editor);

@@ -2687,7 +2687,7 @@ int main(int argc, char **argv) {
             active()->findChild<QComboBox *>("mapSchedule")->setCurrentIndex(3);
             app.processEvents();
             check(active()->findChild<QSpinBox *>("mapNpcX")->value() == 6 &&
-                      active()->findChild<QLabel *>("mapNpcInfo")->text().contains("share"),
+                      active()->findChild<QLabel *>("mapNpcInfo")->text().contains("Schedule change 4"),
                   "Slot 3 failed shared location display");
             check(active()->findChild<QComboBox *>("mapSchedule")->currentText() == "4" &&
                       !active()->findChild<QLabel *>("mapNpcInfo")->text().contains("AI byte"),

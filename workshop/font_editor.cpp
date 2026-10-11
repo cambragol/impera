@@ -134,12 +134,6 @@ QWidget *fontEditor(Project *project, const QString &name, TextCommit commit,
     auto panel = new QWidget;
     panel->setObjectName("fontEditor");
     auto layout = new QVBoxLayout(panel);
-    auto status = new QLabel(
-        name.endsWith(".HCS")
-            ? "Legacy Hercules font — not used by the SDL color renderer · 128 glyphs, 16×12 pixels"
-            : "Game font · 128 glyphs, 8×8 pixels · Blank slots are intentional and preserved");
-    status->setWordWrap(true);
-    layout->addWidget(status);
     auto split = new QSplitter;
     auto left = new QWidget;
     auto ll = new QVBoxLayout(left);

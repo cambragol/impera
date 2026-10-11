@@ -331,13 +331,6 @@ ConversationEditor::ConversationEditor(
     });
     auto dos = new QWidget;
     auto dosLayout = new QVBoxLayout(dos);
-    auto caveat = new QLabel(
-        "Selected response, starting in normal font at column 0. "
-        "18-column wrapping, dictionary spacing and rune glyphs follow the engine. "
-        "Actual screen scrolling, timing and branch outcomes depend on the running game. "
-        "Avatar and conditions use Playtest Setup.");
-    caveat->setWordWrap(true);
-    dosLayout->addWidget(caveat);
     previewNotes = new QLabel;
     previewNotes->setWordWrap(true);
     previewNotes->setObjectName("conversationPreviewNotes");
@@ -402,11 +395,6 @@ ConversationEditor::ConversationEditor(
     setupLayout->addLayout(stateRow2);
     testLayout->addWidget(setup);
     setup->hide();
-    auto disclaimer =
-        new QLabel("Sandbox preview; guards, recruitment and inventory/world effects are "
-                   "traced, not executed. DOS font/rune/quote rendering is not simulated.");
-    disclaimer->setWordWrap(true);
-    testLayout->addWidget(disclaimer);
     transcript = new QTreeWidget;
     transcript->setHeaderLabels({"Conversation"});
     transcript->setObjectName("conversationTranscript");
@@ -648,16 +636,7 @@ void ConversationEditor::loadEntry(int e) {
     const int question = selectedQuestion();
     if (question >= 0)
         message = questionName(doc.questions[question].label);
-    if (e == 0)
-        message += " — the game adds ‘My name is …’";
-    if (e == 1)
-        message += " — the game adds ‘You see …’";
-    if (e == 2)
-        message += " — used when this NPC is already introduced";
-    context->setToolTip(QString("Dialogue ID %1 · entry %2 · byte offset 0x%3")
-                            .arg(conversations[npcIndex].id)
-                            .arg(e)
-                            .arg(doc.entries[e].offset, 0, 16));
+    context->setToolTip(QString());
     QString npcFile = resource.left(resource.size() - 4) + ".NPC";
     if (project->resources.contains(npcFile)) {
         auto data = project->data(npcFile);
@@ -680,7 +659,7 @@ void ConversationEditor::loadEntry(int e) {
                     locations << QString("%1 · NPC %2").arg(location).arg(n);
                 }
         if (!locations.isEmpty())
-            context->setToolTip(context->toolTip() + "\nUsed by: " + locations.join("; "));
+            context->setToolTip("Used by: " + locations.join("; "));
     }
     context->setTextFormat(Qt::PlainText);
     context->setText(message);
@@ -863,8 +842,7 @@ void ConversationEditor::buildBlocks() {
     currentBlocks.clear();
     if (!doc.structuralError.isEmpty() || selected == doc.tail ||
         doc.rawEntries.contains(selected)) {
-        blocksLayout->addWidget(new QLabel("This section is preserved byte-for-byte. Edit it "
-                                           "explicitly in Advanced source."));
+        blocksLayout->addWidget(new QLabel("Advanced source only"));
         tabs->setCurrentIndex(1);
         return;
     }
@@ -1190,18 +1168,6 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
                 activateEntry(entry);
                 changed();
             });
-            auto note = new QLabel(
-                b.opcode == 133   ? "Insufficient gold returns to ordinary topics. This attempts "
-                                    "payment, rather than checking gold without spending it."
-                : b.opcode == 140 ? "Runs only when this NPC has recognized a party member's name."
-                : b.opcode == 134 ? "Equipment names come from the engine table. Supplies increase "
-                                    "by one; special items are granted. Raw operands are retained "
-                                    "for compatibility; codes 48–63 write outside the equipment "
-                                    "array."
-                                  : "Branching enters the question; it does not return to the "
-                                    "remaining text.");
-            note->setWordWrap(true);
-            formLayout->addWidget(note);
         } else {
             summary->setToolTip(
                 "Use the action menu to copy, move or explicitly remove this control.");
@@ -1229,10 +1195,10 @@ void ConversationEditor::changed() {
         return;
     pending = true;
     if (sourceDraft) {
-        status->setText("Source draft — validate and apply, or leave this view to validate.");
+        status->setText("Source changes pending");
         timer.stop();
     } else {
-        status->setText("Draft pending — valid edits apply automatically after typing.");
+        status->setText("Changes pending");
         timer.start();
     }
 }
@@ -1332,7 +1298,7 @@ bool ConversationEditor::applyDraft() {
         refreshSource();
         simulation.reset();
         transcript->clear();
-        status->setText("Applied to project; original game files unchanged.");
+        status->setText("Changes applied");
         buildOutline(selected);
         if (wasSource || shapeChanged) {
             loadEntry(qBound(0, selected, int(doc.entries.size() - 1)));

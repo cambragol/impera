@@ -92,11 +92,6 @@ QWidget *tableEditor(Project *project, const QString &resource, TextCommit commi
     layout->addWidget(tabs);
     auto editor = new QWidget;
     auto el = new QVBoxLayout(editor);
-    auto note = new QLabel("Verified engine tables · Changes are exported as RULES.TBL, not "
-                           "ineffective DATA.OVL bytes. Prices use the original intelligence "
-                           "adjustment; omitted entries inherit compiled defaults.");
-    note->setWordWrap(true);
-    el->addWidget(note);
     auto kind = new QComboBox;
     kind->setObjectName("engineTableSelector");
     for (auto &spec : U5_EngineTables)
@@ -250,12 +245,6 @@ QWidget *tableEditor(Project *project, const QString &resource, TextCommit commi
     tabs->addTab(editor, "Shops and locations");
     auto inventory = new QWidget;
     auto il = new QVBoxLayout(inventory);
-    auto context = new QLabel(
-        "Coverage audit: only the Britannia chunk index is loaded from DATA.OVL. Verified concepts "
-        "above have companion overrides. Other compiled tables, DOS-only layouts and unresolved "
-        "spans are explicitly identified; candidate offsets require edition verification.");
-    context->setWordWrap(true);
-    il->addWidget(context);
     auto search = new QLineEdit;
     search->setObjectName("overlayInventorySearch");
     search->setPlaceholderText("Search table, consumer or classification…");

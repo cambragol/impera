@@ -916,12 +916,6 @@ QWidget *WorkshopWindow::overviewEditor() {
     summary->setToolTip("Destinations can share data. The package replaces whole changed "
                         "resources, not just the listed locations or characters.");
     layout->addWidget(summary);
-    auto guidance = new QLabel(
-        "Save Project keeps your editable work. Export Package creates an .imperamod file for the "
-        "game's Mods folder. Test Mod uses an isolated runtime. Starting-state changes apply to "
-        "new games; original game files are never edited.");
-    guidance->setWordWrap(true);
-    layout->addWidget(guidance);
     auto row = new QHBoxLayout;
     auto command = [&](const QString &label, const QString &actionText) {
         auto b = new QPushButton(label);
@@ -984,7 +978,7 @@ QWidget *WorkshopWindow::overviewEditor() {
     tabs->addTab(resources, "Package contents");
     auto validation = new QWidget;
     auto vl = new QVBoxLayout(validation);
-    auto status = new QLabel("Not checked. Run validation before exporting or testing.");
+    auto status = new QLabel("Not checked");
     status->setObjectName("overviewValidationStatus");
     vl->addWidget(status);
     auto report = new QTreeWidget;
@@ -1424,10 +1418,6 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
     }
     actions->addStretch();
     layout->addLayout(actions);
-    layout->addWidget(hint("Paint with EGA colors; right-click picks a pixel. "
-                           "Import/export PNG includes the DOS one-bit "
-                           "mask. TILES.16 has no alpha. Partial alpha and "
-                           "non-EGA colors are rejected."));
     return w;
 }
 QWidget *WorkshopWindow::characterEditor(const QString &name) {
@@ -1620,10 +1610,6 @@ QWidget *WorkshopWindow::storyEditor() {
         normalized.replace("\r\n", "\n");
         return text->toPlainText() == normalized;
     };
-    layout->addWidget(hint("Apply commits this page. Pages retain the engine's "
-                           "fixed offsets and original "
-                           "capacity. ASCII text only; intro index 6 is dynamic "
-                           "and has no stored page."));
     return w;
 }
 #include "state_fields.h"
@@ -1902,12 +1888,6 @@ QWidget *WorkshopWindow::npcEditor(const QString &name) {
             }))
             load();
     });
-    layout->addWidget(
-        hint("Four schedule changes choose three destinations and behaviors. Changes 2 and 4 share "
-             "a destination: editing either changes both. Start hours normally use 0–23; unusual "
-             "values are preserved. Floor −1 is the basement. Behavior and appearance codes are "
-             "advanced values; appearance code +256 selects the sprite. Conversation numbers link "
-             "to this town's dialogue."));
     return w;
 }
 QWidget *WorkshopWindow::combatEditor(const QString &name, int pageIndex) {
@@ -1957,11 +1937,6 @@ QWidget *WorkshopWindow::combatEditor(const QString &name, int pageIndex) {
             }))
             load();
     });
-    layout->addWidget(hint("All 21 metadata bytes per row are preserved. Normal coordinates "
-                           "are 0–10; sentinel and unknown "
-                           "values remain editable as 0–255. Party rows: six X followed by six "
-                           "Y; trigger/change rows: "
-                           "eight X then eight Y. Remaining cells are unknown/padding."));
     return w;
 }
 bool WorkshopWindow::reviewPackage(bool launch) {
@@ -1975,12 +1950,6 @@ bool WorkshopWindow::reviewPackage(bool launch) {
     dialog.setWindowTitle(launch ? "Validate and test mod" : "Validation / package preview");
     dialog.resize(850, 500);
     auto layout = new QVBoxLayout(&dialog);
-    auto explanation = new QLabel(
-        "Double-click a resource to inspect it. Warnings preserve unusual values; errors block "
-        "export/testing. Overlapping installed packages are rejected, not merged. Test Mod ignores "
-        "installed packages and uses a separate runtime folder. Start a fresh game creates a clean test session; choose Create A New Character, then Journey Onwards. Normal saves are never reset.");
-    explanation->setWordWrap(true);
-    layout->addWidget(explanation);
     auto report = new QTreeWidget;
     report->setObjectName("modValidationReport");
     report->setHeaderLabels({"Result", "Resource", "Details"});

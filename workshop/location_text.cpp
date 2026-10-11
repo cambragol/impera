@@ -270,6 +270,7 @@ QWidget *locationTextEditor(Project *project, const QString &resource, TextCommi
     list->setToolTip("Select an entry to inspect its text. Each edit is undoable.");
     auto notice = new QLabel;
     notice->setWordWrap(true);
+    notice->hide();
     form->addWidget(notice);
     auto text = new QPlainTextEdit;
     text->setObjectName("locationTextDraft");
@@ -352,14 +353,6 @@ QWidget *locationTextEditor(Project *project, const QString &resource, TextCommi
             if (!mayDiscard(row))
                 return;
             text->setPlainText(QString::fromLatin1(description(project->data(resource), row)));
-            int n = 0;
-            for (int i = 0; i < 512; i++)
-                if (word(project->data(resource), i * 2) == word(project->data(resource), row * 2))
-                    n++;
-            notice->setText(QString("Used by Look command for %1. %2 entries share this text. "
-                                    "Engine-generated special descriptions override some tiles.")
-                                .arg(MapDocument::tileName(row % 256))
-                                .arg(n));
         });
         QObject::connect(text, &QPlainTextEdit::textChanged, root, [=] {
             if (project->resources.contains("IBM.CH")) {
@@ -496,10 +489,6 @@ QWidget *locationTextEditor(Project *project, const QString &resource, TextCommi
         controls->addWidget(new QLabel("Y"));
         controls->addWidget(y);
         form->insertLayout(1, controls);
-        notice->setText(
-            "Plain text uses normal lettering; [runes]…[/runes] selects runic lettering. Preserved "
-            "[byte:NN] tokens represent borders or pauses. Maps without a matching record show the "
-            "engine's Eight Laws; Yew's wanted poster is generated and cannot be edited here.");
         text->setToolTip("ASCII letters use the normal font; [byte:NN] preserves exact runic or "
                          "decorative glyphs. Newlines use normal-font line breaks.");
         QObject::connect(x, &QSpinBox::valueChanged, root,
@@ -590,12 +579,8 @@ QWidget *locationTextEditor(Project *project, const QString &resource, TextCommi
             int tile = uchar(canvas->ids[r.y * canvas->side + r.x]);
             bool readable =
                 tile == 0x89 || tile == 0x8a || tile == 0xa0 || tile == 0xa4 || tile == 0xf8;
-            notice->setText(
-                QString("%1 Plain text is normal lettering; [runes]…[/runes] selects runes. "
-                        "Terrain is never painted automatically. The engine generates the Eight "
-                        "Laws fallback and Yew’s wanted poster.")
-                    .arg(readable ? "Look reads this sign tile."
-                                  : "Warning: this tile does not read SIGNS.DAT with Look."));
+            notice->setText(readable ? QString() : "This tile cannot display a sign.");
+            notice->setVisible(!readable);
             canvas->keyboardCell = {r.x, r.y};
             if (mapScroll)
                 QTimer::singleShot(0, root, [=] {

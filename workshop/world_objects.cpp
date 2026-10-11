@@ -165,15 +165,6 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
     details->setToolTip("Animation frame and type-specific bytes are preserved. Unverified "
                         "properties are intentionally read-only.");
     il->addRow("Advanced details", details);
-    auto note =
-        sharedCanvas
-            ? new QLabel("New games only. Add at the targeted map cell, or drag a marker to place "
-                         "it. Existing saves are unchanged.")
-            : new QLabel(
-                  "New games only. Starting state controls the party and initial location. This "
-                  "layer controls each world's objects; terrain is edited in Maps.");
-    note->setWordWrap(true);
-    il->addRow(note);
     split->addWidget(inspector);
     layout->addWidget(split, 1);
     auto loading = std::make_shared<bool>(false);

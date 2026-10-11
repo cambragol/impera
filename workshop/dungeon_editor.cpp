@@ -263,10 +263,6 @@ DungeonWorkspace::DungeonWorkspace(
     status->setToolTip("Feedback for copy, paste, and map gestures.");
     layout->addWidget(status);
     canvas->feedback = [=](const QString &text) { status->setText(text); };
-    auto note = new QLabel("Dungeon edges wrap. Feature symbols are schematic, not terrain tiles. "
-                           "Already-loaded dungeons in saves may retain their old layout.");
-    note->setWordWrap(true);
-    layout->addWidget(note);
     QVector<QImage> symbols;
     for (int value = 0; value < 256; ++value) {
         QImage image(16, 16, QImage::Format_RGB32);

@@ -1813,12 +1813,6 @@ void MapWorkspace::createNpcInspector(QVBoxLayout *layout) {
     advanced->setToolTip("Edit behavior and other schedule fields; unknown values are preserved.");
     advanced->setObjectName("mapNpcAdvanced");
     layout->addWidget(advanced);
-    auto hint =
-        new QLabel("Select an NPC, then drag to preview its destination. Release to move; "
-                   "Esc cancels. Numbers identify schedule changes 1–4, not simulated movement.");
-    hint->setWordWrap(true);
-    hint->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    layout->addWidget(hint);
     layout->addStretch();
     connect(npcStartHour, &QSpinBox::editingFinished, this, [this] {
         if (restoring || canvas->selectedNpc < 0)
@@ -1973,7 +1967,7 @@ void MapWorkspace::refreshNpcs() {
     int npc = canvas->selectedNpc;
     npcList->setCurrentIndex(npc);
     if (npc < 0 || npc >= 32) {
-        npcInfo->setText("Select an NPC on the map or choose one above");
+        npcInfo->setText("No NPC selected");
         npcSprite->clear();
         npcStartHour->setEnabled(false);
         canvas->update();
@@ -1995,13 +1989,10 @@ void MapWorkspace::refreshNpcs() {
             .arg(npcs.hour(mp.settlement, npc, slot) < 24
                      ? QString("%1:00").arg(npcs.hour(mp.settlement, npc, slot), 2, 10, QChar('0'))
                      : "an unusual time (see advanced details)");
-    if (slot == 1 || slot == 3)
-        info +=
-            "Changes 2 and 4 share this destination and behavior. Moving either changes both.\n";
     if (loc.x >= 32 || loc.y >= 32)
-        info += "Stored position is outside map bounds; it is preserved.\n";
+        info += "Position is outside this map.\n";
     if (loc.floor != mp.floor)
-        info += QString("On floor %1; use Locate to change floors.\n").arg(loc.floor);
+        info += QString("Floor %1.\n").arg(loc.floor);
     QStringList positions;
     for (int s = 0; s < 4; ++s) {
         auto other = npcs.location(mp.settlement, npc, s);
@@ -2019,8 +2010,6 @@ void MapWorkspace::refreshNpcs() {
     npcConversation->setEnabled(conversationIndices.contains(id));
     if (!npcConversation->isEnabled())
         info += "\nNo editable conversation is available for this NPC.";
-    if (id >= 128)
-        info += "\nMerchant or special conversation is handled by the game.";
     npcInfo->setText(info);
     canvas->update();
 }
@@ -2169,12 +2158,6 @@ void MapWorkspace::createCombatInspector(QVBoxLayout *layout) {
     combatPreview->setObjectName("combatPreview");
     combatPreview->setChecked(navigation->value(resource + "/preview", 0));
     layout->addWidget(combatPreview);
-    auto advanced = new QLabel(
-        "Drag markers to move. P = party start, M = monster, T = trigger. Disabled/out-of-bounds "
-        "records stay in the list. Use Encounter Details for advanced metadata. Trigger preview is "
-        "read-only; runtime AI and special encounters are not simulated.");
-    advanced->setWordWrap(true);
-    layout->addWidget(advanced);
     layout->addStretch();
     connect(combatEntry, &QComboBox::currentIndexChanged, this, [this](int value) {
         canvas->cancelStroke();

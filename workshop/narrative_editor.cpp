@@ -177,10 +177,6 @@ QWidget *narrativeEditor(Project *project, const QString &resource, TextCommit c
     auto root = new QWidget;
     root->setObjectName("narrativeWorkspace");
     auto layout = new QVBoxLayout(root);
-    auto intro = new QLabel("Edit the story text; engine rules and character outcomes remain "
-                            "read-only. Unidentified data is preserved in Advanced details.");
-    intro->setWordWrap(true);
-    layout->addWidget(intro);
     auto filter = new QLineEdit;
     filter->setPlaceholderText("Find an entry or service…");
     filter->setToolTip("Filter by virtue, page, shop service or message context.");
