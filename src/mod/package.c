@@ -1,4 +1,5 @@
 #include "package.h"
+#include "contents.h"
 #include "creation_scene.h"
 #include "engine_tables.h"
 #include "narrative.h"
@@ -46,7 +47,7 @@ int MOD_AllowedResource(const char *name) {
             return 0;
     if (strstr(name, ".."))
         return 0;
-    if (!strcmp(name, "TEXT.OVR") || !strcmp(name, "RULES.TBL"))
+    if (!strcmp(name, "TEXT.OVR") || !strcmp(name, "RULES.TBL") || !strcmp(name, "CONTENTS.OVR"))
         return 1;
     if (!strcmp(name, "DATA.OVL") || !strcmp(name, "INIT.GAM") || !strcmp(name, "INIT.OOL") ||
         !strcmp(name, "BRIT.OOL") || !strcmp(name, "UNDER.OOL"))
@@ -72,13 +73,13 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
     unsigned char magic[8];
     memset(result, 0, sizeof(*result));
     if (size >= 8 && memcmp(bytes, "IMOD0001", 8) && memcmp(bytes, "IMOD0002", 8) &&
-        memcmp(bytes, "IMOD0003", 8)) {
+        memcmp(bytes, "IMOD0003", 8) && memcmp(bytes, "IMOD0004", 8)) {
         reason = "Unsupported mod package version; update Impera";
         goto fail;
     }
     if (size > MOD_MAX_PACKAGE || !reader || !take(&c, magic, 8) ||
         (memcmp(magic, "IMOD0001", 8) && memcmp(magic, "IMOD0002", 8) &&
-         memcmp(magic, "IMOD0003", 8)) ||
+         memcmp(magic, "IMOD0003", 8) && memcmp(magic, "IMOD0004", 8)) ||
         !number(&c, &titleLength) || titleLength == 0 || titleLength > 256 || !number(&c, &count) ||
         count == 0 || count > MOD_MAX_ENTRIES || !take(&c, result->title, titleLength) ||
         memchr(result->title, 0, titleLength))
@@ -105,10 +106,14 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
                 reason = "Duplicate resource in mod package";
                 goto fail;
             }
-        if (!strcmp(entry->name, "TEXT.OVR") || !strcmp(entry->name, "RULES.TBL")) {
-            if ((memcmp(magic, "IMOD0002", 8) && memcmp(magic, "IMOD0003", 8)) ||
-                (!strcmp(entry->name, "RULES.TBL") && memcmp(magic, "IMOD0003", 8)) || baseSize ||
-                baseCrc) {
+        if (!strcmp(entry->name, "TEXT.OVR") || !strcmp(entry->name, "RULES.TBL") ||
+            !strcmp(entry->name, "CONTENTS.OVR")) {
+            if ((memcmp(magic, "IMOD0002", 8) && memcmp(magic, "IMOD0003", 8) &&
+                 memcmp(magic, "IMOD0004", 8)) ||
+                (!strcmp(entry->name, "RULES.TBL") && memcmp(magic, "IMOD0003", 8) &&
+                 memcmp(magic, "IMOD0004", 8)) ||
+                (!strcmp(entry->name, "CONTENTS.OVR") && memcmp(magic, "IMOD0004", 8)) ||
+                baseSize || baseCrc) {
                 reason =
                     "Companion overrides require a supported package version and an empty base";
                 goto fail;
@@ -158,6 +163,10 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
         if ((!strcmp(entry->name, "IBM.HCS") || !strcmp(entry->name, "RUNES.HCS")) &&
             entry->size != 3072) {
             reason = "Invalid Hercules font dimensions";
+            goto fail;
+        }
+        if (!strcmp(entry->name, "CONTENTS.OVR") && !CONTENTS_Validate(entry->data, entry->size)) {
+            reason = "Unsupported or invalid map contents schema";
             goto fail;
         }
         if (!strcmp(entry->name, "RULES.TBL") && !U5_ValidateTables(entry->data, entry->size)) {

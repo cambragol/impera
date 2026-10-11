@@ -1,4 +1,5 @@
 #include "window.h"
+#include "contents_editor.h"
 #include "dialogue_editor.h"
 #include "dungeon_editor.h"
 #include "engine_tables.h"
@@ -1213,10 +1214,32 @@ QWidget *WorkshopWindow::mapEditor(const QString &name) {
         modes.append("Starting Objects");
     if (name.endsWith(".CBT"))
         modes.append("Encounter Details");
+    modes.append("Contents");
     workspace->enableLocationModes(
         modes,
         [this, name, workspace](const QString &mode, int page, MapCanvas *canvas,
                                 std::function<bool()> *flush) -> QWidget * {
+            if (mode == "Contents") {
+                *flush = [] { return true; };
+                MapDocument document(&project, name);
+                return new Workshop::ContentsEditor(
+                    &project, Workshop::contentsTarget(name, document.pages[page], page), canvas,
+                    [this](const QMap<QString, QByteArray> &changes, const QString &title) {
+                        return guard([&] {
+                            Project candidate = project;
+                            QMap<QString, bool> inclusion;
+                            for (auto it = changes.begin(); it != changes.end(); ++it) {
+                                candidate.resources[it.key()].edited = it.value();
+                                if (it.key() == "BRIT.OOL" || it.key() == "UNDER.OOL") {
+                                    inclusion[it.key()] = true;
+                                    candidate.resources[it.key()].included = true;
+                                }
+                            }
+                            candidate.validate();
+                            edit(changes, title, inclusion);
+                        });
+                    });
+            }
             if (mode == "Signs") {
                 return Workshop::locationTextEditor(
                     &project, "SIGNS.DAT",
@@ -1241,9 +1264,29 @@ QWidget *WorkshopWindow::mapEditor(const QString &name) {
                             Project candidate = project;
                             candidate.resources[resource].edited = bytes;
                             candidate.resources[resource].included = included;
+                            QMap<QString, QByteArray> changes{{resource, bytes}};
+                            auto definitions = Workshop::readContents(
+                                project.resources.value("CONTENTS.OVR").edited);
+                            const int floor = resource == "UNDER.OOL" ? -1 : 0;
+                            const auto objects =
+                                Workshop::WorldObjects::effective(candidate, floor < 0 ? 1 : 0);
+                            bool removed = false;
+                            for (int i = definitions.size() - 1; i >= 0; i--) {
+                                const auto &d = definitions[i];
+                                if (!d.kind && !d.map && d.floor == floor && d.slot != 255 &&
+                                    U5::byte(objects, d.slot * 8) != 1) {
+                                    definitions.removeAt(i);
+                                    removed = true;
+                                }
+                            }
+                            if (removed) {
+                                auto contents = Workshop::writeContents(
+                                    definitions, project.data("CONTENTS.OVR"));
+                                changes["CONTENTS.OVR"] = contents;
+                                candidate.resources["CONTENTS.OVR"].edited = contents;
+                            }
                             candidate.validate();
-                            edit({{resource, bytes}}, "Edit starting world objects",
-                                 {{resource, included}});
+                            edit(changes, "Edit starting world objects", {{resource, included}});
                         });
                     },
                     &editorState, flush, canvas,

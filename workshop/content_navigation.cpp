@@ -1,9 +1,11 @@
 #include "content_navigation.h"
+#include "contents_editor.h"
 #include "dialogue.h"
 #include "map_editor.h"
+#include "mod/discoveries.h"
+#include "narrative_editor.h"
 #include "resource_document.h"
 #include "scene_editor.h"
-#include "narrative_editor.h"
 #include "world_objects.h"
 #include <algorithm>
 namespace Workshop {
@@ -146,6 +148,8 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
     }
     for (auto it = project.resources.begin(); it != project.resources.end(); ++it) {
         const auto name = it.key();
+        if (name == "CONTENTS.OVR")
+            continue; // Edited through the map inspector.
         const auto c = capability(name);
         if (MapDocument::supported(name)) {
             const auto pages = U5::mapPages(name, project.data(name));
@@ -328,6 +332,23 @@ QMap<QString, QStringList> contentChanges(const Project &project,
                             break;
                         }
                     }
+                if (changed("CONTENTS.OVR")) {
+                    auto target = contentsTarget(d.resource, map.pages[d.page], d.page);
+                    for (const auto &entry :
+                         readContents(project.resources.value("CONTENTS.OVR").edited)) {
+                        bool hit = entry.kind == target.kind && entry.map == target.map &&
+                                   (d.settlement >= 0 || entry.floor == target.floor);
+                        if (entry.original != 65535) {
+                            const auto *source = U5_Discoveries[entry.original];
+                            hit |= !target.kind && source[2] == target.map &&
+                                   (d.settlement >= 0 || (int8_t)source[3] == target.floor);
+                        }
+                        if (hit) {
+                            parts.append("Contents");
+                            break;
+                        }
+                    }
+                }
                 // World destinations created in earlier phases encode settlement in their page.
                 int settlement = map.pages[d.page].settlement;
                 if (settlement >= 0) {
@@ -378,6 +399,15 @@ QMap<QString, QStringList> contentChanges(const Project &project,
                     project.data(d.resource).mid(map.pages[d.page].offset, 352) !=
                         original.data(d.resource).mid(map.pages[d.page].offset, 352))
                     parts.append("Encounter details");
+            } else if (d.resource == "DUNGEON.DAT") {
+                if (changed(d.resource))
+                    parts.append("Dungeon terrain");
+                if (changed("CONTENTS.OVR"))
+                    for (const auto &entry : readContents(project.data("CONTENTS.OVR")))
+                        if (!entry.kind && entry.map >= 33) {
+                            parts.append("Contents");
+                            break;
+                        }
             } else if (d.resource == "MISCMAPS.DAT" && d.selection.contains("scene/current")) {
                 int scene = d.selection["scene/current"];
                 if (changed(d.resource))

@@ -1,3 +1,4 @@
+#include "mod/contents.h"
 #include "common/common.h"
 #include "funcs.h"
 #include "vars.h"
@@ -15,6 +16,7 @@ static void ULTIMA_60ec_LoadSpecialMap(int param_1)
     int local_4;
 
     ULTIMA_256e_ReadFileFromDisk(/*0xa3f0*/ "BRIT.CBT", D_ad14, 0x160, param_1 * 0x160);
+    CONTENTS_BeginEncounter(1, (unsigned)param_1);
 
     for (local_4 = 0; local_4 < 6; local_4++)
     {

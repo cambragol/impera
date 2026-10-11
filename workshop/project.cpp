@@ -1,6 +1,8 @@
 #include "project.h"
+#include "contents_editor.h"
 #include "dialogue.h"
 #include "dungeon_editor.h"
+#include "mod/contents.h"
 #include "mod/package.h"
 #include "mod/world_resources.h"
 #include "resource_document.h"
@@ -30,7 +32,7 @@ void Project::openGame(const QString &directory) {
     require(dir.exists(), "Game folder does not exist");
     for (const auto &name : dir.entryList(QDir::Files, QDir::Name)) {
         QString upper = name.toUpper();
-        if (upper == "TEXT.OVR" || upper == "RULES.TBL")
+        if (upper == "TEXT.OVR" || upper == "RULES.TBL" || upper == "CONTENTS.OVR")
             continue; // Companion resources are package-only.
         if (!MOD_AllowedResource(upper.toLatin1().constData()))
             continue;
@@ -44,6 +46,7 @@ void Project::openGame(const QString &directory) {
     require(next.data("INIT.GAM").size() == 4192, "INIT.GAM must use the 4192-byte DOS layout");
     next.resources.insert("TEXT.OVR", {{}, {}});
     next.resources.insert("RULES.TBL", {{}, {}});
+    next.resources.insert("CONTENTS.OVR", {{}, {}});
     *this = next;
 }
 const QByteArray &Project::data(const QString &name) const {
@@ -76,9 +79,10 @@ QByteArray Project::package() const {
     auto list = changed();
     require(!list.isEmpty(), "There are no changes to export");
     require(list.size() <= MOD_MAX_ENTRIES, "Too many modified resources");
-    QByteArray out(list.contains("RULES.TBL")  ? "IMOD0003"
-                   : list.contains("TEXT.OVR") ? "IMOD0002"
-                                               : "IMOD0001",
+    QByteArray out(list.contains("CONTENTS.OVR") ? "IMOD0004"
+                   : list.contains("RULES.TBL")  ? "IMOD0003"
+                   : list.contains("TEXT.OVR")   ? "IMOD0002"
+                                                 : "IMOD0001",
                    8),
         nameBytes = title.toUtf8();
     append32(out, nameBytes.size());
@@ -175,6 +179,10 @@ void Project::save(const QString &path) {
         if (!requirements.contains("packageVersion"))
             requirements["packageVersion"] = 2;
     }
+    if (changed().contains("CONTENTS.OVR")) {
+        requirements["mapContents"] = 1;
+        requirements["packageVersion"] = 4;
+    }
     if (!requirements.isEmpty())
         root["requires"] = requirements;
     QJsonObject annotations;
@@ -250,7 +258,7 @@ QVector<ModDiagnostic> validateMod(const Project &project) {
                        "No modified resources; there is no package to export or test."});
     for (const auto &name : changes) {
         try {
-            if (name == "TEXT.OVR" || name == "RULES.TBL") {
+            if (name == "TEXT.OVR" || name == "RULES.TBL" || name == "CONTENTS.OVR") {
                 require(project.resources[name].original.isEmpty(),
                         "Companion resource must have an empty original base");
             } else {
@@ -280,10 +288,15 @@ QVector<ModDiagnostic> validateMod(const Project &project) {
         } catch (const std::exception &error) {
             result.append({ModDiagnostic::Error, name, QString::fromUtf8(error.what())});
         }
-        result.append({ModDiagnostic::Information, name,
-                       QString("Package replaces this entire resource (%1 bytes → %2 bytes).")
-                           .arg(project.resources[name].original.size())
-                           .arg(project.data(name).size())});
+        if (name == "CONTENTS.OVR")
+            result.append({ModDiagnostic::Information, name,
+                           "Requires contents schema v1 / package v4. Disjoint contents packages "
+                           "coexist; overlapping targets or identities reject the later package."});
+        else
+            result.append({ModDiagnostic::Information, name,
+                           QString("Package replaces this entire resource (%1 bytes → %2 bytes).")
+                               .arg(project.resources[name].original.size())
+                               .arg(project.data(name).size())});
         if (name == "RULES.TBL")
             result.append(
                 {ModDiagnostic::Information, name,
@@ -367,6 +380,13 @@ QVector<ModDiagnostic> validateMod(const Project &project) {
     for (auto it = mounted.resources.begin(); it != mounted.resources.end(); ++it)
         it->edited = it->original;
     QSet<QString> overrides;
+    QVector<ContentsDef> mountedContents;
+    const auto contentsConflict = [](const ContentsDef &a, const ContentsDef &b) {
+        return (a.kind == b.kind && a.map == b.map && a.floor == b.floor && a.x == b.x &&
+                a.y == b.y) ||
+               (!memcmp(a.space, b.space, 16) && a.id == b.id) ||
+               (a.original != 65535 && a.original == b.original);
+    };
     unsigned mountedCount = 0;
     size_t mountedMemory = 0;
     QDir mods(QDir(project.sourceDirectory).filePath("Mods"));
@@ -399,10 +419,20 @@ QVector<ModDiagnostic> validateMod(const Project &project) {
                     memory += decoded.entries[i].size;
                 for (unsigned i = 0; i < decoded.count; ++i)
                     names.append(QString::fromLatin1(decoded.entries[i].name));
+                QVector<ContentsDef> incomingContents;
+                for (unsigned i = 0; i < decoded.count; i++)
+                    if (!strcmp(decoded.entries[i].name, "CONTENTS.OVR"))
+                        incomingContents = Workshop::readContents(
+                            QByteArray(reinterpret_cast<const char *>(decoded.entries[i].data),
+                                       decoded.entries[i].size));
                 MOD_Free(&decoded);
-                bool conflict = false;
+                bool conflict = mountedContents.size() + incomingContents.size() > CONTENTS_MAX;
+                for (const auto &a : incomingContents)
+                    for (const auto &b : mountedContents)
+                        conflict |= contentsConflict(a, b);
                 for (const auto &name : names)
-                    conflict |= overrides.contains(name);
+                    if (name != "CONTENTS.OVR")
+                        conflict |= overrides.contains(name);
                 if (conflict) {
                     result.append(
                         {ModDiagnostic::Warning,
@@ -412,6 +442,7 @@ QVector<ModDiagnostic> validateMod(const Project &project) {
                 }
                 require(memory <= 64u * 1024u * 1024u - mountedMemory,
                         "Engine total mod memory limit (64 MiB) exceeded");
+                mountedContents += incomingContents;
                 ++mountedCount;
                 mountedMemory += memory;
                 result.append({ModDiagnostic::Information,
@@ -421,6 +452,19 @@ QVector<ModDiagnostic> validateMod(const Project &project) {
                                    .arg(file)
                                    .arg(names.join(", "))});
                 for (const auto &name : names) {
+                    if (name == "CONTENTS.OVR") {
+                        const auto authored =
+                            Workshop::readContents(project.resources.value(name).edited);
+                        bool overlap = false;
+                        for (const auto &a : incomingContents)
+                            for (const auto &b : authored)
+                                overlap |= contentsConflict(a, b);
+                        if (overlap)
+                            result.append({ModDiagnostic::Warning, name,
+                                           "Installed package " + file +
+                                               " overrides the same contents target or identity."});
+                        continue;
+                    }
                     overrides.insert(name);
                     if (changes.contains(name))
                         result.append({ModDiagnostic::Warning, name,
@@ -523,7 +567,7 @@ QString prepareModTest(const Project &project, const QString &sessionsDirectory)
                 "Cannot make test file writable");
     }
     for (const auto &name : project.resources.keys()) {
-        if (name == "TEXT.OVR" || name == "RULES.TBL")
+        if (name == "TEXT.OVR" || name == "RULES.TBL" || name == "CONTENTS.OVR")
             continue; // Virtual companion exists only inside the package.
         auto bytes = readLimited(destination.filePath(name), MOD_MAX_RESOURCE);
         require(bytes == project.resources[name].original,

@@ -85,7 +85,8 @@ class MapCanvas : public QWidget {
     int selectedNpc = -1;
     QPoint keyboardCell = {0, 0};
     std::function<bool(QPoint)> prepareSelection;
-    QVector<Actor> contextActors;
+    QVector<Actor> contextActors, contentsMarkers;
+    bool showContentsMarkers = true;
     std::function<int(const QList<int> &)> chooseActor;
     std::function<bool(int, QPoint)> moveNpc;
     std::function<bool(const QByteArray &)> commit;

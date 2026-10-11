@@ -1,6 +1,7 @@
 #undef NDEBUG
 #include "common/common.h"
 #include "common/file.h"
+#include "mod/contents.h"
 #include "mod/creation_scene.h"
 #include "mod/engine_tables.h"
 #include "mod/narrative.h"
@@ -292,6 +293,65 @@ static void engineTables(void) {
     FILE_SetDataDirectory(NULL);
     remove("game/Mods/01-rules.imperamod");
 }
+static void contentsResources(void)
+{
+    Buffer package;
+    unsigned char resource[128] = {0};
+    memcpy(resource, "ICONT001", 8);
+    resource[8] = 1;
+    CONTENTS_PutWord(resource + 24, 1);
+    ContentsDef d = {0};
+    d.id = 1;
+    d.map = 5;
+    d.x = 2;
+    d.y = 2;
+    d.original = 14;
+    d.slot = 255;
+    d.count = 1;
+    d.refill = 2;
+    d.items[0] = (ContentsItem){6, 0, 5};
+    CONTENTS_EncodeRecord(resource + 32, &d);
+    header(&package, 1);
+    memcpy(package.bytes, "IMOD0004", 8);
+    rawEntry(&package, "CONTENTS.OVR", NULL, 0, resource, sizeof(resource));
+    put("game/Mods/contents-a.imperamod", package.bytes, package.size);
+    resource[8] = 2;
+    d.id = 2;
+    d.map = 1;
+    d.x = 1;
+    d.y = 1;
+    d.original = 65535;
+    d.refill = 0;
+    CONTENTS_EncodeRecord(resource + 32, &d);
+    header(&package, 1);
+    memcpy(package.bytes, "IMOD0004", 8);
+    rawEntry(&package, "CONTENTS.OVR", NULL, 0, resource, sizeof(resource));
+    put("game/Mods/contents-b.imperamod", package.bytes, package.size);
+    resource[8] = 3;
+    d.id = 3;
+    d.map = 5;
+    d.x = 2;
+    d.y = 2;
+    CONTENTS_EncodeRecord(resource + 32, &d);
+    header(&package, 1);
+    memcpy(package.bytes, "IMOD0004", 8);
+    rawEntry(&package, "CONTENTS.OVR", NULL, 0, resource, sizeof(resource));
+    put("game/Mods/contents-c-conflict.imperamod", package.bytes, package.size);
+    FILE_SetDataDirectory("game");
+    assert(MOD_LoadedCount() == 2 && CONTENTS_Count() == 2);
+    assert(CONTENTS_Find(0, 5, 0, 2, 2)->items[0].quantity == 5);
+    assert(CONTENTS_Find(0, 1, 0, 1, 1));
+    ModPackage decoded = {0};
+    char error[256];
+    memcpy(package.bytes, "IMOD0003", 8);
+    assert(
+        !MOD_Decode(package.bytes, package.size, readBase, NULL, &decoded, error, sizeof(error)));
+    FILE_SetDataDirectory(NULL);
+    assert(CONTENTS_Count() == 0);
+    remove("game/Mods/contents-a.imperamod");
+    remove("game/Mods/contents-b.imperamod");
+    remove("game/Mods/contents-c-conflict.imperamod");
+}
 int main(void) {
     assert(MOD_AllowedResource("INIT.GAM"));
     assert(MOD_AllowedResource("BRIT.CBT"));
@@ -386,6 +446,7 @@ int main(void) {
     narrativeResources();
     sceneResources();
     engineTables();
+    contentsResources();
     puts("Mod package validation, atomic mounting, order, conflicts, reloads and original preservation "
          "passed");
     return 0;

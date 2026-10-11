@@ -1,9 +1,11 @@
 #include "resource_document.h"
+#include "contents_editor.h"
 #include "dialogue.h"
 #include "dungeon_editor.h"
 #include "engine_tables.h"
 #include "font_editor.h"
 #include "location_text.h"
+#include "mod/contents.h"
 #include "mod/world_resources.h"
 #include "narrative_editor.h"
 #include "scene_editor.h"
@@ -186,6 +188,44 @@ QMap<QString, QByteArray> ResourceDocument::replace(const Entry &e, const QByteA
 void validateResource(const Project &project, const QString &name) {
     const auto &b = project.data(name);
     const auto kind = capability(name).editor;
+    if (name == "CONTENTS.OVR") {
+        U5::require(CONTENTS_Validate(b.constData(), b.size()), "Invalid map contents");
+        for (const auto &d : readContents(b)) {
+            if (d.kind) {
+                const QString map = d.kind == 1 ? "BRIT.CBT" : "DUNGEON.CBT";
+                U5::require(project.resources.contains(map),
+                            "Contents need the combat map: " + map);
+                U5::require(d.map < U5::mapPages(map, project.data(map)).size(),
+                            "Contents reference a missing encounter");
+            } else if (d.map >= 33) {
+                U5::require(project.resources.contains("DUNGEON.DAT"),
+                            "Contents need dungeon maps");
+                DungeonDocument dungeon(&project);
+                dungeon.level(d.map - 33, d.floor);
+            } else {
+                const QString map = d.map == 0
+                                        ? (d.floor < 0 ? "UNDER.DAT" : "BRIT.DAT")
+                                        : QStringList{"TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT",
+                                                      "KEEP.DAT"}[(d.map - 1) / 8];
+                U5::require(project.resources.contains(map),
+                            "Contents need the location map: " + map);
+                bool found = false;
+                for (const auto &page : U5::mapPages(map, project.data(map)))
+                    if ((d.map == 0 || page.settlement == (d.map - 1) % 8) &&
+                        (d.map == 0 || page.floor == d.floor))
+                        found = true;
+                U5::require(found, "Contents reference a missing location floor");
+                if (d.slot != 255) {
+                    auto objects = WorldObjects::effective(project, d.floor < 0 ? 1 : 0);
+                    U5::require(U5::byte(objects, d.slot * 8) == 1 &&
+                                    U5::byte(objects, d.slot * 8 + 2) == d.x &&
+                                    U5::byte(objects, d.slot * 8 + 3) == d.y,
+                                "Container contents no longer match their placed chest");
+                }
+            }
+        }
+        return;
+    }
     if (name == "RULES.TBL") {
         TableDocument::validate(b);
         return;

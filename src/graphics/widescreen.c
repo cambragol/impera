@@ -1,13 +1,14 @@
+#include "widescreen.h"
 #include "common/common.h"
 #include "common/file.h"
-#include "mod/runtime.h"
-#include "vars.h"
 #include "funcs.h"
-#include "macros.h"
-#include "tiles.h"
 #include "grap_buf.h"
+#include "macros.h"
+#include "mod/contents_game.h"
+#include "mod/runtime.h"
+#include "tiles.h"
 #include "tileset.h"
-#include "widescreen.h"
+#include "vars.h"
 #include <string.h>
 
 static int s_actorTiles[32];
@@ -247,6 +248,11 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
                 byte tile = WIDE_MapTile(dx, dy);
                 if (tile == 255) continue;
                 int idx = D_b11e[WIDE_GroundTile(dx,dy)];
+                int loot = CONTENTS_GAME_Shape(
+                    D_5893_map_id ? D_5896_map_x + dx : (D_5896_map_x + dx) & 255,
+                    D_5893_map_id ? D_5897_map_y + dy : (D_5897_map_y + dy) & 255);
+                if (loot)
+                    sprites[row * l.columns + col] = 256 + loot;
                 for (int actor = 31; actor >= 0; actor--) {
                     ActorFmt* a = &D_5c5a[actor];
                     int ax = a->_2_x - D_5896_map_x, ay = a->_3_y - D_5897_map_y;

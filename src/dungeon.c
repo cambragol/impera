@@ -1,3 +1,4 @@
+#include "mod/contents.h"
 #include "audio/audio.h"
 #include "common/common.h"
 #include "funcs.h"
@@ -51,6 +52,7 @@ static void DUNGEON_0000(byte param_1)
     memset(D_ad14, 0, 0x160);
 
     ULTIMA_256e_ReadFileFromDisk(/*0x2c6a*/ "DUNGEON.CBT", D_ad14, 0x160, local_a);
+    CONTENTS_BeginEncounter(2, (unsigned)(local_a / 0x160));
 
     D_5894 = D_5893_map_id;
     local_6 = D_5896_map_x;
@@ -79,6 +81,7 @@ static void DUNGEON_0000(byte param_1)
         GetDungeonMap((uint)local_6, (uint)local_8, (uint)D_5895_map_level) &= 0xaf;
     }
 
+    CONTENTS_EndEncounter();
     D_5897_map_y = local_8;
     D_5896_map_x = local_6;
     D_5893_map_id = D_5894;

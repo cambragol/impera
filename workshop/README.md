@@ -494,3 +494,14 @@ In Conversations, **Location** filters NPCs using their schedule assignments acr
 all floors and times. It combines with text search. Shared conversations appear
 in each relevant location, and **Unassigned conversations** keeps unused dialogue
 accessible. Filtering leaves the current conversation draft open.
+
+### Map contents and containers
+
+Select a discovery or chest with **Select / Move** to edit its contents in the
+right-hand pane. **Original game behavior**, **Custom contents**, and **Empty**
+control whether it inherits or replaces the game's rewards. Add named items,
+change quantities, choose refill behavior, and configure container locks/traps.
+Settlements, both world maps, dungeon levels and encounter templates are supported.
+Contents edits export package version 4 and require the matching Impera build.
+See [map contents and containers](../docs/workshop-containers-plan.md) for usage,
+save compatibility, encounter lifetime and current limits.

@@ -15,6 +15,8 @@ else()
 endif()
 
 set(SOURCES
+    src/mod/contents.c
+    src/mod/contents_game.c
     src/mod/package.c
     src/mod/runtime.c
     src/graphics/tileset.c
@@ -98,11 +100,17 @@ option(U5D_BUILD_TESTS "Build native savegame regression tests" OFF)
 set(U5D_TARGETS ultima5)
 if(U5D_BUILD_TESTS)
     enable_testing()
-    add_executable(impera_mod_test tests/mod_test.c src/common/file.c src/common/debug.c src/mod/package.c src/mod/runtime.c)
+    add_executable(impera_contents_test tests/contents_test.c src/mod/contents.c src/mod/package.c)
+    target_include_directories(impera_contents_test PRIVATE src)
+    add_test(NAME map_contents COMMAND impera_contents_test)
+    add_executable(impera_mod_test tests/mod_test.c src/common/file.c src/common/debug.c src/mod/package.c src/mod/runtime.c src/mod/contents.c)
     list(APPEND U5D_TARGETS impera_mod_test)
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/mod-runtime/game/Mods" "${CMAKE_BINARY_DIR}/mod-runtime/SAVEGAME")
     add_test(NAME mod_packages COMMAND impera_mod_test)
     set_tests_properties(mod_packages PROPERTIES WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/mod-runtime" TIMEOUT 20)
+    add_executable(impera_contents_game_test tests/contents_game_test.c src/vars.c src/mod/contents_game.c src/mod/contents.c src/mod/package.c)
+    target_include_directories(impera_contents_game_test PRIVATE src)
+    add_test(NAME map_contents_game COMMAND impera_contents_game_test)
     set(TEST_SOURCES ${SOURCES})
     add_executable(u5d_debug_test tests/debug_test.c src/common/debug.c)
     list(APPEND U5D_TARGETS u5d_debug_test)
@@ -233,7 +241,7 @@ if(U5D_BUILD_TESTS)
             "-Wl,--wrap=DNGLOOK_117e" "-Wl,--wrap=COMBAT_0b94_MainLoop"
             "-Wl,--wrap=AUDIO_PlayBgmPerMap" "-Wl,--wrap=ULTIMA_2900_UpdateVitalsDisplay")
         add_test(NAME combat_return COMMAND u5d_combat_return_test)
-        add_executable(u5d_file_case_test tests/file_case_test.c src/common/file.c src/common/debug.c src/mod/package.c src/mod/runtime.c)
+        add_executable(u5d_file_case_test tests/file_case_test.c src/common/file.c src/common/debug.c src/mod/package.c src/mod/runtime.c src/mod/contents.c)
         list(APPEND U5D_TARGETS u5d_file_case_test)
         target_include_directories(u5d_file_case_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
         file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/case-runtime/MiXeD/SubDir"

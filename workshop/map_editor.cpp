@@ -1,5 +1,6 @@
 #include "map_editor.h"
 #include "../src/tiles.h"
+#include "contents_editor.h"
 #include "dialogue.h"
 #include "location_text.h"
 #include "resource_document.h"
@@ -182,6 +183,12 @@ void MapCanvas::paintEvent(QPaintEvent *e) {
             a.tile < tiles.size() && a.label.isEmpty())
             p.drawImage(QRectF(a.x * cell, a.y * cell, cell, cell), tiles[a.tile]);
     if (tool == InspectNpc) {
+        if (showContentsMarkers)
+            for (auto marker : contentsMarkers) {
+                p.setPen(QPen(QColor("#ffbd55"), 2));
+                p.drawEllipse(QRectF(marker.x * cell + cell * .68, marker.y * cell + cell * .08,
+                                     cell * .22, cell * .22));
+            }
         for (auto actor : contextActors)
             if (actor.tile >= 0 && actor.tile < tiles.size())
                 p.drawImage(QRectF(actor.x * cell, actor.y * cell, cell, cell), tiles[actor.tile]);
@@ -1453,13 +1460,25 @@ void MapWorkspace::enableLocationModes(const QStringList &names, LocationLayerFa
     auto menu = new QMenu(extras);
     for (int index = 1; index < names.size(); ++index) {
         const auto name = names[index];
-        if (name == "Signs" || name == "Starting Objects" || name == "Encounter Details")
+        if (name == "Signs" || name == "Starting Objects" || name == "Encounter Details" ||
+            name == "Contents")
             menu->addAction(name == "Signs" ? "Add / edit signs" : name, this,
                             [this, index] { locationModes->setCurrentIndex(index); });
     }
     if (auto row = findChild<QHBoxLayout *>("mapToolRow"))
         row->insertWidget(7, extras);
     extras->setVisible(!menu->isEmpty());
+    auto markers = new QCheckBox("Contents markers");
+    markers->setObjectName("contentsMarkersToggle");
+    markers->setToolTip(
+        "Show places with hidden items or custom container contents while selecting map items.");
+    markers->setChecked(true);
+    connect(markers, &QCheckBox::toggled, this, [this](bool enabled) {
+        canvas->showContentsMarkers = enabled;
+        canvas->update();
+    });
+    if (auto row = findChild<QHBoxLayout *>("mapToolRow"))
+        row->insertWidget(8, markers);
     tool->button(MapCanvas::InspectNpc)
         ->setToolTip("Select / Move — select an NPC, sign or map item and drag to move it.");
     tool->button(MapCanvas::InspectNpc)->setAccessibleName("Select / Move");
@@ -1555,16 +1574,23 @@ void MapWorkspace::applyLocationMode() {
         inspector->addWidget(locationLayer);
         inspector->setCurrentWidget(locationLayer);
     }
+    canvas->contentsMarkers.clear();
+    const auto contentTarget =
+        Workshop::contentsTarget(resource, document.pages[currentPage()], currentPage());
+    for (auto d : Workshop::mapContents(*project, contentTarget))
+        canvas->contentsMarkers.append({d.x, d.y, -1, -1, {}});
     refreshContextActors();
     tool->button(canvas->tool)->setChecked(true);
     canvas->update();
 }
 bool MapWorkspace::selectMapItem(QPoint cell) {
     const auto &page = document.pages[currentPage()];
-    int npcMode = -1, signMode = -1;
+    int npcMode = -1, signMode = -1, contentsMode = -1;
     for (int i = 0; i < locationModes->count(); ++i) {
         if (locationModes->tabText(i) == "NPCs / Schedules")
             npcMode = i;
+        if (locationModes->tabText(i) == "Contents")
+            contentsMode = i;
         if (locationModes->tabText(i) == "Signs")
             signMode = i;
     }
@@ -1595,7 +1621,41 @@ bool MapWorkspace::selectMapItem(QPoint cell) {
         signHit = signRecordHit || tile == 0x89 || tile == 0x8a || tile == 0xa0 || tile == 0xa4 ||
                   tile == 0xf8;
     }
-    int target = npcHit ? npcMode : signHit ? signMode : activeMode;
+    auto contentsTarget = Workshop::contentsTarget(resource, page, currentPage());
+    const bool contentsHit =
+        contentsMode >= 0 && Workshop::contentsHit(*project, contentsTarget, cell);
+    const int selectedTile =
+        U5::byte(document.terrain(currentPage()), cell.y() * page.side + cell.x());
+    const bool containerTile = selectedTile == 0x96 || selectedTile == 0x97 ||
+                               selectedTile == 0x98 || selectedTile == 0x99;
+    // Keep existing encounter/starting-object handles selectable. An empty map
+    // cell offers new contents, but must not steal a drag from a visible entity.
+    if (!contentsHit && (locationModes->tabText(activeMode) == "Encounter" ||
+                         locationModes->tabText(activeMode) == "Starting Objects")) {
+        for (const auto &actor : canvas->actors)
+            if (actor.x == cell.x() && actor.y == cell.y())
+                return true;
+    }
+    int target = npcHit              ? npcMode
+                 : signHit           ? signMode
+                 : contentsMode >= 0 ? contentsMode
+                                     : activeMode;
+    if ((npcHit || signHit) && (contentsHit || containerTile)) {
+        QStringList choices;
+        if (npcHit)
+            choices << "NPC";
+        if (signHit)
+            choices << "Sign";
+        choices << "Contents";
+        bool ok = false;
+        auto choice =
+            QInputDialog::getItem(this, "Select map item", "Item", choices, 0, false, &ok);
+        if (!ok)
+            return false;
+        target = choice == "NPC" ? npcMode : choice == "Sign" ? signMode : contentsMode;
+        npcHit = false;
+        signHit = false;
+    }
     if (npcHit && signHit) {
         bool ok = false;
         const auto choice =
@@ -1610,6 +1670,12 @@ bool MapWorkspace::selectMapItem(QPoint cell) {
             return false;
     }
     canvas->keyboardCell = cell;
+    if (target == contentsMode && locationLayer) {
+        auto scroll = qobject_cast<QScrollArea *>(locationLayer);
+        if (auto panel =
+                dynamic_cast<Workshop::ContentsEditor *>(scroll ? scroll->widget() : nullptr))
+            panel->selectCell(cell);
+    }
     if (target == signMode && signHit && !signRecordHit && locationLayer) {
         if (!flushLocationMode()) return false;
         if (auto entries = locationLayer->findChild<QListWidget *>("locationTextEntries")) {
@@ -1627,7 +1693,8 @@ bool MapWorkspace::selectMapItem(QPoint cell) {
 void MapWorkspace::refreshContextActors() {
     canvas->contextActors.clear();
     const auto &page = document.pages[currentPage()];
-    if (!externalMode() || page.settlement < 0 || project->data(npcResource).size() != 4608)
+    if (!externalMode() || page.settlement < 0 || !project->resources.contains(npcResource) ||
+        project->data(npcResource).size() != 4608)
         return;
     MapNpcDocument npcs(project, npcResource);
     for (int id = 0; id < 32; ++id) {
@@ -1666,7 +1733,7 @@ void MapWorkspace::selectPage(int index) {
     saveView();
     clearLocationLayer();
     int oldPage = navigation->value(resource + "/map");
-    if (canvas->tool == MapCanvas::InspectNpc && canvas->selectedNpc >= 0 &&
+    if (!externalMode() && canvas->tool == MapCanvas::InspectNpc && canvas->selectedNpc >= 0 &&
         document.pages[oldPage].settlement == document.pages[index].settlement) {
         auto &target = (*states)[resource + "/" + QString::number(index)];
         target.tool = MapCanvas::InspectNpc;

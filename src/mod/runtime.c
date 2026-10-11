@@ -1,6 +1,7 @@
 #include "runtime.h"
 #include "common/common.h"
 #include "common/file.h"
+#include "contents.h"
 #include "engine_tables.h"
 #include "narrative.h"
 #include "package.h"
@@ -104,6 +105,7 @@ void MOD_MountDirectory(const char *directory) {
         MOD_Free(packages[i]);
         free(packages[i]);
     }
+    CONTENTS_Unmount();
     ++revision;
     loaded = 0;
     customIndex = 0;
@@ -154,12 +156,20 @@ void MOD_MountDirectory(const char *directory) {
             for (unsigned j = 0; j < loaded; j++)
                 for (unsigned a = 0; a < p->count; a++)
                     for (unsigned b = 0; b < packages[j]->count; b++)
-                        if (!strcmp(p->entries[a].name, packages[j]->entries[b].name)) {
+                        if (!strcmp(p->entries[a].name, packages[j]->entries[b].name) &&
+                            strcmp(p->entries[a].name, "CONTENTS.OVR")) {
                             ok = 0;
                             SDL_snprintf(error, sizeof(error), "Resource %s already overridden by %s",
                                          p->entries[a].name, packages[j]->title);
                         }
         if (ok) ok = validateWorlds(p, error, sizeof(error));
+        const ModResource *contents = resourceIn(p, "CONTENTS.OVR");
+        if (ok && contents && !CONTENTS_CanMount(contents->data, contents->size)) {
+            ok = 0;
+            SDL_strlcpy(error,
+                        "Conflicting map contents target/identity or contents limit exceeded",
+                        sizeof(error));
+        }
         size_t packageMemory = 0;
         if (ok)
             for (unsigned j = 0; j < p->count; j++)
@@ -171,6 +181,8 @@ void MOD_MountDirectory(const char *directory) {
         if (ok) {
             totalMemory += packageMemory;
             packages[loaded++] = p;
+            if (contents)
+                CONTENTS_Mount(contents->data, contents->size);
             const ModResource *overlay = resourceIn(p, "DATA.OVL");
             if (overlay) {
                 memcpy(britanniaIndex, overlay->data + U5_WORLD_INDEX_OFFSET, sizeof(britanniaIndex));

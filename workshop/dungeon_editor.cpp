@@ -1,4 +1,5 @@
 #include "dungeon_editor.h"
+#include "contents_editor.h"
 #include "dungeon_names.h"
 namespace Workshop {
 DungeonDocument::DungeonDocument(const Project *p) : project(p) {
@@ -157,12 +158,16 @@ DungeonWorkspace::DungeonWorkspace(
     canvas->clipboardMime = "application/x-impera-dungeon-features";
     canvas->clipboardMagic = "IMPDUNG1";
     auto toolGroup = new QButtonGroup(this);
+    auto inspectors = new QStackedWidget;
+    auto featurePanel = new QWidget;
+    auto contentsPanel = std::make_shared<ContentsEditor *>(nullptr);
     canvas->side = 8;
     canvas->zoom = 3;
     canvas->grid = true;
     for (auto pair : QList<QPair<QString, int>>{{"Pencil", MapCanvas::Pencil},
                                                 {"Pick", MapCanvas::Eyedropper},
                                                 {"Pan", MapCanvas::Pan},
+                                                {"Select / Move", MapCanvas::InspectNpc},
                                                 {"Select", MapCanvas::Select},
                                                 {"Rectangle", MapCanvas::Rectangle},
                                                 {"Fill", MapCanvas::Fill}}) {
@@ -191,6 +196,12 @@ DungeonWorkspace::DungeonWorkspace(
         connect(button, &QPushButton::clicked, this, [=] {
             canvas->cancelStroke();
             canvas->tool = pair.second;
+            if (pair.second != MapCanvas::InspectNpc) {
+                inspectors->setCurrentWidget(featurePanel);
+                canvas->actors.clear();
+                canvas->chooseNpc = {};
+                canvas->moveNpc = {};
+            }
         });
         tools->addWidget(button);
     }
@@ -229,7 +240,7 @@ DungeonWorkspace::DungeonWorkspace(
     split->addWidget(palette);
     auto scroll = new MapView(canvas);
     split->addWidget(scroll, 1);
-    auto side = new QVBoxLayout;
+    auto side = new QVBoxLayout(featurePanel);
     auto details = new QLabel;
     details->setWordWrap(true);
     details->setObjectName("dungeonCellDetails");
@@ -257,7 +268,21 @@ DungeonWorkspace::DungeonWorkspace(
     warning->setWordWrap(true);
     side->addWidget(warning);
     side->addStretch();
-    split->addLayout(side);
+    inspectors->addWidget(featurePanel);
+    inspectors->setMinimumWidth(300);
+    split->addWidget(inspectors);
+    canvas->prepareSelection = [=](QPoint cell) {
+        if (*contentsPanel) {
+            inspectors->removeWidget(*contentsPanel);
+            delete *contentsPanel;
+        }
+        *contentsPanel = new ContentsEditor(
+            p, {0, 33 + dungeon->currentIndex(), floor->currentIndex()}, canvas, commit);
+        inspectors->addWidget(*contentsPanel);
+        inspectors->setCurrentWidget(*contentsPanel);
+        (*contentsPanel)->selectCell(cell);
+        return true;
+    };
     layout->addLayout(split, 1);
     auto status = new QLabel;
     status->setToolTip("Feedback for copy, paste, and map gestures.");
@@ -320,6 +345,15 @@ DungeonWorkspace::DungeonWorkspace(
     };
     auto load = [=] {
         canvas->cancelStroke();
+        if (*contentsPanel) {
+            inspectors->removeWidget(*contentsPanel);
+            delete *contentsPanel;
+            *contentsPanel = nullptr;
+        }
+        inspectors->setCurrentWidget(featurePanel);
+        canvas->chooseNpc = {};
+        canvas->moveNpc = {};
+        canvas->actors.clear();
         (*state)["DUNGEON.DAT/dungeon"] = dungeon->currentIndex();
         (*state)["DUNGEON.DAT/level"] = floor->currentIndex();
         canvas->clearSelection();

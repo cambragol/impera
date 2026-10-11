@@ -6,10 +6,13 @@
 
 #include "common/common.h"
 #include "common/settings.h"
+#include "funcs.h"
+#include "mod/contents.h"
+#include "mod/contents_game.h"
+#include "mod/discoveries.h"
+#include "npc.h"
 #include "savegame.h"
 #include "vars.h"
-#include "npc.h"
-#include "funcs.h"
 
 int main(int argc, char** argv)
 {
@@ -62,6 +65,73 @@ int main(int argc, char** argv)
     assert(D_55a6 == 1234 && D_55a8_party[0].hp == 100);
     assert(strcmp(D_55a8_party[0].name, "Test") == 0);
     remove("SAVEGAME/SAVED.GAM");
+
+    /* Contents grants retain quantities over inventory limits; no actor slots are used. */
+    for (i = 0; i < 113; i++)
+    {
+        assert(U5_Discoveries[i][0] == D_3e78[i]);
+        assert(U5_Discoveries[i][1] == D_3eea[i]);
+        assert(U5_Discoveries[i][2] == D_3f5c[i]);
+        assert(U5_Discoveries[i][3] == D_3fce[i]);
+        assert(U5_Discoveries[i][4] == D_4040[i]);
+        assert(U5_Discoveries[i][5] == D_40b2[i]);
+    }
+    D_57b1 = 97;
+    ContentsItem item = {6, 0, 5};
+    assert(CONTENTS_GAME_Grant(&item, 5) == 2 && D_57b1 == 99);
+    assert(CONTENTS_GAME_Grant(&item, 3) == 0 && D_57b1 == 99);
+    D_57aa = 9998;
+    item = (ContentsItem){1, 0, 5};
+    assert(CONTENTS_GAME_Grant(&item, 5) == 1 && D_57aa == 9999);
+    D_57c0[2] = 98;
+    item = (ContentsItem){7, 2, 5};
+    assert(CONTENTS_GAME_Grant(&item, 5) == 1 && D_57c0[2] == 99);
+    item = (ContentsItem){7, 48, 1};
+    assert(CONTENTS_GAME_Grant(&item, 1) == 0);
+    unsigned char contents[128] = {0};
+    memcpy(contents, "ICONT001", 8);
+    contents[8] = 1;
+    CONTENTS_PutWord(contents + 24, 1);
+    ContentsDef def = {0};
+    def.id = 15;
+    def.map = 5;
+    def.x = 2;
+    def.y = 2;
+    def.slot = 255;
+    def.original = 14;
+    def.refill = 2;
+    def.count = 1;
+    def.items[0] = (ContentsItem){6, 0, 5};
+    CONTENTS_EncodeRecord(contents + 32, &def);
+    CONTENTS_Mount(contents, sizeof(contents));
+    const ContentsDef *mounted = CONTENTS_Find(0, 5, 0, 2, 2);
+    assert(mounted);
+    ContentsState *state = CONTENTS_State(mounted);
+    assert(CONTENTS_Reveal(mounted, state, 12345));
+    state->remaining[0] = 3;
+    state->flags |= 2 | 4;
+    assert(FILE_WriteSavegameFile("SAVED.GAM") == 0);
+    CONTENTS_Reset();
+    D_55a6 = 0;
+    assert(FILE_ReadSavegameFile("SAVED.GAM") == 0 && D_55a6 == 1234);
+    assert(CONTENTS_State(mounted)->remaining[0] == 3 && CONTENTS_State(mounted)->day == 12345 &&
+           CONTENTS_State(mounted)->flags == 15);
+    stream = fopen("SAVEGAME/SAVED.GAM", "r+b");
+    assert(stream);
+    assert(fseek(stream, 0x1060 + 17, SEEK_SET) == 0);
+    assert(fputc(255, stream) != EOF);
+    fclose(stream);
+    D_55a6 = 777;
+    assert(FILE_ReadSavegameFile("SAVED.GAM") == -1 && D_55a6 == 777);
+    assert(CONTENTS_State(mounted)->remaining[0] == 3);
+    CONTENTS_Reset();
+    assert(FILE_WriteSavegameFile("INIT.GAM") == 0);
+    state = CONTENTS_State(mounted);
+    state->remaining[0] = 2;
+    assert(FILE_ReadSavegameFile("INIT.GAM") == 0 && CONTENTS_State(mounted)->remaining[0] == 0);
+    remove("INIT.GAM");
+    remove("SAVEGAME/SAVED.GAM");
+    CONTENTS_Unmount();
 
     /* Entering a town reloads NPC schedules. Use uppercase-only original assets
      * to catch filename case errors, including Iolo's Hut (map 13). */

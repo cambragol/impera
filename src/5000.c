@@ -1,4 +1,5 @@
 #include "common/common.h"
+#include "mod/contents_game.h"
 #if defined(TARGET_SDL)
 #include "graphics/grap_sdl.h"
 #include "graphics/grap_buf.h"
@@ -251,6 +252,26 @@ void ULTIMA_5394(void)
             }
         }
     } while (--local_c >= 0);
+    if (D_5893_map_id < 33 || D_5893_map_id >= 128)
+    {
+        for (int y = 0; y < 11; y++)
+            for (int x = 0; x < 11; x++)
+            {
+                int wx = D_5893_map_id >= 128 ? x : (D_5896_map_x + x - 5);
+                int wy = D_5893_map_id >= 128 ? y : (D_5897_map_y + y - 5);
+                if (!D_5893_map_id)
+                {
+                    wx &= 255;
+                    wy &= 255;
+                }
+                int shape = CONTENTS_GAME_Shape(wx, wy);
+                if (shape && GetActorMap(x, y) == 0 && GetMapViewport(x, y) != 0xff &&
+                    GetMapViewport(x, y) != TILE_MAP_87)
+                {
+                    ULTIMA_51b8(x, y, wx, wy, shape);
+                }
+            }
+    }
 }
 
 int ULTIMA_5646(int param_1)
@@ -927,6 +948,7 @@ void ULTIMA_5f86_SpecialMapHandler(int param_1, int param_2, int param_3)
     COMBAT_0b94_MainLoop(); // COMBAT.0b94
 
 L_606c:
+    CONTENTS_EndEncounter();
     // 606c
     if (D_bb16 != 0)
     {

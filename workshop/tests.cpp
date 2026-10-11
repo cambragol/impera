@@ -1,5 +1,6 @@
-#include "dialogue.h"
 #include "content_navigation.h"
+#include "contents_editor.h"
+#include "dialogue.h"
 #include "dialogue_editor.h"
 #include "dialogue_preview.h"
 #include "dialogue_surface.h"
@@ -83,6 +84,189 @@ int main(int argc, char **argv) {
         std::cout << "PASS " << name << "\n";
     };
     try {
+        test("Map contents inherit Minoc, edit sparsely, roundtrip packages and move without "
+             "painting",
+             [&] {
+                 QTemporaryDir dir;
+                 auto p = fixture(dir.path());
+                 file(dir.path() + "/TOWNE.DAT", QByteArray(16384, 0));
+                 p.openGame(dir.path());
+                 auto inherited = Workshop::inheritedContents({0, 5, 0});
+                 auto minoc = std::find_if(inherited.begin(), inherited.end(),
+                                           [](const ContentsDef &d) { return d.original == 14; });
+                 check(minoc != inherited.end() && minoc->items[0].type == 6 &&
+                           minoc->items[0].quantity == 5 && minoc->refill == 2,
+                       "Minoc discovery semantics lost");
+                 MapCanvas canvas;
+                 canvas.side = 32;
+                 canvas.ids = QByteArray(1024, 0);
+                 canvas.keyboardCell = {2, 2};
+                 Workshop::ContentsEditor editor(
+                     &p, {0, 5, 0}, &canvas,
+                     [&](const QMap<QString, QByteArray> &changes, const QString &) {
+                         for (auto it = changes.begin(); it != changes.end(); ++it)
+                             p.resources[it.key()].edited = it.value();
+                         p.validate();
+                         return true;
+                     });
+                 editor.selectCell({2, 2});
+                 check(p.changed().isEmpty(), "Selecting inherited loot changed project");
+                 auto mode = editor.findChild<QComboBox *>("contentsMode");
+                 auto table = editor.findChild<QTableWidget *>("contentsItems");
+                 check(table->rowCount() == 1 && table->item(0, 0)->text() == "Skull keys",
+                       "Inherited contents are not readable");
+                 mode->setCurrentIndex(1);
+                 auto definitions = Workshop::readContents(p.data("CONTENTS.OVR"));
+                 check(definitions.size() == 1 && definitions[0].original == 14,
+                       "Contents override not sparse");
+                 auto quantity = qobject_cast<QSpinBox *>(table->cellWidget(0, 1));
+                 quantity->setValue(8);
+                 QMetaObject::invokeMethod(quantity, "editingFinished");
+                 check(Workshop::readContents(p.data("CONTENTS.OVR"))[0].items[0].quantity == 8,
+                       "Quantity edit lost");
+                 auto bytes = p.package();
+                 if (qEnvironmentVariableIsSet("IMPERA_CONTENTS_TEST_PACKAGE"))
+                     file(qEnvironmentVariable("IMPERA_CONTENTS_TEST_PACKAGE"), bytes);
+                 check(bytes.left(8) == "IMOD0004", "Contents lacks capability package version");
+                 auto imported = fixture(dir.path());
+                 imported.importPackage(bytes);
+                 check(imported.data("CONTENTS.OVR") == p.data("CONTENTS.OVR"),
+                       "Contents package failed roundtrip");
+                 p.save(dir.path() + "/contents.imperaproject");
+                 Project restored;
+                 restored.load(dir.path() + "/contents.imperaproject");
+                 check(restored.data("CONTENTS.OVR") == p.data("CONTENTS.OVR"),
+                       "Contents project identity changed");
+                 int selected = -1;
+                 for (auto actor : canvas.actors)
+                     if (actor.x == 2 && actor.y == 2)
+                         selected = actor.npc;
+                 check(selected >= 0 && canvas.moveNpc(selected, {3, 4}), "Contents drag failed");
+                 definitions = Workshop::readContents(p.data("CONTENTS.OVR"));
+                 check(definitions[0].x == 3 && definitions[0].y == 4 &&
+                           definitions[0].original == 14,
+                       "Moved contents lost source suppression");
+                 check(canvas.ids == QByteArray(1024, 0) &&
+                           p.data("TOWNE.DAT") == QByteArray(16384, 0),
+                       "Contents movement painted terrain");
+                 mode->setCurrentIndex(0);
+                 check(p.changed().isEmpty(), "Restore original retained a contents patch");
+                 auto invalid = *minoc;
+                 invalid.items[0].quantity = 100;
+                 rejects([&] { Workshop::writeContents({invalid}, {}); });
+             });
+        test("Select Move opens contextual contents on settlement and encounter maps", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            file(dir.path() + "/TOWNE.DAT", QByteArray(16384, 0));
+            file(dir.path() + "/BRIT.CBT", QByteArray(352, 0));
+            WorkshopWindow window;
+            check(window.openGame(dir.path()), "Contents fixture failed");
+            window.selectResource("TOWNE.DAT");
+            auto active = window.findChild<QStackedWidget *>("workspaces")->currentWidget();
+            auto pages = U5::mapPages("TOWNE.DAT", window.projectForTests().data("TOWNE.DAT"));
+            auto workspace =
+                dynamic_cast<MapWorkspace *>(active->findChild<QWidget *>("mapWorkspace"));
+            if (!workspace)
+                for (auto w : active->findChildren<QWidget *>())
+                    if ((workspace = dynamic_cast<MapWorkspace *>(w)))
+                        break;
+            check(workspace, "Map workspace missing");
+            int minocPage = -1;
+            for (int i = 0; i < pages.size(); i++)
+                if (pages[i].settlement == 4 && pages[i].floor == 0)
+                    minocPage = i;
+            check(minocPage >= 0, "Minoc page missing");
+            workspace->openPage(minocPage);
+            auto canvas = dynamic_cast<MapCanvas *>(workspace->findChild<QWidget *>("mapCanvas"));
+            check(canvas && canvas->prepareSelection({2, 2}), "Select Move did not find discovery");
+            check(workspace->findChild<QComboBox *>("contentsMode") &&
+                      workspace->findChild<QTableWidget *>("contentsItems")->rowCount() == 1,
+                  "Context contents pane absent");
+            window.selectResource("BRIT.CBT");
+            active = window.findChild<QStackedWidget *>("workspaces")->currentWidget();
+            canvas = dynamic_cast<MapCanvas *>(active->findChild<QWidget *>("mapCanvas"));
+            check(canvas && canvas->prepareSelection({1, 1}), "Encounter cell selection failed");
+            auto mode = active->findChild<QComboBox *>("contentsMode");
+            check(mode, "Encounter contents pane absent");
+            mode->setCurrentIndex(2);
+            auto defs = Workshop::readContents(window.projectForTests().data("CONTENTS.OVR"));
+            check(defs.size() == 1 && defs[0].kind == 1 && defs[0].map == 0,
+                  "Encounter target identity wrong");
+        });
+        test("Placed container move and removal are atomic and undo restores contents", [&] {
+            QTemporaryDir dir;
+            fixture(dir.path());
+            QByteArray overlay(0x3986, 0);
+            overlay.replace(0x3886, 256, QByteArray(256, char(255)));
+            file(dir.path() + "/DATA.OVL", overlay);
+            file(dir.path() + "/BRIT.DAT", QByteArray(256, 0));
+            file(dir.path() + "/INIT.OOL", QByteArray(256, 0));
+            file(dir.path() + "/UNDER.OOL", QByteArray(256, 0));
+            QByteArray objects(256, 0);
+            objects[8] = objects[9] = 1;
+            objects[10] = 4;
+            objects[11] = 5;
+            file(dir.path() + "/BRIT.OOL", objects);
+            WorkshopWindow window;
+            check(window.openGame(dir.path()), "Chest fixture failed");
+            window.projectForTests().resources["BRIT.OOL"].included = true;
+            window.selectResource("BRIT.DAT");
+            auto active = window.findChild<QStackedWidget *>("workspaces")->currentWidget();
+            auto canvas = dynamic_cast<MapCanvas *>(active->findChild<QWidget *>("mapCanvas"));
+            check(canvas && canvas->prepareSelection({4, 5}), "Chest selection failed");
+            auto mode = active->findChild<QComboBox *>("contentsMode");
+            mode->setCurrentIndex(2);
+            auto before = window.projectForTests().data("CONTENTS.OVR");
+            check(!before.isEmpty(), "Empty chest override lost");
+            int entry = canvas->selectedNpc;
+            check(entry >= 0 && canvas->moveNpc(entry, {6, 7}), "Empty chest move failed");
+            check(U5::byte(window.projectForTests().data("BRIT.OOL"), 10) == 6 &&
+                      Workshop::readContents(window.projectForTests().data("CONTENTS.OVR"))[0].y ==
+                          7,
+                  "Chest and contents separated");
+            auto moved = window.projectForTests().data("CONTENTS.OVR");
+            auto remove = active->findChild<QPushButton *>("contentsDeleteContainer");
+            check(remove, "Container deletion absent");
+            remove->click();
+            check(!U5::byte(window.projectForTests().data("BRIT.OOL"), 8) &&
+                      window.projectForTests().data("CONTENTS.OVR").isEmpty(),
+                  "Delete left orphan contents");
+            QAction *undo = nullptr;
+            for (auto action : window.findChildren<QAction *>())
+                if (action->shortcut() == QKeySequence::Undo)
+                    undo = action;
+            check(undo, "Undo missing");
+            undo->trigger();
+            app.processEvents();
+            check(U5::byte(window.projectForTests().data("BRIT.OOL"), 8) == 1 &&
+                      window.projectForTests().data("CONTENTS.OVR") == moved,
+                  "Undo did not restore both records");
+        });
+        test("Dungeon contents use contextual selection and validate target floors", [&] {
+            QTemporaryDir dir;
+            fixture(dir.path());
+            file(dir.path() + "/DUNGEON.DAT", QByteArray(4096, 0));
+            WorkshopWindow window;
+            check(window.openGame(dir.path()), "Dungeon contents fixture failed");
+            window.selectResource("DUNGEON.DAT");
+            auto active = window.findChild<QStackedWidget *>("workspaces")->currentWidget();
+            MapCanvas *canvas = nullptr;
+            for (auto widget : active->findChildren<QWidget *>())
+                if (auto c = dynamic_cast<MapCanvas *>(widget))
+                    canvas = c;
+            check(canvas && canvas->prepareSelection({1, 2}), "Dungeon Select Move failed");
+            auto mode = active->findChild<QComboBox *>("contentsMode");
+            check(mode, "Dungeon inspector missing");
+            mode->setCurrentIndex(2);
+            auto definitions =
+                Workshop::readContents(window.projectForTests().data("CONTENTS.OVR"));
+            check(definitions.size() == 1 && definitions[0].map == 33 && definitions[0].x == 1,
+                  "Dungeon contents target wrong");
+            auto invalid = window.projectForTests();
+            invalid.resources.remove("DUNGEON.DAT");
+            rejects([&] { invalid.validate(); });
+        });
         test("Startup opens Britannia at the castle, world-only thumbnails and quiet canvas", [&] {
             QTemporaryDir dir;
             auto p = fixture(dir.path());
@@ -1172,7 +1356,7 @@ int main(int argc, char **argv) {
             auto canvas = dynamic_cast<MapCanvas *>(active()->findChild<QWidget *>("mapCanvas"));
             auto view = dynamic_cast<MapView *>(active()->findChild<QScrollArea *>("canvasView"));
             auto floor = active()->findChild<QComboBox *>("mapPage");
-            check(modes->count() == 3, "Wrong settlement modes");
+            check(modes->count() == 4 && modes->tabText(3) == "Contents", "Wrong settlement modes");
             view->setZoom(2);
             view->centerMap({16, 16});
             const auto center = view->mapCenter();
@@ -1301,7 +1485,8 @@ int main(int argc, char **argv) {
             };
             auto modes = active()->findChild<QTabBar *>("locationModes");
             auto canvas = dynamic_cast<MapCanvas *>(active()->findChild<QWidget *>("mapCanvas"));
-            check(modes->count() == 2 && modes->tabText(1) == "Starting Objects",
+            check(modes->count() == 3 && modes->tabText(1) == "Starting Objects" &&
+                      modes->tabText(2) == "Contents",
                   "World mode availability wrong");
             canvas->keyboardCell = {50, 60};
             modes->setCurrentIndex(1);
@@ -1361,8 +1546,8 @@ int main(int argc, char **argv) {
             map->openPage(1);
             app.processEvents();
             auto modes = root->findChild<QTabBar *>("locationModes");
-            check(modes->count() == 3 && modes->tabText(1) == "Encounter" &&
-                      modes->tabText(2) == "Encounter Details",
+            check(modes->count() == 4 && modes->tabText(3) == "Contents" &&
+                      modes->tabText(1) == "Encounter" && modes->tabText(2) == "Encounter Details",
                   "Combat modes incorrect");
             modes->setCurrentIndex(2);
             auto table = root->findChild<QTableWidget *>();
