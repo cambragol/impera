@@ -169,6 +169,9 @@ class MapWorkspace : public QWidget {
                  std::function<void(const QString &)> navigate, MapBrushState *brushes = nullptr,
                  QWidget *parent = nullptr);
     void cancelGesture();
+    void prepareNavigation() { cancelGesture(); saveView(); }
+    void useSharedNavigation() { maps->parentWidget()->hide(); }
+    void openPage(int index) { selectPage(index); }
 
   private:
     Project *project;

@@ -899,7 +899,7 @@ int main(int argc, char **argv) {
                 QTreeWidgetItemIterator it(library->findChild<QTreeWidget *>());
                 while (*it) {
                     if ((*it)->data(0, Qt::UserRole).toString() == "UNDER.OOL")
-                        return (*it)->text(0).startsWith("UNDER.OOL *");
+                        return (*it)->text(0).endsWith(" *");
                     ++it;
                 }
                 return false;
@@ -918,7 +918,7 @@ int main(int argc, char **argv) {
                   "Universal resource navigation missing");
             for (auto resource : {"TOWNE.DAT", "TOWNE.TLK"}) {
                 window.selectResource(resource);
-                check(library->isHidden(), "Focused editor did not hide library");
+                check(!library->isHidden(), "Content navigator disappeared in editor");
                 auto workspace = window.findChild<QStackedWidget *>("workspaces")->currentWidget();
                 auto draft = resource == QString("TOWNE.TLK")
                                  ? workspace->findChild<QPlainTextEdit *>("dialogueText")
@@ -935,6 +935,43 @@ int main(int argc, char **argv) {
                           (!draft || draft->toPlainText() == text),
                       "Resource navigation replaced workspace or discarded draft");
             }
+            auto selector = window.findChild<QComboBox *>("contentWorkspace");
+            check(selector && selector->count() == 7, "Content workspace selector missing");
+            window.selectResource("TOWNE.DAT");
+            auto activeMap = window.findChild<QStackedWidget *>("workspaces")->currentWidget();
+            check(activeMap->findChild<QTreeWidget *>("mapNavigation")->parentWidget()->isHidden(),
+                  "Duplicate map sidebar is visible");
+            auto destinations = Workshop::contentDestinations(window.projectForTests());
+            QSet<QString> ids;
+            int moonglow = 0;
+            for (const auto &d : destinations) {
+                check(!ids.contains(d.id), "Duplicate semantic destination ID");
+                ids.insert(d.id);
+                if (d.title == "Moonglow") {
+                    ++moonglow;
+                    check(d.page >= 0, "Location has no main floor");
+                }
+            }
+            check(moonglow == 1, "Settlement floors leaked into shared navigation");
+            auto floors = activeMap->findChild<QComboBox *>("mapPage");
+            floors->setCurrentIndex(floors->count() - 1);
+            const int rememberedFloor = floors->currentData().toInt();
+            window.selectResource("INIT.GAM");
+            for (auto action : window.findChildren<QAction *>())
+                if (action->text() == "Back") {
+                    action->trigger();
+                    break;
+                }
+            check(selector->currentText() == "World", "Back did not restore workspace");
+            check(window.findChild<QStackedWidget *>("workspaces")->currentWidget()
+                          ->findChild<QComboBox *>("mapPage")->currentData().toInt() == rememberedFloor,
+                  "Back lost selected floor");
+            for (auto action : window.findChildren<QAction *>())
+                if (action->text() == "Forward") {
+                    action->trigger();
+                    break;
+                }
+            check(selector->currentText() == "New Game", "Forward did not restore workspace");
             auto workspace = window.findChild<QStackedWidget *>("workspaces")->currentWidget();
             for (auto tabs : workspace->findChildren<QTabWidget *>())
                 for (int i = 0; i < tabs->count(); ++i)

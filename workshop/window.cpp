@@ -316,18 +316,25 @@ WorkshopWindow::WorkshopWindow() {
     auto library = new QWidget;
     auto lv = new QVBoxLayout(library);
     auto search = new QLineEdit;
-    search->setPlaceholderText("Find a resource…");
+    contentSearch = search;
+    search->setPlaceholderText("Find content…");
+    workspaceSelector = new QComboBox;
+    workspaceSelector->setObjectName("contentWorkspace");
+    workspaceSelector->addItems(Workshop::contentWorkspaces());
+    workspaceSelector->setToolTip(
+        "Choose the kind of game content to edit. Navigation stays available in every editor.");
+    lv->addWidget(workspaceSelector);
+    connect(workspaceSelector, &QComboBox::currentTextChanged, this, [this] { rebuildTree(); });
     lv->addWidget(search);
     assets = new QTreeWidget;
     assets->setHeaderHidden(true);
     assets->setMinimumWidth(230);
     lv->addWidget(assets);
     split->addWidget(library);
-    auto showResources = new QAction("Resources", this);
+    auto showResources = new QAction("Content", this);
     showResources->setObjectName("showResourceLibrary");
     showResources->setShortcut(QKeySequence("Ctrl+L"));
-    showResources->setToolTip(
-        "Return to the resource library from any editor (Ctrl+L). Your current edit remains open.");
+    showResources->setToolTip("Focus content navigation (Ctrl+L). Your current edit remains open.");
     toolbar->insertAction(toolbar->actions().first(), showResources);
     connect(showResources, &QAction::triggered, this, [library, search] {
         library->show();
@@ -341,24 +348,37 @@ WorkshopWindow::WorkshopWindow() {
     split->setStretchFactor(1, 1);
     layout->addWidget(split, 1);
     setCentralWidget(central);
-    connect(search, &QLineEdit::textChanged, this, [this](const QString &query) {
-        for (int i = 0; i < assets->topLevelItemCount(); i++) {
-            auto group = assets->topLevelItem(i);
-            bool visible = false;
-            for (int j = 0; j < group->childCount(); j++) {
-                auto item = group->child(j);
-                bool match = item->text(0).contains(query, Qt::CaseInsensitive) ||
-                    item->data(0, Qt::UserRole).toString().contains(query, Qt::CaseInsensitive);
-                item->setHidden(!match);
-                visible |= match;
-            }
-            group->setHidden(!visible);
-        }
-    });
+    connect(search, &QLineEdit::textChanged, this, [this] { rebuildTree(); });
     connect(assets, &QTreeWidget::currentItemChanged, this, [this](QTreeWidgetItem *item) {
-        if (item && !item->data(0, Qt::UserRole).toString().isEmpty())
-            selectResource(item->data(0, Qt::UserRole).toString());
+        if (item)
+            navigateContent(item->data(0, Qt::UserRole + 2).toString());
     });
+    backAction = toolbar->addAction("Back");
+    forwardAction = toolbar->addAction("Forward");
+    backAction->setShortcut(QKeySequence("Alt+Left"));
+    forwardAction->setShortcut(QKeySequence("Alt+Right"));
+    backAction->setToolTip(
+        "Return to the previous content destination (Alt+Left). Does not undo edits.");
+    forwardAction->setToolTip("Revisit the next content destination (Alt+Right).");
+    auto travel = [this](int offset) {
+        const int target = navigationIndex + offset;
+        if (target < 0 || target >= navigationHistory.size())
+            return;
+        if (flushDraft && !flushDraft())
+            return;
+        prepareNavigation();
+        if (navigationIndex >= 0)
+            navigationStates[navigationIndex] = editorState;
+        editorState = navigationStates[target];
+        navigationIndex = target;
+        replayNavigation = true;
+        navigateContent(navigationHistory[target]);
+        replayNavigation = false;
+        syncNavigation();
+    };
+    connect(backAction, &QAction::triggered, this, [travel] { travel(-1); });
+    connect(forwardAction, &QAction::triggered, this, [travel] { travel(1); });
+    syncNavigation();
     connect(&history, &QUndoStack::cleanChanged, this, [this] { updateSummary(); });
     QVBoxLayout *welcome;
     auto w = panel(&welcome);
@@ -448,6 +468,10 @@ bool WorkshopWindow::openGame(const QString &path) {
         project.openGame(path);
         QSettings().setValue("paths/game", project.sourceDirectory);
         history.clear();
+        navigationHistory.clear();
+        navigationStates.clear();
+        navigationIndex = -1;
+        syncNavigation();
         savedTitle = project.title;
         current.clear();
         editorState.clear();
@@ -465,6 +489,10 @@ bool WorkshopWindow::openProject(const QString &path) {
         project.load(path);
         QSettings().setValue("paths/game", project.sourceDirectory);
         history.clear();
+        navigationHistory.clear();
+        navigationStates.clear();
+        navigationIndex = -1;
+        syncNavigation();
         savedTitle = project.title;
         current.clear();
         editorState.clear();
@@ -477,25 +505,82 @@ bool WorkshopWindow::openProject(const QString &path) {
         updateSummary();
     });
 }
+void WorkshopWindow::prepareNavigation() {
+    auto widget = content->currentWidget();
+    if (widget) if (auto map = dynamic_cast<MapWorkspace *>(widget->findChild<QWidget *>("mapWorkspace")))
+        map->prepareNavigation();
+}
+void WorkshopWindow::syncNavigation() {
+    if (!backAction)
+        return;
+    backAction->setEnabled(navigationIndex > 0);
+    forwardAction->setEnabled(navigationIndex + 1 < navigationHistory.size());
+}
+void WorkshopWindow::navigateContent(const QString &id) {
+    if (id.isEmpty())
+        return;
+    for (const auto &destination : destinations) {
+        if (destination.id != id)
+            continue;
+        const auto d = destination;
+        if (flushDraft && !flushDraft()) {
+            rebuildTree();
+            return;
+        }
+        prepareNavigation();
+        if (!replayNavigation && navigationIndex >= 0)
+            navigationStates[navigationIndex] = editorState;
+        if (!replayNavigation && d.page >= 0)
+            editorState[d.resource + "/map"] = d.page;
+        selectResource(d.resource);
+        if (!replayNavigation &&
+            (navigationIndex < 0 || navigationHistory.value(navigationIndex) != id)) {
+            navigationHistory = navigationHistory.mid(0, navigationIndex + 1);
+            navigationHistory.append(id);
+            navigationStates.resize(navigationIndex + 1);
+            navigationStates.append(editorState);
+            navigationIndex = navigationHistory.size() - 1;
+        }
+        syncNavigation();
+        return;
+    }
+}
 void WorkshopWindow::rebuildTree() {
     QSignalBlocker block(assets);
     assets->clear();
+    destinations = Workshop::contentDestinations(project);
     QMap<QString, QTreeWidgetItem *> groups;
-    for (auto it = project.resources.begin(); it != project.resources.end(); ++it) {
-        QString name = it.key(), group = Workshop::capability(name).group;
-        if (!groups.contains(group)) {
-            groups[group] = new QTreeWidgetItem(assets, {group});
-            groups[group]->setExpanded(true);
+    const auto query = contentSearch->text();
+    if (workspaceSelector->currentText() == "World") {
+        for (const auto &label :
+             {"World maps", "Settlements", "Dungeons", "Combat maps", "Location text"}) {
+            groups[label] = new QTreeWidgetItem(assets, {label});
+            groups[label]->setExpanded(QString(label) != "Combat maps");
         }
-        QString label = name + ((it->edited != it->original || it->included) ? " *" : "");
-        if (Workshop::capability(name).title != name)
-            label += " — " + Workshop::capability(name).title;
-        auto item = new QTreeWidgetItem(groups[group], {label});
-        item->setData(0, Qt::UserRole, name);
-        item->setToolTip(0, name + "\n" + Workshop::capability(name).status);
-        if (name == current)
+    }
+    for (const auto &d : destinations) {
+        if (d.workspace != workspaceSelector->currentText())
+            continue;
+        if (!query.isEmpty() && !d.title.contains(query, Qt::CaseInsensitive) &&
+            !d.group.contains(query, Qt::CaseInsensitive))
+            continue;
+        if (!groups.contains(d.group)) {
+            groups[d.group] = new QTreeWidgetItem(assets, {d.group});
+            groups[d.group]->setExpanded(true);
+        }
+        const auto &r = project.resources[d.resource];
+        auto item = new QTreeWidgetItem(
+            groups[d.group], {d.title + ((r.edited != r.original || r.included) ? " *" : "")});
+        item->setData(0, Qt::UserRole, d.resource);
+        item->setData(0, Qt::UserRole + 2, d.id);
+        item->setToolTip(0, Workshop::capability(d.resource).status + "\nSource: " + d.resource);
+        if (d.resource == current && (d.page < 0 || editorState.value(current + "/map") == d.page))
             assets->setCurrentItem(item);
     }
+    for (auto group : groups)
+        group->setHidden(group->childCount() == 0);
+    if (assets->currentItem())
+        assets->scrollToItem(assets->currentItem());
 }
 void WorkshopWindow::edit(const QMap<QString, QByteArray> &changes, const QString &description,
                           const QMap<QString, bool> &inclusion) {
@@ -530,12 +615,44 @@ void WorkshopWindow::selectResource(const QString &name) {
         return;
     }
     flushDraft = {};
+    prepareNavigation();
+    if (!replayNavigation && navigationIndex >= 0 && current != name)
+        navigationStates[navigationIndex] = editorState;
     current = name;
+    destinations = Workshop::contentDestinations(project);
+    for (const auto &d : destinations)
+        if (d.resource == name) {
+            QSignalBlocker block(workspaceSelector);
+            workspaceSelector->setCurrentText(d.workspace);
+            break;
+        }
+    rebuildTree();
     if (name != "DUNGEON.CBT")
         dungeonRoomNavigation = false;
     if (MapDocument::supported(name))
         lastMap = name;
     rebuildEditor();
+    if (!replayNavigation)
+        for (const auto &d : destinations) {
+            if (d.resource != current)
+                continue;
+            if (d.page >= 0 && d.page != editorState.value(current + "/map")) {
+                const auto pages = U5::mapPages(current, project.data(current));
+                const int selected = editorState.value(current + "/map");
+                if (selected >= pages.size() || pages[d.page].settlement < 0 ||
+                    pages[d.page].settlement != pages[selected].settlement)
+                    continue;
+            }
+            if (navigationHistory.value(navigationIndex) != d.id) {
+                navigationHistory = navigationHistory.mid(0, navigationIndex + 1);
+                navigationHistory.append(d.id);
+                navigationStates.resize(navigationIndex + 1);
+                navigationStates.append(editorState);
+                navigationIndex = navigationHistory.size() - 1;
+            }
+            break;
+        }
+    syncNavigation();
 }
 void WorkshopWindow::rebuildEditor() {
     if (current.isEmpty())
@@ -566,6 +683,8 @@ void WorkshopWindow::rebuildEditor() {
     }
     content->addWidget(w);
     content->setCurrentWidget(w);
+    if (auto map = dynamic_cast<MapWorkspace *>(w->findChild<QWidget *>("mapWorkspace")))
+        map->useSharedNavigation();
     if (oldView && !w->findChild<QWidget *>("mapWorkspace"))
         QTimer::singleShot(0, w, [w, scrollPosition] {
             auto view = w->findChild<QScrollArea *>("canvasView");
@@ -602,8 +721,7 @@ QWidget *WorkshopWindow::resourceEditor(const QString &name) {
     } else
         delete navigation;
     QWidget *editor = nullptr;
-    if (auto library = findChild<QWidget *>("resourceLibrary"))
-        library->setVisible(!name.endsWith(".TLK") && !MapDocument::supported(name));
+
     const auto kind = Workshop::capability(name).editor;
     auto objectCommit = [this](const QString &name, const QByteArray &bytes, bool included) {
         return guard([&] {

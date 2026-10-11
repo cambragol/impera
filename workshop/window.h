@@ -1,6 +1,8 @@
 #pragma once
+#include "content_navigation.h"
 #include "map_editor.h"
 #include "project.h"
+#include <QComboBox>
 #include <QLabel>
 #include <QMainWindow>
 #include <QStackedWidget>
@@ -23,6 +25,17 @@ class WorkshopWindow : public QMainWindow {
     Project project;
     QUndoStack history;
     QTreeWidget *assets;
+    QComboBox *workspaceSelector;
+    QLineEdit *contentSearch;
+    QVector<Workshop::ContentDestination> destinations;
+    QStringList navigationHistory;
+    QVector<QMap<QString, int>> navigationStates;
+    int navigationIndex = -1;
+    bool replayNavigation = false;
+    QAction *backAction, *forwardAction;
+    void navigateContent(const QString &id);
+    void syncNavigation();
+    void prepareNavigation();
     QStackedWidget *content;
     QString current, savedTitle, lastMap;
     bool rebuildPending = false;
