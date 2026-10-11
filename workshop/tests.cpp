@@ -3484,8 +3484,8 @@ int main(int argc, char **argv) {
             auto block = editor->findChild<QPlainTextEdit *>("conversationBlockText");
             check(block && block->toPlainText() == "Name", "Basic text not readable");
             auto framing = editor->findChildren<QLabel *>("conversationEngineText");
-            check(framing.size() == 2 && framing[0]->text() == "\"My name is " &&
-                      framing[1]->text() == "\"" && framing[0]->toolTip().isEmpty(),
+            check(framing.size() == 1 && framing[0]->text() == "My name is " &&
+                      framing[0]->toolTip().isEmpty(),
                   "Name is missing its read-only engine dialogue framing");
 
             block->setPlainText("New Name");
@@ -3507,9 +3507,8 @@ int main(int argc, char **argv) {
             auto tree = editor->findChild<QTreeWidget *>("conversationOutline");
             tree->setCurrentItem(treeItem(tree, "Job / Work"));
             framing = editor->findChildren<QLabel *>("conversationEngineText");
-            check(framing.size() == 2 && framing[0]->text() == "\"" &&
-                      framing[1]->text() == "\"" && w.projectForTests().data("TOWNE.TLK") == original,
-                  "Job framing is missing or viewing it changed dialogue bytes");
+            check(framing.isEmpty() && w.projectForTests().data("TOWNE.TLK") == original,
+                  "Job contains quote framing or viewing it changed dialogue bytes");
             tree->setCurrentItem(treeItem(tree, "help / hint"));
             auto aliases = editor->findChild<QLineEdit *>("conversationAliases");
             check(aliases && aliases->text() == "help, hint", "Shared aliases absent");

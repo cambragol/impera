@@ -940,8 +940,8 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
         label->setWordWrap(true);
         sectionLayout->addWidget(label);
     };
-    if (entry < 5)
-        engineText(entry == 0 ? "\"My name is " : entry == 1 ? "You see " : "\"");
+    if (entry == 0 || entry == 1)
+        engineText(entry == 0 ? "My name is " : "You see ");
     const auto entryBlocks = blocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
     for (const auto &block : entryBlocks)
         entryShapes[entry].append(block.opcode);
@@ -1195,14 +1195,6 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
     error->hide();
     entryErrors[entry] = error;
     sectionLayout->addWidget(error);
-    if (entry < 5 && entry != 1) {
-        bool stops = false;
-        for (const auto &block : entryBlocks)
-            stops |= block.opcode == 130 || block.opcode == 132 || block.opcode == 255 ||
-                     (block.opcode >= 145 && block.opcode <= 159);
-        if (!stops)
-            engineText("\"");
-    }
 }
 
 void ConversationEditor::changed() {
