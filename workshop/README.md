@@ -508,8 +508,8 @@ save compatibility, encounter lifetime and current limits.
 
 ### Add map items
 
-Use **Add…** in the map tool row to place NPCs, monsters, signs, containers or
-hidden contents. Worlds also offer horses, skiffs, frigates and magic carpets;
+Use **Add…** in the map tool row to place NPCs, monsters, signs, chests or
+containers. Worlds also offer horses, skiffs, frigates and magic carpets;
 dungeon combat rooms offer triggers. Click to place, then use the right inspector.
 **Select / Move** selects and drags existing items; **Delete** removes the selected
 item. Placement, attached data and deletion support Undo.

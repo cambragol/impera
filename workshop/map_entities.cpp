@@ -42,7 +42,7 @@ QString mapItemName(MapItemKind k) {
     case MapItemKind::Container:
         return "Chest";
     case MapItemKind::HiddenContents:
-        return "Hidden contents";
+        return "Container";
     case MapItemKind::Horse:
         return "Horse";
     case MapItemKind::Skiff:

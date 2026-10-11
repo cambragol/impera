@@ -2,7 +2,7 @@
 
 Use **Add…** in the map tool row, choose an item, and click its destination.
 The new item is selected and its properties open on the right. NPCs and signs
-place once; containers, hidden contents, creatures and vehicles repeat until
+place once; chests, containers, creatures and vehicles repeat until
 Escape, right-click, another tool, or leaving the map cancels placement.
 Arrow keys and Enter also place items. Previewing or cancelling changes nothing.
 
@@ -22,12 +22,12 @@ attached contents. Project saving and package export retain the entities.
 | Monster | Outdoor combat templates | A starting position for encounter-generated enemies; the encounter determines species and count. Adding a position does not increase that count. |
 | Sign | Britannia / settlements | Creates both a visible sign and text. Appearance can be sign, gravestone or cross. Dragging moves text and the visible tile together. |
 | Chest | Worlds, settlements, dungeon levels, combat maps | Chest with explicit item contents, locks, traps and refill settings. Starts empty; add items in the right pane. |
-| Hidden contents | Same maps as containers | Searchable contents without changing the terrain, including trees, furniture and other hiding places. |
+| Container | Same maps as chests | Searchable contents without changing the terrain, including trees, furniture and other hiding places. |
 | Horse, skiff, frigate, magic carpet | Britannia / Underworld | Native usable objects. Frigates start with 99 hull condition. Place ships on suitable water. |
 | Trigger | Dungeon combat rooms | Stepping on it changes up to two destination tiles. Edit destinations and replacement tile in the right pane; preview is optional. |
 
 Dungeon feature painting continues to supply ladders, fountains, pits, fields,
-walls and room doors. Dungeon levels have Add… for containers and hidden contents;
+walls and room doors. Dungeon levels have Add… for chests and containers;
 creatures are placed in the linked combat room.
 
 ## Compatibility and capacity
@@ -61,12 +61,11 @@ adjacent grass, wood, brick or stone floor; Undo restores the exact previous til
 ## Additional tile audit
 
 The audit added **vehicles** and **combat triggers** to the original NPC / monster /
-sign / container / hidden-content list. These need records beyond terrain artwork.
+sign / chest / container list. These need records beyond terrain artwork.
 
 * Ordinary doors, portcullises, fields, furniture and stairs already work as terrain;
   duplicating them in Add… would create two ways to paint the same thing.
-* Barrels, trunks, desks, dressers, trees and similar objects can carry **Hidden
-  contents**. Painting their artwork alone never invents an inventory. These are
+* Barrels, trunks, desks, dressers, trees and similar objects can carry **Container** contents. Painting their artwork alone never invents an inventory. These are
   Search targets; the Chest option uses Open.
 * Graves and crosses use Sign's appearance selector, rather than separate Add entries.
 * Shopkeepers need shop definitions as well as an NPC. The Shops editor changes
@@ -76,7 +75,7 @@ sign / container / hidden-content list. These need records beyond terrain artwor
 * Moonstones and quest artifacts have special identities and engine-managed
   spawns. They are not offered as generic copies that could duplicate quest state.
 * Loose pickup piles and arbitrary new service/portal definitions are candidates
-  for a future extension. Hidden contents can supply ordinary items now, with
+  for a future extension. Containers can supply ordinary items now, with
   Search revealing the pickup; it does not claim to be a pre-revealed pile.
 
 Validation covers native slot reservation, missing capacity, duplicate targets,

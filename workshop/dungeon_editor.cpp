@@ -288,10 +288,10 @@ DungeonWorkspace::DungeonWorkspace(
     addMenuButton->setText("Add…");
     addMenuButton->setObjectName("dungeonAddMenu");
     addMenuButton->setPopupMode(QToolButton::InstantPopup);
-    addMenuButton->setToolTip("Place a container or hidden contents on this dungeon level.");
+    addMenuButton->setToolTip("Place a chest or container on this dungeon level.");
     auto addMenu = new QMenu(addMenuButton);
     for (bool container : {true, false}) {
-        auto action = addMenu->addAction(container ? "Container" : "Hidden contents");
+        auto action = addMenu->addAction(container ? "Chest" : "Container");
         connect(action, &QAction::triggered, this, [=] {
             canvas->beginPlacement(container ? 0x40 : -1, true, [=](QPoint cell) {
                 try {
@@ -299,7 +299,7 @@ DungeonWorkspace::DungeonWorkspace(
                         addContentsAt(*p, {0, 33 + dungeon->currentIndex(), floor->currentIndex()},
                                       cell, container);
                     if (!commit({{"CONTENTS.OVR", bytes}},
-                                container ? "Add dungeon container" : "Add hidden contents"))
+                                container ? "Add dungeon chest" : "Add container"))
                         return false;
                     canvas->tool = MapCanvas::InspectNpc;
                     toolGroup->button(MapCanvas::InspectNpc)->setChecked(true);
