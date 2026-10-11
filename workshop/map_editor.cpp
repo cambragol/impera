@@ -1870,6 +1870,25 @@ void MapWorkspace::createNpcInspector(QVBoxLayout *layout) {
         saveView();
         (*navigation)[npcResource + "/settlement"] = document.pages[currentPage()].settlement;
         (*navigation)[npcResource + "/npc"] = canvas->selectedNpc;
+        (*navigation)[npcResource + "/character"] =
+            document.pages[currentPage()].settlement * 32 + canvas->selectedNpc;
+        try {
+            if (project->resources.contains(talkResource)) {
+                const auto conversations = U5::readDialogue(project->data(talkResource));
+                MapNpcDocument npcs(project, npcResource);
+                const int town = document.pages[currentPage()].settlement;
+                for (int i = 0; i < conversations.size(); ++i)
+                    if (int(conversations[i].id) == npcs.dialogue(town, canvas->selectedNpc)) {
+                        (*navigation)[talkResource + "/character"] =
+                            town * 32 + canvas->selectedNpc;
+                        (*navigation)[talkResource + "/conversation"] = i;
+                        (*navigation)[talkResource + "/characterTab"] = 1;
+                        navigateResource(talkResource);
+                        return;
+                    }
+            }
+        } catch (const std::exception &) { /* Schedule details remain available. */
+        }
         navigateResource(npcResource);
     });
     connect(npcConversation, &QPushButton::clicked, this, [this] {
@@ -1881,8 +1900,11 @@ void MapWorkspace::createNpcInspector(QVBoxLayout *layout) {
         for (int i = 0; i < conversations.size(); ++i)
             if (int(conversations[i].id) == id) {
                 saveView();
+                (*navigation)[talkResource + "/character"] =
+                    document.pages[currentPage()].settlement * 32 + canvas->selectedNpc;
                 (*navigation)[talkResource + "/conversation"] = i;
                 (*navigation)[talkResource + "/entry"] = 0;
+                (*navigation)[talkResource + "/characterTab"] = 0;
                 navigateResource(talkResource);
                 return;
             }

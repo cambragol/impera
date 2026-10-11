@@ -79,6 +79,189 @@ int main(int argc, char **argv) {
         std::cout << "PASS " << name << "\n";
     };
     try {
+        test(
+            "Cross-bank character identity, shared dialogue and unused "
+            "conversations",
+            [&] {
+                QTemporaryDir dir;
+                auto p = fixture(dir.path());
+                auto conversation = [](const QString &name) {
+                    return U5::encodeText(name + "<Entry>Description<Entry>Greeting<Entry>"
+                                                 "Job<Entry>Bye<Entry><Any><Label 15>@");
+                };
+                for (const QString stem : {"TOWNE", "KEEP"}) {
+                    file(dir.path() + "/" + stem + ".DAT", QByteArray(16384, 0));
+                    file(dir.path() + "/" + stem + ".TLK",
+                         U5::writeDialogue({{1, conversation(stem == "TOWNE" ? "Alice<Set Flag><Byte 255>" : "Keeper")},
+                                            {2, conversation("Unused")}}));
+                    QByteArray schedules(4608, 0);
+                    schedules[512] = 64;
+                    schedules[544] = 1;
+                    schedules[576 + 512 + 1] = 64;
+                    schedules[576 + 544 + 1] = 1;
+                    schedules[576 + 512 + 2] = 64;
+                    schedules[576 + 544 + 2] = 99;
+                    file(dir.path() + "/" + stem + ".NPC", schedules);
+                }
+                p.openGame(dir.path());
+                auto index = Workshop::characterDestinations(p);
+                check(index.size() == 8, "Character index merged slots, banks or "
+                                         "unassigned conversations");
+                QSet<QString> ids;
+                for (const auto &d : index) {
+                    if (d.resource == "TOWNE.TLK" && d.character >= 0)
+                        check(d.title == "Alice", "Runtime dialogue actions leaked into character names");
+                    check(!ids.contains(d.id), "Cross-bank character identity collision");
+                    ids.insert(d.id);
+                    if (d.character >= 0 && d.conversation == 0)
+                        check(d.provenance.contains("Shared dialogue: 2"),
+                              "Shared dialogue provenance missing");
+                    if (d.character == 34)
+                        check(d.conversation == -1 && d.resource.endsWith(".NPC"),
+                              "Special character has invented dialogue");
+                }
+                WorkshopWindow w;
+                check(w.openGame(dir.path()), "Character UI fixture failed");
+                w.show();
+                auto selector = w.findChild<QComboBox *>("contentWorkspace");
+                selector->setCurrentText("Characters");
+                auto filter = w.findChild<QComboBox *>("characterLocationFilter");
+                check(filter && filter->findText("Moonglow") >= 0 &&
+                          filter->findText("Unassigned conversations") >= 0,
+                      "Cross-bank location filters missing");
+                auto tree = w.findChild<QWidget *>("resourceLibrary")->findChild<QTreeWidget *>();
+                auto choose = [&](const QString &id) {
+                    selector->setCurrentText("Characters");
+                    filter->setCurrentIndex(0);
+                    QTreeWidgetItemIterator it(tree);
+                    while (*it) {
+                        if ((*it)->data(0, Qt::UserRole + 2).toString() == id) {
+                            tree->setCurrentItem(*it);
+                            app.processEvents();
+                            return;
+                        }
+                        ++it;
+                    }
+                    throw std::runtime_error("Character navigation entry missing");
+                };
+                filter->setCurrentIndex(filter->findText("Moonglow"));
+                check(tree->topLevelItemCount() == 1 && tree->topLevelItem(0)->childCount() == 1,
+                      "Location filter retained other locations");
+                choose("character/TOWNE/0/0");
+                auto active = [&] {
+                    return w.findChild<QStackedWidget *>("workspaces")->currentWidget();
+                };
+                auto modes = active()->findChild<QTabWidget *>("characterModes");
+                check(modes && modes->count() == 2 &&
+                          active()->findChild<QWidget *>("conversationBrowser")->isHidden(),
+                      "Character workspace duplicates collection navigation");
+                check(active()
+                          ->findChild<QLabel *>("characterProvenance")
+                          ->text()
+                          .contains("Shared dialogue"),
+                      "Shared dialogue warning absent from editor");
+                auto editor = dynamic_cast<ConversationEditor *>(active()->findChild<QWidget *>("conversationEditor"));
+                auto source = editor->findChild<QPlainTextEdit *>("dialogueText");
+                const QString baseline = source->toPlainText();
+                source->setPlainText("<Unknown>");
+                QTimer::singleShot(0, [&] {
+                    auto dialog = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+                    check(dialog, "Invalid character draft did not prompt");
+                    dialog->done(QMessageBox::Cancel);
+                });
+                modes->setCurrentIndex(1);
+                check(modes->currentIndex() == 0 && source->toPlainText() == "<Unknown>",
+                      "Invalid draft was lost while switching character mode");
+                source->setPlainText(baseline);
+                check(editor->flush(), "Cannot restore character draft");
+                app.processEvents();
+                QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+                const auto originalName = Dialogue::parse(U5::readDialogue(w.projectForTests().data("TOWNE.TLK"))[0].bytes).entries[0].bytes;
+                editor->findChild<QPlainTextEdit *>("conversationBlockText")->setPlainText("Renamed Alice");
+                modes->setCurrentIndex(1);
+                const auto renamedName = Dialogue::parse(U5::readDialogue(w.projectForTests().data("TOWNE.TLK"))[0].bytes).entries[0].bytes;
+                check(renamedName == Dialogue::text("Renamed Alice") + originalName.mid(U5::encodeText("Alice").size()),
+                      "Mode switch did not commit shared dialogue or preserved commands incorrectly");
+                check(active()->findChild<QLabel *>("characterTitle")->text().startsWith("Renamed Alice"),
+                      "Character heading did not follow dialogue name edit");
+                auto schedule = active()->findChild<QTableWidget *>("characterSchedule");
+                const auto terrain = w.projectForTests().data("TOWNE.DAT");
+                schedule->item(1, 1)->setText("7");
+                check(schedule->item(3, 1)->text() == "7" &&
+                          U5::byte(w.projectForTests().data("TOWNE.NPC"), 4) == 7,
+                      "Changes 2 and 4 did not share destination");
+                check(U5::byte(w.projectForTests().data("TOWNE.NPC"), 576 + 16 + 4) == 0 &&
+                          w.projectForTests().data("TOWNE.DAT") == terrain,
+                      "Schedule edit affected other character or terrain");
+                QTimer::singleShot(0, [&] {
+                    auto dialog = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+                    check(dialog, "Conversation assignment dialog missing");
+                    dialog->setIntValue(99);
+                    dialog->accept();
+                });
+                active()->findChild<QPushButton *>("changeCharacterConversation")->click();
+                app.processEvents();
+                check(active()->findChild<QTableWidget *>("characterSchedule") &&
+                          !active()->findChild<QWidget *>("conversationEditor"),
+                      "Changing link retained stale conversation");
+                for (auto action : w.findChildren<QAction *>())
+                    if (action->text().startsWith("Undo ")) {
+                        action->trigger();
+                        break;
+                    }
+                app.processEvents();
+                check(active()->findChild<QWidget *>("conversationEditor") &&
+                          active()->findChild<QTabWidget *>("characterModes")->currentIndex() == 1,
+                      "Undo relink did not resolve character and mode");
+                choose("character/KEEP/0/0");
+                check(
+                    active()->findChild<QLabel *>("characterProvenance")->text().contains("Ararat"),
+                    "Cross-bank character navigation retained wrong location");
+                for (auto action : w.findChildren<QAction *>())
+                    if (action->text() == "Back") {
+                        action->trigger();
+                        break;
+                    }
+                app.processEvents();
+                check(active()->findChild<QTabWidget *>("characterModes")->currentIndex() == 1,
+                      "Back lost selected character mode");
+                for (auto action : w.findChildren<QAction *>())
+                    if (action->text().startsWith("Undo ")) {
+                        action->trigger();
+                        break;
+                    }
+                app.processEvents();
+                check(
+                    active()->findChild<QTableWidget *>("characterSchedule")->item(1, 1)->text() ==
+                        "0",
+                    "Undo did not restore focused schedule");
+                active()->findChild<QPushButton *>("showCharacterMap")->click();
+                app.processEvents();
+                auto canvas =
+                    dynamic_cast<MapCanvas *>(active()->findChild<QWidget *>("mapCanvas"));
+                check(canvas && canvas->selectedNpc == 0 &&
+                          active()->findChild<QTabBar *>("locationModes")->currentIndex() == 1,
+                      "Character map link lost character selection");
+                choose("conversation/TOWNE/2");
+                check(active()->findChild<QTabWidget *>("characterModes")->count() == 1 &&
+                          active()
+                              ->findChild<QLabel *>("characterProvenance")
+                              ->text()
+                              .contains("special game logic"),
+                      "Unassigned conversation inaccessible or mislabeled");
+                choose("character/TOWNE/1/2");
+                check(active()->findChild<QTableWidget *>("characterSchedule") &&
+                          !active()->findChild<QWidget *>("conversationEditor"),
+                      "Special character cannot edit schedule without dialogue");
+                const QString screenshots = qEnvironmentVariable("IMPERA_WORKSHOP_SCREENSHOT_DIR");
+                if (!screenshots.isEmpty()) {
+                    choose("character/TOWNE/0/0");
+                    QDir().mkpath(screenshots);
+                    w.resize(1320, 860);
+                    app.processEvents();
+                    w.grab().save(screenshots + "/workshop-character-schedule.png");
+                }
+            });
         test("Engine table schema bounds, inheritance and package v3", [] {
             QByteArray bytes;
             bytes = Workshop::TableDocument::change(bytes, 1, 0, 321);
@@ -3039,6 +3222,37 @@ int main(int argc, char **argv) {
                     app.processEvents();
                 }
                 w.show();
+                w.findChild<QComboBox *>("contentWorkspace")->setCurrentText("Characters");
+                auto characterTree =
+                    w.findChild<QWidget *>("resourceLibrary")->findChild<QTreeWidget *>();
+                const auto originalCharacters = Workshop::characterDestinations(p);
+                for (const auto &character : originalCharacters) {
+                    if (character.character < 0 || character.conversation < 0)
+                        continue;
+                    QTreeWidgetItemIterator it(characterTree);
+                    while (*it && (*it)->data(0, Qt::UserRole + 2).toString() != character.id)
+                        ++it;
+                    check(bool(*it), "Original character destination missing");
+                    characterTree->setCurrentItem(*it);
+                    app.processEvents();
+                    auto root = w.findChild<QStackedWidget *>("workspaces")->currentWidget();
+                    auto modes = root->findChild<QTabWidget *>("characterModes");
+                    check(modes && modes->count() == 2, "Original character lacks unified modes");
+                    const auto captures = qEnvironmentVariable("IMPERA_WORKSHOP_SCREENSHOT_DIR");
+                    for (int mode = 0; mode < modes->count(); ++mode) {
+                        modes->setCurrentIndex(mode);
+                        app.processEvents();
+                        if (!captures.isEmpty()) {
+                            QDir().mkpath(captures);
+                            w.resize(1320, 860);
+                            app.processEvents();
+                            check(w.grab().save(captures + "/workshop-original-character-" +
+                                                QString::number(mode) + ".png"),
+                                  "Could not capture character UI");
+                        }
+                    }
+                    break;
+                }
                 for (const QString &resource : {QString("TOWNE.DAT"), QString("BRIT.DAT"),
                                                 QString("UNDER.DAT"), QString("BRIT.CBT")}) {
                     if (!p.resources.contains(resource))

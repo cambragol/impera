@@ -324,6 +324,13 @@ WorkshopWindow::WorkshopWindow() {
     workspaceSelector->setToolTip(
         "Choose the kind of game content to edit. Navigation stays available in every editor.");
     lv->addWidget(workspaceSelector);
+    characterLocation = new QComboBox;
+    characterLocation->setObjectName("characterLocationFilter");
+    characterLocation->setToolTip(
+        "Show characters across all dialogue banks at a top-level location, "
+        "including every floor and schedule time.");
+    lv->addWidget(characterLocation);
+    connect(characterLocation, &QComboBox::currentIndexChanged, this, [this] { rebuildTree(); });
     connect(workspaceSelector, &QComboBox::currentTextChanged, this, [this] { rebuildTree(); });
     lv->addWidget(search);
     assets = new QTreeWidget;
@@ -530,6 +537,20 @@ void WorkshopWindow::navigateContent(const QString &id) {
         prepareNavigation();
         if (!replayNavigation && navigationIndex >= 0)
             navigationStates[navigationIndex] = editorState;
+        if (d.workspace == "Characters") {
+            if (!replayNavigation && d.character >= 0 && d.resource != current &&
+                current.left(current.size() - 4) == d.resource.left(d.resource.size() - 4) &&
+                editorState.value(current + "/character", -1) == d.character)
+                editorState[d.resource + "/characterTab"] =
+                    editorState.value(current + "/characterTab");
+            editorState[d.resource + "/indexedCharacter"] = 1;
+            editorState[d.resource + "/character"] = d.character;
+            if (d.conversation >= 0) {
+                editorState[d.resource + "/conversation"] = d.conversation;
+                if (!replayNavigation)
+                    editorState[d.resource + "/entry"] = 0;
+            }
+        }
         if (!replayNavigation && d.page >= 0)
             editorState[d.resource + "/map"] = d.page;
         selectResource(d.resource);
@@ -550,6 +571,23 @@ void WorkshopWindow::rebuildTree() {
     assets->clear();
     destinations = Workshop::contentDestinations(project);
     QMap<QString, QTreeWidgetItem *> groups;
+    const bool characters = workspaceSelector->currentText() == "Characters";
+    characterLocation->setVisible(characters);
+    const QString selectedLocation = characterLocation->currentData().toString();
+    {
+        QSignalBlocker filterBlock(characterLocation);
+        characterLocation->clear();
+        characterLocation->addItem("All locations", QString());
+        QSet<QString> locations;
+        for (const auto &d : destinations)
+            if (d.workspace == "Characters")
+                locations.insert(d.group);
+        QStringList sorted = locations.values();
+        sorted.sort();
+        for (const auto &location : sorted)
+            characterLocation->addItem(location, location);
+        characterLocation->setCurrentIndex(qMax(0, characterLocation->findData(selectedLocation)));
+    }
     const auto query = contentSearch->text();
     if (workspaceSelector->currentText() == "World") {
         for (const auto &label :
@@ -561,6 +599,9 @@ void WorkshopWindow::rebuildTree() {
     for (const auto &d : destinations) {
         if (d.workspace != workspaceSelector->currentText())
             continue;
+        if (characters && !characterLocation->currentData().toString().isEmpty() &&
+            d.group != characterLocation->currentData().toString())
+            continue;
         if (!query.isEmpty() && !d.title.contains(query, Qt::CaseInsensitive) &&
             !d.group.contains(query, Qt::CaseInsensitive))
             continue;
@@ -569,21 +610,38 @@ void WorkshopWindow::rebuildTree() {
             groups[d.group]->setExpanded(true);
         }
         const auto &r = project.resources[d.resource];
+        const bool scheduleChanged =
+            !d.scheduleResource.isEmpty() && (project.resources[d.scheduleResource].edited !=
+                                                  project.resources[d.scheduleResource].original ||
+                                              project.resources[d.scheduleResource].included);
         auto item = new QTreeWidgetItem(
-            groups[d.group], {d.title + ((r.edited != r.original || r.included) ? " *" : "")});
+            groups[d.group],
+            {d.title + ((r.edited != r.original || r.included || scheduleChanged) ? " *" : "")});
         item->setData(0, Qt::UserRole, d.resource);
         item->setData(0, Qt::UserRole + 2, d.id);
-        item->setToolTip(0, Workshop::capability(d.resource).status + "\nSource: " + d.resource);
+        item->setToolTip(
+            0, d.provenance + "\n" + Workshop::capability(d.resource).status +
+                   "\nSource: " + d.resource +
+                   (d.scheduleResource.isEmpty() ? QString() : " / " + d.scheduleResource));
         if (d.resource == current) {
             const int selected = editorState.value(current + "/map");
             bool matches = d.page < 0 || selected == d.page;
+            if (d.workspace == "Characters" && (d.character >= 0 || d.conversation >= 0))
+                matches = editorState.value(current + "/character", -1) == d.character &&
+                          (d.conversation < 0 ||
+                           editorState.value(current + "/conversation") == d.conversation);
             if (!matches && d.page >= 0) {
                 const auto pages = U5::mapPages(current, project.data(current));
                 matches = selected >= 0 && selected < pages.size() &&
                           pages[d.page].settlement >= 0 &&
                           pages[d.page].settlement == pages[selected].settlement;
             }
-            if (matches) assets->setCurrentItem(item);
+            if (matches) {
+                assets->setCurrentItem(item);
+                if (d.workspace == "Characters" && content->currentWidget())
+                    if (auto title = content->currentWidget()->findChild<QLabel *>("characterTitle"))
+                        title->setText(d.title + " — " + d.group);
+            }
         }
     }
     for (auto group : groups)
@@ -645,6 +703,11 @@ void WorkshopWindow::selectResource(const QString &name) {
         for (const auto &d : destinations) {
             if (d.resource != current)
                 continue;
+            if (d.workspace == "Characters" && (d.character >= 0 || d.conversation >= 0) &&
+                (editorState.value(current + "/character", -1) != d.character ||
+                 (d.conversation >= 0 &&
+                  editorState.value(current + "/conversation") != d.conversation)))
+                continue;
             if (d.page >= 0 && d.page != editorState.value(current + "/map")) {
                 const auto pages = U5::mapPages(current, project.data(current));
                 const int selected = editorState.value(current + "/map");
@@ -666,6 +729,26 @@ void WorkshopWindow::selectResource(const QString &name) {
 void WorkshopWindow::rebuildEditor() {
     if (current.isEmpty())
         return;
+    // A conversation-link edit (or undo) can move a character between a
+    // dialogue resource and the schedule-only view. Resolve identity, not the
+    // previous file.
+    const int character = editorState.value(current + "/character", -1);
+    if (character >= 0 && (current.endsWith(".TLK") || current.endsWith(".NPC"))) {
+        const QString stem = current.left(current.size() - 4);
+        for (const auto &d : Workshop::characterDestinations(project))
+            if (d.character == character && d.scheduleResource == stem + ".NPC" &&
+                d.resource != current) {
+                const int tab = editorState.value(current + "/characterTab");
+                current = d.resource;
+                editorState[current + "/character"] = character;
+                editorState[current + "/indexedCharacter"] = 1;
+                editorState[current + "/characterTab"] = tab;
+                if (d.conversation >= 0)
+                    editorState[current + "/conversation"] = d.conversation;
+                rebuildTree();
+                break;
+            }
+    }
     flushDraft = {};
     QPoint scrollPosition;
     auto oldView = content->currentWidget()
@@ -798,13 +881,14 @@ QWidget *WorkshopWindow::resourceEditor(const QString &name) {
     } else if (kind == Workshop::EditorKind::Artwork)
         editor = graphicsEditor(name);
     else if (kind == Workshop::EditorKind::Conversation)
-        editor = dialogueEditor(name);
+        editor = characterEditor(name);
     else if (kind == Workshop::EditorKind::Story)
         editor = storyEditor();
     else if (kind == Workshop::EditorKind::State)
         editor = stateEditor();
     else if (kind == Workshop::EditorKind::Schedule)
-        editor = npcEditor(name);
+        editor = editorState.value(name + "/character", -1) >= 0 ? characterEditor(name)
+                                                                 : npcEditor(name);
     else if (kind == Workshop::EditorKind::Map)
         editor = mapEditor(name);
     if (!editor) {
@@ -1054,6 +1138,195 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
                            "mask. TILES.16 has no alpha. Partial alpha and "
                            "non-EGA colors are rejected."));
     return w;
+}
+QWidget *WorkshopWindow::characterEditor(const QString &name) {
+    const int character = editorState.value(name + "/character", -1);
+    const int conversation = editorState.value(name + "/conversation");
+    Workshop::ContentDestination selected;
+    bool found = false;
+    for (const auto &d : Workshop::characterDestinations(project))
+        if (d.resource == name && d.character == character &&
+            (d.conversation < 0 || d.conversation == conversation)) {
+            selected = d;
+            found = true;
+            break;
+        }
+    if (!found || (character < 0 && !editorState.value(name + "/indexedCharacter")))
+        return name.endsWith(".TLK") ? dialogueEditor(name) : npcEditor(name);
+    QVBoxLayout *layout;
+    auto root = panel(&layout);
+    root->setObjectName("characterWorkspace");
+    auto title = new QLabel(selected.title + " — " + selected.group);
+    title->setObjectName("characterTitle");
+    title->setTextFormat(Qt::PlainText);
+    layout->addWidget(title);
+    auto provenance = new QLabel(selected.provenance.section('\n', 0, 1));
+    provenance->setObjectName("characterProvenance");
+    provenance->setTextFormat(Qt::PlainText);
+    provenance->setWordWrap(true);
+    provenance->setToolTip(
+        "Conversation edits affect every character listed here. Schedule changes "
+        "affect only the selected character.");
+    layout->addWidget(provenance);
+    if (selected.character >= 0 && selected.conversation >= 0) {
+        auto users = new QPushButton("Dialogue users…");
+        users->setToolTip("List every scheduled character using this conversation, across all floors and times.");
+        connect(users, &QPushButton::clicked, root, [this, selected] {
+            QMessageBox::information(this, "Characters sharing this dialogue", selected.provenance);
+        });
+        layout->addWidget(users);
+    }
+    auto tabs = new QTabWidget;
+    tabs->setObjectName("characterModes");
+    layout->addWidget(tabs, 1);
+    if (selected.conversation >= 0) {
+        auto dialogue = dialogueEditor(name);
+        static_cast<ConversationEditor *>(dialogue)->focusCharacter();
+        tabs->addTab(dialogue, "Conversation");
+    } else {
+        tabs->addTab(hint("No editable conversation matches this character's "
+                          "conversation number. Merchants and special characters "
+                          "may use engine-controlled dialogue."),
+                     "Conversation");
+    }
+    if (character >= 0) {
+        const QString schedule = selected.scheduleResource;
+        const int town = character / 32, slot = character % 32;
+        auto schedulePanel = new QWidget;
+        auto scheduleLayout = new QVBoxLayout(schedulePanel);
+        scheduleLayout->addWidget(
+            hint("Four daily schedule changes use three destinations. Changes 2 "
+                 "and 4 share their destination and behavior. Floor −1 is the "
+                 "basement. Unusual existing values are preserved."));
+        auto table = new QTableWidget(4, 5);
+        table->setObjectName("characterSchedule");
+        table->setHorizontalHeaderLabels({"Start hour", "X", "Y", "Floor", "Behavior"});
+        table->setVerticalHeaderLabels({"Change 1", "Change 2", "Change 3", "Change 4"});
+        table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+        const QStringList tips{"Hour this schedule begins (normally 0–23).",
+                               "Destination map column.", "Destination map row.",
+                               "Destination floor; −1 means basement.",
+                               "Engine behavior code; preserve unfamiliar values."};
+        auto load = [this, table, schedule, town, slot, tips] {
+            QSignalBlocker block(table);
+            const auto data = project.data(schedule);
+            for (int row = 0; row < 4; ++row)
+                for (int col = 0; col < 5; ++col) {
+                    const int location = MapNpcDocument::locationIndex(row);
+                    int off = town * 576 + slot * 16 +
+                              (col == 0   ? 12 + row
+                               : col == 1 ? 3 + location
+                               : col == 2 ? 6 + location
+                               : col == 3 ? 9 + location
+                                          : location);
+                    int value = U5::byte(data, off);
+                    if (col == 3 && value >= 128)
+                        value -= 256;
+                    auto item = new QTableWidgetItem(QString::number(value));
+                    item->setData(Qt::UserRole, off);
+                    item->setToolTip(tips[col] + ((row == 1 || row == 3) && col > 0
+                                                      ? " Shared by changes 2 and 4."
+                                                      : QString()));
+                    table->setItem(row, col, item);
+                }
+        };
+        load();
+        connect(table, &QTableWidget::itemChanged, root,
+                [this, table, schedule, load](QTableWidgetItem *item) {
+                    guard([&] {
+                        bool ok;
+                        const int value = item->text().toInt(&ok);
+                        const bool floor = item->column() == 3;
+                        require(ok && value >= (floor ? -128 : 0) && value <= (floor ? 127 : 255),
+                                "Schedule value is outside its byte range");
+                        auto data = project.data(schedule);
+                        data[item->data(Qt::UserRole).toInt()] = char(value);
+                        edit({{schedule, data}}, "Edit character schedule");
+                    });
+                    load();
+                });
+        scheduleLayout->addWidget(table);
+        auto properties = new QFormLayout;
+        auto appearance = new QSpinBox;
+        appearance->setObjectName("characterAppearance");
+        appearance->setRange(0, 255);
+        appearance->setValue(U5::byte(project.data(schedule), town * 576 + 512 + slot));
+        appearance->setToolTip(
+            "Engine appearance code; adding 256 gives the sprite tile number. Zero "
+            "disables this scheduled character. Use the map character inspector "
+            "for sprite previews.");
+        properties->addRow("Appearance code:", appearance);
+        connect(appearance, &QSpinBox::valueChanged, root, [this, schedule, town, slot](int value) {
+            auto data = project.data(schedule);
+            data[town * 576 + 512 + slot] = char(value);
+            edit({{schedule, data}}, "Change character appearance");
+        });
+        auto changeDialogue = new QPushButton("Change linked conversation…");
+        changeDialogue->setObjectName("changeCharacterConversation");
+        changeDialogue->setToolTip(
+            "Assign a conversation number in this character's dialogue bank. "
+            "Numbers without an editable conversation may invoke special game "
+            "dialogue. Shared conversations remain shared.");
+        properties->addRow("Conversation:", changeDialogue);
+        connect(changeDialogue, &QPushButton::clicked, root,
+                [this, schedule, town, slot, selected] {
+                    if (flushDraft && !flushDraft())
+                        return;
+                    bool ok = false;
+                    const int old = U5::byte(project.data(schedule), town * 576 + 544 + slot);
+                    const int value = QInputDialog::getInt(
+                        this, "Link conversation",
+                        "Conversation number (within this character's bank):", old, 0, 255, 1, &ok);
+                    if (!ok || value == old)
+                        return;
+                    auto data = project.data(schedule);
+                    data[town * 576 + 544 + slot] = char(value);
+                    edit({{schedule, data}}, "Link character conversation");
+                    // Resolve the stable character ID again: a missing/available
+                    // dialogue can change its backing resource.
+                    navigateContent(selected.id);
+                });
+        scheduleLayout->addLayout(properties);
+        auto show = new QPushButton("Show character on map");
+        show->setObjectName("showCharacterMap");
+        show->setToolTip("Open this character's first scheduled floor in "
+                         "Characters / Schedules mode.");
+        const QString map = schedule.left(schedule.size() - 4) + ".DAT";
+        show->setEnabled(project.resources.contains(map));
+        connect(show, &QPushButton::clicked, root, [this, map, schedule, town, slot] {
+            if (flushDraft && !flushDraft())
+                return;
+            const auto pages = U5::mapPages(map, project.data(map));
+            MapNpcDocument doc(&project, schedule);
+            const auto destination = doc.location(town, slot, 0);
+            for (int i = 0; i < pages.size(); ++i)
+                if (pages[i].settlement == town && pages[i].floor == destination.floor) {
+                    editorState[map + "/map"] = i;
+                    editorState[map + "/mode"] = 1;
+                    editorState[map + "/actor/" + QString::number(town)] = slot;
+                    auto &state = mapViewStates[map + "/" + QString::number(i)];
+                    state.npc = slot;
+                    selectResource(map);
+                    return;
+                }
+            statusBar()->showMessage("The scheduled floor has no map page", 5000);
+        });
+        scheduleLayout->addWidget(show);
+        scheduleLayout->addStretch();
+        tabs->addTab(schedulePanel, "Schedule");
+    }
+    tabs->setCurrentIndex(qBound(0, editorState.value(name + "/characterTab"), tabs->count() - 1));
+    auto previous = std::make_shared<int>(tabs->currentIndex());
+    connect(tabs, &QTabWidget::currentChanged, root, [this, tabs, previous, name](int index) {
+        if (flushDraft && !flushDraft()) {
+            QSignalBlocker block(tabs);
+            tabs->setCurrentIndex(*previous);
+            return;
+        }
+        *previous = index;
+        editorState[name + "/characterTab"] = index;
+    });
+    return root;
 }
 QWidget *WorkshopWindow::dialogueEditor(const QString &name) {
     auto editor = new ConversationEditor(

@@ -65,6 +65,7 @@ ConversationEditor::ConversationEditor(
     auto split = new QSplitter;
     layout->addWidget(split, 1);
     auto npcPane = new QWidget;
+    npcPane->setObjectName("conversationBrowser");
     auto npcLayout = new QVBoxLayout(npcPane);
     npcLayout->setContentsMargins(0, 0, 0, 0);
     npcLayout->addWidget(new QLabel("Location:"));
@@ -1053,4 +1054,9 @@ void ConversationEditor::refreshSource() {
                                                                       ? QByteArray(1, char(0))
                                                                       : QByteArray());
     source->setPlainText(U5::decodeText(sourceBaseline));
+}
+
+void ConversationEditor::focusCharacter() {
+  findChild<QWidget *>("conversationBrowser")->hide();
+  search->hide();
 }

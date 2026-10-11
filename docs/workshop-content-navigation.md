@@ -1,6 +1,6 @@
 # Workshop content navigation
 
-Phases 1–3 of the overarching UI redesign replace file-first navigation with a persistent content navigator.
+Phases 1–4 of the overarching UI redesign replace file-first navigation with a persistent content navigator.
 
 Choose World, Characters, Story & Scenes, Artwork & Fonts, Game Rules, New Game, or Mod Overview in the workspace selector. Search filters the current workspace by content name or category. World lists settlements once; selecting a settlement opens its main floor. Other floors remain in the editor's floor selector. Combat encounters use numbered labels where their purpose has not been verified.
 
@@ -27,8 +27,17 @@ Switching modes or floors commits valid pending sign text first. Invalid text ke
 
 The standalone text and starting-object collections remain accessible for project-wide editing. Dungeon level/room editing remains its specialized workspace.
 
+## Characters (phase 4)
+
+Characters now lists individual scheduled characters across all four conversation banks, grouped and filtered by top-level location. Search matches character names and locations. Character identity includes its bank, location and schedule slot; equal conversation numbers in different banks do not refer to the same conversation. Empty appearance slots are excluded. Unassigned conversations remain available in a separate group; they may still be referenced by special game logic.
+
+Selecting a character opens **Conversation** and **Schedule** views without a second bank/NPC browser. The heading identifies its location. Provenance lists every scheduled character sharing the conversation and makes clear that conversation edits affect them all; schedule edits affect only the selected character. Characters without editable dialogue still have a Schedule view and an explanation of engine-controlled dialogue.
+
+Schedules show four changes with start hour, destination coordinates, floor and behavior. Changes 2 and 4 share their destination and behavior, and editing either updates both. Existing unusual values remain editable within their byte ranges. Appearance and conversation-link controls are available; an appearance code of zero disables the schedule entry. Changing a conversation link resolves the character's new conversation without copying dialogue. **Show character on map** opens the first scheduled floor with the character selected. Map conversation and schedule links open the same character workspace.
+
+Valid conversation drafts commit before switching view or navigating; invalid drafts prevent leaving. Undo and Back/Forward preserve character identity and the selected view. The existing conversation editor retains topics, questions, preview, simulation and validation. Compatibility routes for damaged or empty banks remain available. No resource or package format changes are introduced. Change markers still follow the underlying conversation/schedule resource scope; per-character aggregate tracking remains phase 6.
+
 ## Remaining phases
 
-4. Build a cross-bank character index with unified schedules and conversations, shared-dialogue provenance and unassigned conversations. Until then Characters provides human-readable conversation and schedule collections.
 5. Refine artwork names and previews and consolidate story, rules and new-game routes.
 6. Add aggregate content change tracking, a dedicated Mod Overview dashboard and simplified project toolbar. Until then Mod Overview contains read-only compatibility details, and change markers follow the underlying resource scope.

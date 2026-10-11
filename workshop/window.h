@@ -27,6 +27,7 @@ class WorkshopWindow : public QMainWindow {
     QTreeWidget *assets;
     QComboBox *workspaceSelector;
     QLineEdit *contentSearch;
+    QComboBox *characterLocation;
     QVector<Workshop::ContentDestination> destinations;
     QStringList navigationHistory;
     QVector<QMap<QString, int>> navigationStates;
@@ -56,6 +57,7 @@ class WorkshopWindow : public QMainWindow {
     QWidget *mapEditor(const QString &name);
     QWidget *graphicsEditor(const QString &name);
     QWidget *dialogueEditor(const QString &name);
+    QWidget *characterEditor(const QString &name);
     QWidget *storyEditor();
     QWidget *stateEditor();
     QWidget *npcEditor(const QString &name);

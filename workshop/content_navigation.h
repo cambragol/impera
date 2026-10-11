@@ -5,7 +5,10 @@ namespace Workshop {
 struct ContentDestination {
     QString id, workspace, group, title, resource;
     int page = -1;
+    int character = -1, conversation = -1, settlement = -1;
+    QString scheduleResource, provenance;
 };
+QVector<ContentDestination> characterDestinations(const Project &project);
 QVector<ContentDestination> contentDestinations(const Project &project);
 QStringList contentWorkspaces();
 } // namespace Workshop

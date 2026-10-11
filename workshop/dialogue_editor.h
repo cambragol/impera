@@ -11,6 +11,7 @@ class ConversationEditor : public QWidget {
                        int entry, std::function<void(int, int)> selection,
                        QWidget *parent = nullptr);
     bool flush();
+    void focusCharacter();
 
   private:
     Project *project;
