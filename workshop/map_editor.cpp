@@ -947,10 +947,9 @@ void MapMinimap::mouseMoveEvent(QMouseEvent *event) {
 MapWorkspace::MapWorkspace(
     Project *p, const QString &r, QMap<QString, MapViewState> *s, QMap<QString, int> *n,
     std::function<bool(const QMap<QString, QByteArray> &, const QString &)> commit,
-    std::function<void(const QString &)> navigate, MapBrushState *brushState, QWidget *parent)
+    std::function<void(const QString &)> navigate, QWidget *parent)
     : QWidget(parent), project(p), resource(r), document(p, r), states(s), navigation(n),
-      brushes(brushState ? brushState : &localBrushes), commitResources(commit),
-      navigateResource(navigate) {
+      commitResources(commit), navigateResource(navigate) {
     setObjectName("mapWorkspace");
     auto layout = new QVBoxLayout(this);
     layout->setContentsMargins(10, 10, 10, 10);
@@ -1112,11 +1111,7 @@ MapWorkspace::MapWorkspace(
     tools->insertWidget(tools->count() - 1, comparison);
     tools->addWidget(zoom);
     canvas = new MapCanvas;
-    // The small location icons are intended for world maps, including unused ruins.
-    for (int id = TILE_MAP_HUT; id <= TILE_MAP_LIGHTHOUSE; ++id)
-        overworldTiles.insert(id);
-    overworldTiles.insert(TILE_MAP_PALACEBT);
-    overworldTiles.insert(TILE_MAP_CASTLELB);
+    // Overworld membership comes only from decoded world maps, not unused icons/chunks.
     for (const QString &name : {QString("BRIT.DAT"), QString("UNDER.DAT")}) {
         if (!project->resources.contains(name))
             continue;
@@ -1200,22 +1195,19 @@ MapWorkspace::MapWorkspace(
     rightLayout->addWidget(minimap);
     auto brushControls = new QHBoxLayout;
     paletteFilter = new QComboBox;
-    paletteFilter->setToolTip(
-        "Filter tiles by category, your favorites, or recently used brushes.");
+    paletteFilter->setToolTip("Filter tiles by category.");
     paletteFilter->setObjectName("mapPaletteFilter");
     paletteFilter->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     paletteFilter->setMinimumContentsLength(8);
     paletteFilter->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-    paletteFilter->addItems({"All tiles", "Favorites", "Recent", "Overworld", "Ground", "Buildings",
-                             "Objects", "Other"});
+    paletteFilter->addItems({"All tiles", "Overworld", "Ground", "Buildings", "Objects", "Other"});
     const QStringList categoryHelp{
         "Every terrain tile.",
-        "Your favorite brushes.",
-        "Recently used brushes.",
         "Tiles used in Britannia or the Underworld, including their animation frames. Also "
-        "includes small world-map location icons. Overworld can overlap Ground, Buildings, "
+        "includes location icons only when used on those maps. Overworld can overlap Ground, "
+        "Buildings, "
         "Objects, or Other.",
-        "Terrain and floor surfaces: water, grass, roads, forests, rock, lava, carpets, and "
+        "Terrain and floor surfaces: water, grass, roads, forests, rock, lava, and "
         "paving.",
         "Building components: walls, towers, doors, windows, bridges, stairs, and ladders.",
         "Furniture, fixtures, plants, signs, and other placeable objects.",
@@ -1223,11 +1215,6 @@ MapWorkspace::MapWorkspace(
     for (int i = 0; i < categoryHelp.size(); ++i)
         paletteFilter->setItemData(i, categoryHelp[i], Qt::ToolTipRole);
     brushControls->addWidget(paletteFilter, 1);
-    favorite = new QPushButton("Favorite");
-    favorite->setToolTip("Add or remove the current brush from your favorites.");
-    favorite->setObjectName("mapFavorite");
-    favorite->setCheckable(true);
-    brushControls->addWidget(favorite);
     rightLayout->addLayout(brushControls);
     tileSearch = new QLineEdit;
     tileSearch->setToolTip("Find tiles by name, decimal number, or hexadecimal ID.");
@@ -1281,13 +1268,6 @@ MapWorkspace::MapWorkspace(
     split->setSizes({190, 780, 220});
     connect(tileSearch, &QLineEdit::textChanged, this, [this] { filterPalette(); });
     connect(paletteFilter, &QComboBox::currentIndexChanged, this, [this] { filterPalette(); });
-    connect(favorite, &QPushButton::toggled, this, [this](bool enabled) {
-        int id = canvas->brush;
-        brushes->favorites.removeAll(id);
-        if (enabled)
-            brushes->favorites.append(id);
-        filterPalette();
-    });
     connect(copy, &QPushButton::clicked, this, [this] { canvas->copySelection(); });
     connect(paste, &QPushButton::clicked, this, [this] {
         canvas->setFocus();
@@ -1883,16 +1863,6 @@ void MapWorkspace::setBrush(int id) {
                             .arg(MapDocument::tileName(canvas->brush))
                             .arg(canvas->brush)
                             .arg(tileCategories(canvas->brush).join(" · ")));
-    {
-        QSignalBlocker block(favorite);
-        favorite->setChecked(brushes->favorites.contains(canvas->brush));
-    }
-    if (!restoring) {
-        brushes->recent.removeAll(canvas->brush);
-        brushes->recent.prepend(canvas->brush);
-        while (brushes->recent.size() > 16)
-            brushes->recent.removeLast();
-    }
     filterPalette();
     canvas->update();
     saveView();
@@ -1911,12 +1881,8 @@ void MapWorkspace::filterPalette() {
             tileCategories(i).join(" ").contains(query, Qt::CaseInsensitive) ||
             QString::number(i).contains(query) ||
             QString("0x%1").arg(i, 2, 16, QChar('0')).contains(query, Qt::CaseInsensitive);
-        bool group =
-            paletteFilter->currentIndex() == 0 ||
-            (paletteFilter->currentIndex() < 3
-                 ? (paletteFilter->currentIndex() == 1 ? brushes->favorites : brushes->recent)
-                       .contains(i)
-                 : tileCategories(i).contains(paletteFilter->currentText()));
+        bool group = paletteFilter->currentIndex() == 0 ||
+                     tileCategories(i).contains(paletteFilter->currentText());
         palette->item(i)->setHidden(!matches || !group);
     }
 }
@@ -2721,34 +2687,34 @@ const QMap<int, QPair<QString, QString>> &tileCatalog() {
     // Numeric symbols are classified from the original DOS artwork, including
     // animation frames and rendering masks (which are not ordinary terrain).
     static const QMap<int, QPair<QString, QString>> catalog{
-        {TILE_MAP_WATER_1, {"Water 1", "Ground"}},
-        {TILE_MAP_WATER_2, {"Water 2", "Ground"}},
-        {TILE_MAP_WATER_3, {"Water 3", "Ground"}},
-        {TILE_MAP_POISON, {"Poison", "Ground"}},
+        {TILE_MAP_WATER_1, {"Deep water", "Ground"}},
+        {TILE_MAP_WATER_2, {"Water", "Ground"}},
+        {TILE_MAP_WATER_3, {"Shoals", "Ground"}},
+        {TILE_MAP_POISON, {"Swamp", "Ground"}},
         {TILE_MAP_GRASS, {"Grass", "Ground"}},
-        {TILE_MAP_HUT, {"Hut", "Buildings"}},
-        {TILE_MAP_CODEX, {"Codex", "Buildings"}},
-        {TILE_MAP_KEEP, {"Keep", "Buildings"}},
-        {TILE_MAP_VILLAGE, {"Village", "Buildings"}},
-        {TILE_MAP_TOWNE, {"Town", "Buildings"}},
-        {TILE_MAP_CASTLE, {"Castle", "Buildings"}},
-        {TILE_MAP_CAVE, {"Cave", "Ground"}},
-        {TILE_MAP_MINE, {"Mine", "Ground"}},
-        {TILE_MAP_DUNGEON, {"Dungeon", "Ground"}},
-        {TILE_MAP_SHRINE, {"Shrine", "Buildings"}},
-        {TILE_MAP_RUINS, {"Ruins", "Buildings"}},
-        {TILE_MAP_LIGHTHOUSE, {"Lighthouse", "Buildings"}},
-        {TILE_MAP_STUMP, {"Stump", "Ground"}},
+        {TILE_MAP_HUT, {"Hut location", "Other"}},
+        {TILE_MAP_CODEX, {"Codex shrine location", "Other"}},
+        {TILE_MAP_KEEP, {"Keep location", "Other"}},
+        {TILE_MAP_VILLAGE, {"Village location", "Other"}},
+        {TILE_MAP_TOWNE, {"Town location", "Other"}},
+        {TILE_MAP_CASTLE, {"Castle location", "Other"}},
+        {TILE_MAP_CAVE, {"Cave entrance", "Other"}},
+        {TILE_MAP_MINE, {"Mine entrance", "Other"}},
+        {TILE_MAP_DUNGEON, {"Dungeon entrance", "Other"}},
+        {TILE_MAP_SHRINE, {"Shrine location", "Other"}},
+        {TILE_MAP_RUINS, {"Ruined shrine location", "Other"}},
+        {TILE_MAP_LIGHTHOUSE, {"Lighthouse location", "Other"}},
+        {TILE_MAP_STUMP, {"Hollow stump", "Objects"}},
         {TILE_MAP_CROPS_PICKED, {"Crops picked", "Ground"}},
         {TILE_MAP_CROPS, {"Crops", "Ground"}},
-        {TILE_MAP_TREE, {"Tree", "Ground"}},
-        {TILE_MAP_PALACEBT, {"Blackthorn’s palace", "Buildings"}},
-        {TILE_MAP_CASTLELB, {"Lord British’s castle", "Buildings"}},
+        {TILE_MAP_TREE, {"Fruit tree", "Objects"}},
+        {TILE_MAP_PALACEBT, {"Blackthorn’s castle location", "Other"}},
+        {TILE_MAP_CASTLELB, {"Lord British’s castle location", "Other"}},
         {TILE_MAP_HIDDEN_DOOR, {"Hidden door", "Buildings"}},
         {TILE_MAP_WALL, {"Wall", "Buildings"}},
-        {TILE_MAP_SHELF, {"Shelf", "Objects"}},
+        {TILE_MAP_SHELF, {"Window shelf", "Buildings"}},
         {TILE_MAP_BOOKSHELF, {"Bookshelf", "Objects"}},
-        {TILE_MAP_TRAPDOOR, {"Trapdoor", "Buildings"}},
+        {TILE_MAP_TRAPDOOR, {"Loose brick / trapdoor", "Buildings"}},
         {TILE_MAP_LAVA, {"Lava", "Ground"}},
         {TILE_MAP_CHAIR_90, {"Chair", "Objects"}},
         {TILE_MAP_CHAIR_91, {"Chair", "Objects"}},
@@ -2770,7 +2736,7 @@ const QMap<int, QPair<QString, QString>> &tileCatalog() {
         {TILE_MAP_DRESSER, {"Dresser", "Objects"}},
         {TILE_MAP_TRUNK, {"Trunk", "Objects"}},
         {TILE_MAP_BRAZIER, {"Brazier", "Objects"}},
-        {TILE_MAP_FLAME, {"Flame", "Objects"}},
+        {TILE_MAP_FLAME, {"Roasting spit", "Objects"}},
         {TILE_MAP_CANNON_B4, {"Cannon", "Objects"}},
         {TILE_MAP_CANNON_B5, {"Cannon", "Objects"}},
         {TILE_MAP_CANNON_B6, {"Cannon", "Objects"}},
@@ -2780,35 +2746,35 @@ const QMap<int, QPair<QString, QString>> &tileCatalog() {
         {TILE_MAP_DOOR_BA, {"Door", "Buildings"}},
         {TILE_MAP_DOOR_BB, {"Door", "Buildings"}},
         {TILE_MAP_FIREPLACE, {"Fireplace", "Buildings"}},
-        {TILE_MAP_TABLE_BE, {"Table", "Objects"}},
+        {TILE_MAP_TABLE_BE, {"Candelabrum", "Objects"}},
         {TILE_MAP_STAIR, {"Stair", "Buildings"}},
         {TILE_MAP_LADDER_UP, {"Ladder up", "Buildings"}},
         {TILE_MAP_LADDER_DOWN, {"Ladder down", "Buildings"}},
         {TILE_MAP_WATERFALL, {"Waterfall", "Ground"}},
         {TILE_MAP_FOUNTAIN, {"Fountain", "Objects"}},
-        {TILE_MAP_MOONGATE, {"Moongate", "Buildings"}},
+        {TILE_MAP_MOONGATE, {"Moongate", "Objects"}},
         {TILE_MAP_WATER_E4, {"Water", "Ground"}},
         {TILE_MAP_WATER_E7, {"Water", "Ground"}},
-        {TILE_MAP_SIGN_F0, {"Sign", "Objects"}},
+        {TILE_MAP_SIGN_F0, {"Provisioner sign", "Objects"}},
         {TILE_MAP_SIGN_F8, {"Sign", "Objects"}},
         {TILE_MAP_CLOCK, {"Clock", "Objects"}},
         {TILE_MAP_BELLOWS_FC, {"Bellows", "Objects"}},
         {TILE_MAP_BELLOWS_FD, {"Bellows", "Objects"}},
         {0x00, {"Magic flash", "Other"}},
-        {0x06, {"Grass variation", "Ground"}},
-        {0x07, {"Swamp", "Ground"}},
+        {0x06, {"Brush", "Ground"}},
+        {0x07, {"Desert", "Ground"}},
         {0x08, {"Brush", "Ground"}},
         {0x09, {"Forest", "Ground"}},
-        {0x0a, {"Dense forest", "Ground"}},
+        {0x0a, {"Tropical forest", "Ground"}},
         {0x0b, {"Hills", "Ground"}},
         {0x0c, {"Mountains", "Ground"}},
         {0x0d, {"High mountains", "Ground"}},
-        {0x0e, {"Grass and rocks", "Ground"}},
-        {0x0f, {"Forest and rocks", "Ground"}},
+        {0x0e, {"Foothills and grass", "Ground"}},
+        {0x0f, {"Foothills and forest", "Ground"}},
         {0x1c, {"Banner", "Objects"}},
         {0x1d, {"Bridge", "Buildings"}},
-        {0x1e, {"Swamp and grass", "Ground"}},
-        {0x1f, {"Swamp edge", "Ground"}},
+        {0x1e, {"Desert vegetation", "Ground"}},
+        {0x1f, {"Desert vegetation", "Ground"}},
         {0x20, {"Road", "Ground"}},
         {0x21, {"Road edge", "Ground"}},
         {0x22, {"Road corner", "Ground"}},
@@ -2816,8 +2782,8 @@ const QMap<int, QPair<QString, QString>> &tileCatalog() {
         {0x24, {"Road corner", "Ground"}},
         {0x25, {"Road corner", "Ground"}},
         {0x26, {"Road junction", "Ground"}},
-        {0x27, {"Red carpet", "Ground"}},
-        {0x28, {"Red carpet", "Ground"}},
+        {0x27, {"Roof", "Buildings"}},
+        {0x28, {"Roof", "Buildings"}},
         {0x29, {"Crystal ball", "Objects"}},
         {0x2a, {"Emblem", "Objects"}},
         {0x2f, {"Cactus", "Ground"}},
@@ -2829,56 +2795,56 @@ const QMap<int, QPair<QString, QString>> &tileCatalog() {
         {0x35, {"Riverbank", "Ground"}},
         {0x36, {"Riverbank", "Ground"}},
         {0x37, {"Riverbank", "Ground"}},
-        {0x38, {"Castle emblem", "Objects"}},
-        {0x3a, {"Castle tower", "Buildings"}},
-        {0x3b, {"Castle battlements", "Buildings"}},
-        {0x3c, {"Castle tower", "Buildings"}},
-        {0x3d, {"Castle tower", "Buildings"}},
-        {0x3f, {"Castle tower", "Buildings"}},
+        {0x38, {"Gargoyle statue", "Objects"}},
+        {0x3a, {"Castle location tower", "Other"}},
+        {0x3b, {"Castle location battlements", "Other"}},
+        {0x3c, {"Castle location tower", "Other"}},
+        {0x3d, {"Castle location tower", "Other"}},
+        {0x3f, {"Castle location tower", "Other"}},
         {0x40, {"Wood floor", "Ground"}},
-        {0x41, {"Open book", "Objects"}},
-        {0x42, {"Food on counter", "Objects"}},
-        {0x43, {"Wood panel", "Buildings"}},
+        {0x41, {"Codex", "Objects"}},
+        {0x42, {"Mast", "Objects"}},
+        {0x43, {"Railing", "Buildings"}},
         {0x44, {"Brick floor", "Ground"}},
         {0x45, {"Stone floor", "Ground"}},
-        {0x46, {"Boulder", "Ground"}},
+        {0x46, {"Pillar", "Objects"}},
         {0x47, {"Bridge", "Buildings"}},
-        {0x48, {"Wood panel", "Buildings"}},
-        {0x49, {"Wood panel", "Buildings"}},
-        {0x4a, {"Window", "Buildings"}},
-        {0x4b, {"Portcullis", "Buildings"}},
-        {0x4c, {"Diagonal stone wall", "Buildings"}},
-        {0x4d, {"Diagonal stone wall", "Buildings"}},
-        {0x50, {"Stone wall corner", "Buildings"}},
-        {0x51, {"Stone wall corner", "Buildings"}},
-        {0x52, {"Stone wall corner", "Buildings"}},
-        {0x53, {"Stone wall corner", "Buildings"}},
-        {0x54, {"Stone wall corner", "Buildings"}},
-        {0x55, {"Stone wall corner", "Buildings"}},
-        {0x56, {"Stone wall", "Buildings"}},
-        {0x57, {"Stone wall", "Buildings"}},
-        {0x58, {"Skeleton", "Objects"}},
-        {0x59, {"Skeleton", "Objects"}},
+        {0x48, {"Bridge", "Buildings"}},
+        {0x49, {"Bridge", "Buildings"}},
+        {0x4a, {"Arrow slit", "Buildings"}},
+        {0x4b, {"Window", "Buildings"}},
+        {0x4c, {"Pile of rocks", "Ground"}},
+        {0x4d, {"Stone wall", "Buildings"}},
+        {0x50, {"Crenellation corner", "Buildings"}},
+        {0x51, {"Crenellation corner", "Buildings"}},
+        {0x52, {"Crenellation corner", "Buildings"}},
+        {0x53, {"Crenellation corner", "Buildings"}},
+        {0x54, {"Crenellation corner", "Buildings"}},
+        {0x55, {"Crenellation corner", "Buildings"}},
+        {0x56, {"Crenellation wall", "Buildings"}},
+        {0x57, {"Crenellation wall", "Buildings"}},
+        {0x58, {"Anvil", "Objects"}},
+        {0x59, {"Telescope", "Objects"}},
         {0x5b, {"Potted plant", "Objects"}},
         {0x5d, {"Bookshelf", "Objects"}},
-        {0x5e, {"Stone arch", "Buildings"}},
-        {0x5f, {"Stone arch", "Buildings"}},
-        {0x60, {"Riverbank", "Ground"}},
-        {0x61, {"Riverbank", "Ground"}},
-        {0x62, {"Riverbank", "Ground"}},
-        {0x63, {"Riverbank", "Ground"}},
-        {0x64, {"Riverbank", "Ground"}},
-        {0x65, {"Riverbank", "Ground"}},
-        {0x66, {"Riverbank", "Ground"}},
-        {0x67, {"Riverbank", "Ground"}},
-        {0x68, {"Riverbank", "Ground"}},
-        {0x69, {"Riverbank", "Ground"}},
+        {0x5e, {"Codex guardian", "Objects"}},
+        {0x5f, {"Codex guardian", "Objects"}},
+        {0x60, {"River", "Ground"}},
+        {0x61, {"River", "Ground"}},
+        {0x62, {"River", "Ground"}},
+        {0x63, {"River", "Ground"}},
+        {0x64, {"River", "Ground"}},
+        {0x65, {"River", "Ground"}},
+        {0x66, {"River", "Ground"}},
+        {0x67, {"River", "Ground"}},
+        {0x68, {"River", "Ground"}},
+        {0x69, {"River", "Ground"}},
         {0x6a, {"Wooden bridge", "Buildings"}},
         {0x6b, {"Wooden bridge", "Buildings"}},
-        {0x6c, {"Riverbank", "Ground"}},
-        {0x6d, {"Riverbank", "Ground"}},
-        {0x6e, {"Riverbank", "Ground"}},
-        {0x6f, {"Riverbank", "Ground"}},
+        {0x6c, {"River", "Ground"}},
+        {0x6d, {"River", "Ground"}},
+        {0x6e, {"River", "Ground"}},
+        {0x6f, {"River", "Ground"}},
         {0x70, {"Dungeon corridor mask", "Other"}},
         {0x71, {"Dungeon corridor mask", "Other"}},
         {0x72, {"Dungeon corridor mask", "Other"}},
@@ -2895,50 +2861,50 @@ const QMap<int, QPair<QString, QString>> &tileCatalog() {
         {0x7d, {"Dungeon corridor mask", "Other"}},
         {0x7e, {"Dungeon corridor mask", "Other"}},
         {0x7f, {"Dungeon corridor mask", "Other"}},
-        {0x80, {"Forge", "Objects"}},
-        {0x81, {"Forge", "Objects"}},
-        {0x82, {"Forge by water", "Objects"}},
-        {0x83, {"Forge by water", "Objects"}},
-        {0x84, {"Fence", "Buildings"}},
-        {0x85, {"Spider web", "Buildings"}},
-        {0x86, {"Bars", "Buildings"}},
-        {0x87, {"Brick wall", "Buildings"}},
-        {0x88, {"Rubble", "Ground"}},
+        {0x80, {"Pendulum", "Objects"}},
+        {0x81, {"Pendulum", "Objects"}},
+        {0x82, {"Pendulum", "Objects"}},
+        {0x83, {"Pendulum", "Objects"}},
+        {0x84, {"Stocks", "Objects"}},
+        {0x85, {"Manacles", "Objects"}},
+        {0x86, {"Metal grate", "Buildings"}},
+        {0x87, {"Archway", "Buildings"}},
+        {0x88, {"Cannonballs", "Objects"}},
         {0x89, {"Cross", "Objects"}},
         {0x8a, {"Gravestone", "Objects"}},
-        {0x8b, {"Dirt mound", "Ground"}},
-        {0x8d, {"Brick floor variation", "Ground"}},
-        {0x8e, {"Hanging cage", "Objects"}},
-        {0x97, {"Portcullis", "Buildings"}},
-        {0x98, {"Portcullis", "Buildings"}},
+        {0x8b, {"Torture rack", "Objects"}},
+        {0x8d, {"Harpsichord", "Objects"}},
+        {0x8e, {"Guillotine", "Objects"}},
+        {0x97, {"Odd door", "Buildings"}},
+        {0x98, {"Odd door", "Buildings"}},
         {0x99, {"Bars", "Buildings"}},
         {0xa0, {"Signpost", "Objects"}},
-        {0xa2, {"Ploughed ground", "Ground"}},
-        {0xa3, {"Bench", "Objects"}},
+        {0xa2, {"Hitching post", "Objects"}},
+        {0xa3, {"Stack of logs", "Objects"}},
         {0xa4, {"Stone cross", "Objects"}},
-        {0xa7, {"Barrel", "Objects"}},
-        {0xa9, {"Chair", "Objects"}},
-        {0xaa, {"Rug", "Ground"}},
+        {0xa7, {"Wine cask", "Objects"}},
+        {0xa9, {"Pitcher", "Objects"}},
+        {0xaa, {"Carpet", "Objects"}},
         {0xab, {"Bed", "Objects"}},
         {0xac, {"Bed", "Objects"}},
-        {0xae, {"Desk", "Objects"}},
+        {0xae, {"End table", "Objects"}},
         {0xb0, {"Wall torch", "Objects"}},
         {0xb1, {"Wall torch", "Objects"}},
-        {0xbd, {"Wall torch", "Objects"}},
-        {0xbf, {"Fireplace", "Buildings"}},
-        {0xc0, {"Stone fragment", "Ground"}},
-        {0xc1, {"Stone fragment", "Ground"}},
-        {0xc2, {"Stone fragment", "Ground"}},
-        {0xc3, {"Small flowers", "Ground"}},
+        {0xbd, {"Street lamp", "Objects"}},
+        {0xbf, {"Stove", "Objects"}},
+        {0xc0, {"Stone rendering fragment", "Other"}},
+        {0xc1, {"Stone rendering fragment", "Other"}},
+        {0xc2, {"Stone rendering fragment", "Other"}},
+        {0xc3, {"Rendering fragment", "Other"}},
         {0xc5, {"Stairs", "Buildings"}},
         {0xc6, {"Stairs", "Buildings"}},
         {0xc7, {"Stairs", "Buildings"}},
-        {0xca, {"Brick floor and grass", "Ground"}},
-        {0xcb, {"Brick floor and grass", "Ground"}},
-        {0xcc, {"Brick fragment", "Ground"}},
-        {0xcd, {"Brick fragment", "Ground"}},
-        {0xce, {"Grass fragment", "Ground"}},
-        {0xcf, {"Grass fragment", "Ground"}},
+        {0xca, {"Wooden fence", "Buildings"}},
+        {0xcb, {"Wooden fence", "Buildings"}},
+        {0xcc, {"Brick rendering fragment", "Other"}},
+        {0xcd, {"Brick rendering fragment", "Other"}},
+        {0xce, {"Vegetation rendering fragment", "Other"}},
+        {0xcf, {"Vegetation rendering fragment", "Other"}},
         {0xd0, {"Diagonal wall mask", "Other"}},
         {0xd1, {"Diagonal wall mask", "Other"}},
         {0xd2, {"Diagonal wall mask", "Other"}},
@@ -2949,31 +2915,31 @@ const QMap<int, QPair<QString, QString>> &tileCatalog() {
         {0xd9, {"Fountain animation", "Objects"}},
         {0xda, {"Fountain animation", "Objects"}},
         {0xdb, {"Fountain animation", "Objects"}},
-        {0xdd, {"Swamp animation", "Ground"}},
+        {0xdd, {"Desert animation", "Ground"}},
         {0xde, {"Sacred flame", "Objects"}},
-        {0xdf, {"Rocks", "Ground"}},
-        {0xe0, {"Grass detail", "Ground"}},
-        {0xe1, {"Grass detail", "Ground"}},
-        {0xe2, {"Fence", "Buildings"}},
-        {0xe3, {"Solid wall mask", "Other"}},
+        {0xdf, {"Collapsed dungeon entrance", "Other"}},
+        {0xe0, {"Multi-tile object base", "Other"}},
+        {0xe1, {"Multi-tile object left edge", "Other"}},
+        {0xe2, {"Multi-tile object right edge", "Other"}},
+        {0xe3, {"Flagpole", "Objects"}},
         {0xe5, {"Water edge", "Ground"}},
         {0xe6, {"Water edge", "Ground"}},
-        {0xe8, {"Hourglass animation", "Other"}},
-        {0xe9, {"Hourglass animation", "Other"}},
-        {0xea, {"Hourglass animation", "Other"}},
-        {0xeb, {"Hourglass animation", "Other"}},
-        {0xec, {"Magic field", "Other"}},
-        {0xed, {"Magic field", "Other"}},
-        {0xee, {"Magic field", "Other"}},
-        {0xef, {"Magic field", "Other"}},
-        {0xf1, {"Wall sign", "Objects"}},
-        {0xf2, {"Wall sign", "Objects"}},
-        {0xf3, {"Wall sign", "Objects"}},
-        {0xf4, {"Wall sign", "Objects"}},
-        {0xf5, {"Wall sign", "Objects"}},
-        {0xf6, {"Wall sign", "Objects"}},
-        {0xf7, {"Wall sign", "Objects"}},
-        {0xf9, {"Wall sign", "Objects"}},
+        {0xe8, {"Hourglass", "Objects"}},
+        {0xe9, {"Hourglass", "Objects"}},
+        {0xea, {"Hourglass", "Objects"}},
+        {0xeb, {"Hourglass", "Objects"}},
+        {0xec, {"Britannia banner", "Objects"}},
+        {0xed, {"Britannia banner", "Objects"}},
+        {0xee, {"Britannia banner", "Objects"}},
+        {0xef, {"Britannia banner", "Objects"}},
+        {0xf1, {"Government sign", "Objects"}},
+        {0xf2, {"Armoury sign", "Objects"}},
+        {0xf3, {"Healer sign", "Objects"}},
+        {0xf4, {"Stable sign", "Objects"}},
+        {0xf5, {"Guild sign", "Objects"}},
+        {0xf6, {"Inn sign", "Objects"}},
+        {0xf7, {"Apothecary sign", "Objects"}},
+        {0xf9, {"Shipwright sign", "Objects"}},
         {0xfb, {"Clock animation", "Objects"}},
         {0xfe, {"Bellows", "Objects"}},
         {0xff, {"Bellows", "Objects"}},

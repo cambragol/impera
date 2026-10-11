@@ -445,3 +445,10 @@ Britannia and Underworld maps, including original and edited terrain and animati
 frames. Unused chunk storage is excluded. Overworld overlaps the four exclusive
 base categories: Ground (terrain/floor surfaces), Buildings (structural components),
 Objects (furniture/fixtures/scenery), or Other (effects and rendering masks).
+
+## Tile browser audit update
+
+Favorites and Recent have been removed. The current browser uses All tiles,
+Overworld, Ground, Buildings, Objects and Other. The earlier phase descriptions
+above are historical; see [the tile catalog audit](workshop-tile-catalog-audit.md)
+for current classification rules.

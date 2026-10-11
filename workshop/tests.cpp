@@ -2803,7 +2803,6 @@ int main(int argc, char **argv) {
             canvas->selection = QRect(0, 0, 3, 3);
             canvas->selectionChanged();
             active()->findChild<QCheckBox *>("mapComparison")->setChecked(true);
-            active()->findChild<QPushButton *>("mapFavorite")->click();
             QMouseEvent down(QEvent::MouseButtonPress, {40, 40}, {40, 40}, Qt::LeftButton,
                              Qt::LeftButton, Qt::NoModifier);
             QMouseEvent up(QEvent::MouseButtonRelease, {40, 40}, {40, 40}, Qt::LeftButton,
@@ -2855,11 +2854,9 @@ int main(int argc, char **argv) {
             check(findCanvas()->brush == 9, "Floor navigation did not restore per-page brush");
             auto filter = active()->findChild<QComboBox *>("mapPaletteFilter");
             auto tiles = active()->findChild<QListWidget *>("mapPalette");
-            filter->setCurrentIndex(1);
-            check(!tiles->item(9)->isHidden() && tiles->item(11)->isHidden(),
-                  "Favorites lost across rebuild");
-            filter->setCurrentIndex(2);
-            check(!tiles->item(11)->isHidden(), "Recent brushes lost across navigation");
+            filter->setCurrentText("Ground");
+            check(!tiles->item(9)->isHidden() && tiles->item(0x27)->isHidden(),
+                  "Terrain filter must preserve brush navigation without including roofs");
             filter->setCurrentIndex(0);
             auto mini = active()->findChild<QWidget *>("mapMinimap");
             view = dynamic_cast<MapView *>(active()->findChild<QScrollArea *>("canvasView"));
@@ -3930,14 +3927,27 @@ int main(int argc, char **argv) {
             check(MapDocument::tileName(0x4f) == "Wall" &&
                       MapDocument::tileCategory(0x4f) == "Buildings",
                   "Verified wall category missing");
-            check(MapDocument::tileName(6) == "Grass variation" &&
-                      MapDocument::tileCategory(6) == "Ground",
+            check(MapDocument::tileName(6) == "Brush" && MapDocument::tileCategory(6) == "Ground",
                   "Grass variation missing from catalog");
             for (int id = 0; id < 256; ++id)
                 check(QStringList{"Overworld", "Ground", "Buildings", "Objects", "Other"}.contains(
                           MapDocument::tileCategory(id)) &&
                           MapDocument::tileName(id) != "Unidentified tile",
                       "Tile catalog is incomplete");
+            for (int id : {0x27, 0x28, 0x43, 0x4a, 0x4b, 0x4d, 0x5a, 0x87, 0xca, 0xcb})
+                check(MapDocument::tileCategory(id) == "Buildings",
+                      "Architectural tile was misclassified");
+            for (int id : {0x46, 0x58, 0x59, 0x5e, 0x5f, 0x84, 0x85, 0x88, 0x8b, 0x8d, 0x8e, 0xa2,
+                           0xa3, 0xaa, 0xbf, 0xdc, 0xe8, 0xec})
+                check(MapDocument::tileCategory(id) == "Objects",
+                      "Object artwork leaked into Ground or Buildings");
+            for (int id : {0x10, 0x11, 0x16, 0x18, 0x1a, 0x39, 0x3a, 0x3e, 0xc0, 0xcf, 0xdf, 0xe0, 0xe1, 0xe2})
+                check(MapDocument::tileCategory(id) == "Other",
+                      "Location icon or rendering fragment treated as ordinary terrain");
+            check(MapDocument::tileName(0x8d) == "Harpsichord" &&
+                      MapDocument::tileName(0x88) == "Cannonballs" &&
+                      MapDocument::tileName(0x27) == "Roof",
+                  "Audited object labels regressed");
             QTemporaryDir dir;
             auto project = fixture(dir.path());
             QByteArray bytes(352, char(0xee));
@@ -4000,16 +4010,20 @@ int main(int argc, char **argv) {
             check(palette->item(5)->isHidden() && !palette->item(0x50)->isHidden() &&
                       !palette->item(0x4f)->isHidden(),
                   "Buildings should include structural tiles also used on world maps");
-            check(category->count() == 8, "Palette should offer exactly five tile categories");
+            check(category->count() == 6 && category->findText("Favorites") < 0 &&
+                      category->findText("Recent") < 0 &&
+                      !window.findChild<QPushButton *>("mapFavorite"),
+                  "Palette should offer only artwork categories and All tiles");
             category->setCurrentText("Overworld");
             check(!palette->item(5)->isHidden() && !palette->item(0x4f)->isHidden() &&
-                      !palette->item(0xd7)->isHidden() && palette->item(0xfa)->isHidden(),
+                      !palette->item(0xd7)->isHidden() && palette->item(0xfa)->isHidden() &&
+                      palette->item(0x1a)->isHidden() && palette->item(0x39)->isHidden(),
                   "Overworld filter missed used tiles or counted unused chunk storage");
             check(palette->item(5)->toolTip().contains("Overworld · Ground"),
                   "World tile tooltip should describe both categories");
             category->setCurrentText("Ground");
-            check(!palette->item(5)->isHidden() && !palette->item(0x27)->isHidden() &&
-                      palette->item(0x4f)->isHidden(),
+            check(!palette->item(5)->isHidden() && !palette->item(0x40)->isHidden() &&
+                      palette->item(0x27)->isHidden() && palette->item(0x4f)->isHidden(),
                   "Ground should include terrain and floors, including world tiles");
             category->setCurrentText("Objects");
             check(!palette->item(0xfa)->isHidden() && palette->item(0x4f)->isHidden(),

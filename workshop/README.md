@@ -85,7 +85,7 @@ drafts rather than silently discarding them. Package imports become undoable edi
 
 | Workspace | Available in this first version |
 | --- | --- |
-| Maps | Searchable world/settlement/combat navigation; continuous painting, synchronized eyedropper, hover/brush preview, pan, anchored zoom, fit view, coordinate navigation, per-map view restoration and per-stroke undo; terrain selection, solid/outline rectangles, bounded flood fill, typed copy/paste previews, minimap, favorite/recent brushes, original-change highlighting; terrain and tile-ID PNG exports |
+| Maps | Searchable world/settlement/combat navigation; continuous painting, synchronized eyedropper, hover/brush preview, pan, anchored zoom, fit view, coordinate navigation, per-map view restoration and per-stroke undo; terrain selection, solid/outline rectangles, bounded flood fill, typed copy/paste previews, minimap, category-filtered tile browser, original-change highlighting; terrain and tile-ID PNG exports |
 | Dungeons | Eight named dungeons with eight 8×8 levels; symbolic feature painting, variants, encounter-room links, floor stack, ladder warnings, undo and byte-preserving edits |
 | Signs | Map markers, location-specific floors, search, add/move/delete records, mixed normal/runic lettering and glyph preview; generated posters are identified |
 | Descriptions | Searchable terrain/object and actor thumbnails, independent edits of shared text, explicit linked edits and DOS preview |
@@ -161,9 +161,9 @@ terrain operation is one undo command; rejected operations leave resources intac
 
 Click/drag the **minimap** to navigate; the white outline shows the viewport.
 **Highlight changes** marks terrain differing from original game files in orange,
-with a changed-cell count. **Favorite** adds/removes the current brush; the browser
-can show **All tiles / Favorites / Recent** (the last 16 brushes used). Favorites
-and recent brushes last for the current project session and are not mod content.
+with a changed-cell count. The browser offers **All tiles / Overworld / Ground /
+Buildings / Objects / Other**. Overworld includes tiles actually used in Britannia
+or the Underworld, and can overlap one of the four artwork categories.
 Selection, comparison and rectangle mode also survive map navigation and undo.
 
 ### NPC mode
@@ -285,8 +285,8 @@ Find terrain tiles by name or number and filter by **Overworld**, **Ground**,
 **Buildings**, **Objects**, or **Other**. Overworld includes tiles used in the
 Britannia and Underworld maps and their animation frames. Overworld can overlap
 Ground, Buildings, Objects, or Other; those four base categories remain exclusive.
-All 256 terrain tiles
-are categorized from engine definitions and the original DOS artwork. The compact
+All 256 terrain tiles are covered by the
+[artwork and category audit](../docs/workshop-tile-catalog-audit.md). The compact
 palette shows artwork only; hover for names, categories, and IDs. Tool icons have
 descriptive tooltips. The labeled NPC schedule selector beside the floor list shows shared start hours
 or changes 1–4 when NPC timings differ.

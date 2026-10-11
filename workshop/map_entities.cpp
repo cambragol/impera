@@ -12,7 +12,7 @@ namespace Workshop {
 QString actorName(int shape) {
     // Combat group names do not always describe the NPC appearance artwork.
     if (shape == 96)
-        return "Man in stocks";
+        return "person in stocks";
     if (shape >= 64 && shape <= 252) {
         QString name = QString::fromLatin1(engineActorNames[(shape - 64) / 4]).toLower();
         // This table names combat groups; the picker places one creature at a time.
@@ -117,7 +117,7 @@ QMap<QString, QByteArray> moveSignTerrain(const Project &p, const QString &r, in
         auto n = from + delta;
         if (n.x() >= 0 && n.y() >= 0 && n.x() < side && n.y() < side) {
             int t = U5::byte(terrain, n.y() * side + n.x());
-            if (t == 5 || t == 0x40 || t == 0x44 || t == 0x45 || t == 0x8d) {
+            if (t == 5 || t == 0x40 || t == 0x44 || t == 0x45) {
                 ground = t;
                 break;
             }

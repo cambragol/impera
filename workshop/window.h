@@ -45,7 +45,6 @@ class WorkshopWindow : public QMainWindow {
     std::function<bool()> flushDraft;
     QMap<QString, int> editorState;
     QMap<QString, MapViewState> mapViewStates;
-    MapBrushState mapBrushes;
     bool guard(const std::function<void()> &operation);
     bool canLeave();
     bool reviewPackage(bool launch);

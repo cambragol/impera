@@ -528,7 +528,6 @@ bool WorkshopWindow::openGame(const QString &path) {
         current.clear();
         editorState.clear();
         mapViewStates.clear();
-        mapBrushes = {};
         lastMap.clear();
         flushDraft = {};
         rebuildTree();
@@ -549,7 +548,6 @@ bool WorkshopWindow::openProject(const QString &path) {
         current.clear();
         editorState.clear();
         mapViewStates.clear();
-        mapBrushes = {};
         lastMap.clear();
         flushDraft = {};
         rebuildTree();
@@ -1209,7 +1207,7 @@ QWidget *WorkshopWindow::mapEditor(const QString &name) {
                 edit(changes, description, inclusion);
             });
         },
-        [this](const QString &resource) { selectResource(resource); }, &mapBrushes);
+        [this](const QString &resource) { selectResource(resource); });
     workspace->locationChanged = [this] { rebuildTree(); };
     QStringList modes{"Terrain"};
     const auto npc = name.left(name.size() - 4) + ".NPC";

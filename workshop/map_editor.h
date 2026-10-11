@@ -49,10 +49,6 @@ class MapNpcDocument {
     int offset(int settlement, int npc) const;
 };
 
-struct MapBrushState {
-    QList<int> favorites, recent;
-};
-
 class MapCanvas : public QWidget {
   public:
     explicit MapCanvas(QWidget *parent = nullptr);
@@ -176,8 +172,7 @@ class MapWorkspace : public QWidget {
     MapWorkspace(Project *project, const QString &resource, QMap<QString, MapViewState> *states,
                  QMap<QString, int> *navigation,
                  std::function<bool(const QMap<QString, QByteArray> &, const QString &)> commit,
-                 std::function<void(const QString &)> navigate, MapBrushState *brushes = nullptr,
-                 QWidget *parent = nullptr);
+                 std::function<void(const QString &)> navigate, QWidget *parent = nullptr);
     ~MapWorkspace() override { clearLocationLayer(); }
     void cancelGesture();
     void prepareNavigation() {
@@ -221,9 +216,7 @@ class MapWorkspace : public QWidget {
     MapMinimap *minimap;
     QLabel *selectionLabel;
     QComboBox *paletteFilter;
-    QPushButton *favorite;
     QLineEdit *tileSearch;
-    MapBrushState localBrushes, *brushes;
     void filterPalette();
     QSet<int> overworldTiles;
     QStringList tileCategories(int id) const;
