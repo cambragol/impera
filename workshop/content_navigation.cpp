@@ -11,7 +11,7 @@
 namespace Workshop {
 QString artworkTitle(const QString &name) {
     static const QMap<QString, QString> titles = {
-        {"TILES.16", "Terrain, objects and characters"},
+        {"TILES.16", "Tiles"},
         {"ITEMS.16", "Dungeon item illustrations"},
         {"CREATE.16", "Character creation artwork"},
         {"TEXT.16", "Story text framing"},
@@ -38,8 +38,7 @@ bool matchesSelection(const ContentDestination &d, const QMap<QString, int> &sta
     return true;
 }
 QStringList contentWorkspaces() {
-    return {"World",      "NPCs", "Story & Scenes", "Artwork & Fonts",
-            "Game Rules", "New Game",   "Mod Overview"};
+    return {"World", "NPCs", "Cutscenes", "Graphics", "Game Rules", "Mod Overview"};
 }
 QVector<ContentDestination> characterDestinations(const Project &project) {
     QVector<ContentDestination> result;
@@ -207,23 +206,23 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
             group = "Unavailable NPC data";
             break;
         case EditorKind::Artwork:
-            workspace = "Artwork & Fonts";
+            workspace = "Graphics";
             title = artworkTitle(name);
-            group = name == "TILES.16" ? "Game tiles" : "Illustrations";
+            group = name == "TILES.16" ? "Tiles" : "Illustrations";
             break;
         case EditorKind::Fonts:
-            workspace = "Artwork & Fonts";
+            workspace = "Graphics";
             if (name.endsWith(".HCS"))
                 title += " (Hercules)";
             break;
         case EditorKind::State:
-            workspace = "New Game";
+            workspace = "Game Rules";
             group = "Starting game";
             title = "Starting party and world state";
             break;
         case EditorKind::WorldObjects:
             if (name == "INIT.OOL" && project.resources.contains("UNDER.OOL")) continue;
-            workspace = "New Game";
+            workspace = "Game Rules";
             group = "Starting objects";
             title = name == "BRIT.OOL" ? "Britannia objects" : "Underworld objects";
             break;
@@ -235,7 +234,7 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
         case EditorKind::Scenes:
             for (int scene = 0; scene < SceneDocument::names().size(); ++scene) {
                 ContentDestination d{"scene/" + QString::number(scene),
-                    scene == 4 ? "New Game" : "Story & Scenes", "Scenes",
+                    scene == 4 ? "Game Rules" : "Cutscenes", scene == 4 ? "Starting game" : "Scenes",
                     SceneDocument::names()[scene], name};
                 d.selection["scene/current"] = scene;
                 d.sources = {name, scene == 4 ? "QUESTION.DAT" : scene == 3 ? "ENDMSG.DAT" : "MISCMSG.DAT"};
@@ -246,8 +245,9 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
         case EditorKind::Narrative:
             if (usableScenes &&
                 QStringList{"QUESTION.DAT", "MISCMSG.DAT", "ENDMSG.DAT"}.contains(name)) continue;
-            workspace = name == "QUESTION.DAT" ? "New Game" : name == "SHOPPE.DAT" ? "Game Rules" : "Story & Scenes";
-            group = name == "SHOPPE.DAT" ? "Shops and locations" : "Stories and messages";
+            workspace = QStringList{"QUESTION.DAT", "SHOPPE.DAT"}.contains(name) ? "Game Rules" : "Cutscenes";
+            group = name == "QUESTION.DAT" ? "Starting game"
+                    : name == "SHOPPE.DAT" ? "Shops and locations" : "Stories and messages";
             if (name == "SHOPPE.DAT") title = "Shop and service dialogue";
             if (name == "KARMA.DAT") title = "Dreams and virtue speeches";
             break;

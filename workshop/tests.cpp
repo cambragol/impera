@@ -385,7 +385,7 @@ int main(int argc, char **argv) {
             check(p.changed() == QStringList{"INIT.GAM"}, "Overview validation mutated resources");
             changed->itemDoubleClicked(changed->topLevelItem(0), 0);
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-            check(workspace->currentText() == "New Game", "Changed-content link did not open its editor");
+            check(workspace->currentText() == "Game Rules", "Changed-content link did not open its editor");
             auto toolbar = w.findChild<QToolBar *>();
             QStringList commands;
             for (auto action : toolbar->actions()) commands.append(action->text());
@@ -437,7 +437,7 @@ int main(int argc, char **argv) {
                     ++scenes;
                     int scene = d.selection.value("scene/current", -1);
                     check(scene >= 0 && scene <= 4 && Workshop::matchesSelection(d, d.selection), "Scene selection missing");
-                    check((d.workspace == "New Game") == (scene == 4), "Creation route in wrong workspace");
+                    check((d.workspace == "Game Rules") == (scene == 4), "Creation route in wrong workspace");
                     check(d.sources.size() == 2, "Scene message provenance missing");
                 }
                 if (d.resource == "UNDER.OOL" || d.resource == "INIT.OOL") ++underworld;
@@ -450,7 +450,7 @@ int main(int argc, char **argv) {
             check(std::any_of(routes.begin(), routes.end(), [](const auto &d) { return d.resource == "MISCMSG.DAT"; }), "Damaged scenes hide independent messages");
             p.resources.remove("MISCMAPS.DAT");
             routes = Workshop::contentDestinations(p);
-            check(std::any_of(routes.begin(), routes.end(), [](const auto &d) { return d.resource == "QUESTION.DAT" && d.workspace == "New Game"; }), "Missing scene file hides creation text");
+            check(std::any_of(routes.begin(), routes.end(), [](const auto &d) { return d.resource == "QUESTION.DAT" && d.workspace == "Game Rules"; }), "Missing scene file hides creation text");
             check(Workshop::artworkTitle("DNG1.16").contains("Dungeon scenery") && Workshop::artworkTitle("STORY2.16").contains("Introduction"), "Verified artwork names missing");
             check(Workshop::artworkTitle("UNKNOWN.16").contains("UNKNOWN"), "Unknown artwork purpose invented");
             WorkshopWindow w;
@@ -467,19 +467,27 @@ int main(int argc, char **argv) {
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             check(w.findChild<QComboBox *>("imageSlot")->currentIndex() == 127 && w.findChild<QComboBox *>("artworkZoom")->currentIndex() == 4, "Artwork selection or zoom not restored");
             check(w.projectForTests().changed().isEmpty(), "Artwork navigation edited resources");
+            auto graphicsWorkspace = w.findChild<QComboBox *>("contentWorkspace");
+            auto graphicsTree = w.findChild<QWidget *>("resourceLibrary")->findChild<QTreeWidget *>();
+            check(graphicsWorkspace->currentText() == "Graphics" &&
+                      graphicsWorkspace->count() == 6 &&
+                      graphicsWorkspace->findText("New Game") < 0 &&
+                      graphicsTree->topLevelItem(0)->text(0) == "Tiles" &&
+                      graphicsTree->topLevelItem(0)->child(0)->text(0) == "Tiles",
+                  "Graphics should put Tiles first and New Game should be consolidated");
             QByteArray scenesData(1216, 0);
             scenesData += QByteArray::fromHex("06000c030109");
             file(dir.path() + "/MISCMAPS.DAT", scenesData);
             check(w.openGame(dir.path()), "Scene navigation fixture failed");
             auto workspace = w.findChild<QComboBox *>("contentWorkspace");
-            workspace->setCurrentText("New Game");
+            workspace->setCurrentText("Game Rules");
             auto tree = w.findChild<QWidget *>("resourceLibrary")->findChild<QTreeWidget *>();
             tree->setCurrentItem(treeItem(tree, "Character creation"));
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             auto sceneSelector = w.findChild<QComboBox *>("sceneSelector");
             check(sceneSelector && sceneSelector->currentIndex() == 4, "Creation destination opened wrong scene");
             sceneSelector->setCurrentIndex(0);
-            check(workspace->currentText() == "Story & Scenes", "Scene selector lost semantic workspace");
+            check(workspace->currentText() == "Cutscenes", "Scene selector lost semantic workspace");
 
         });
         test(
@@ -1817,7 +1825,7 @@ int main(int argc, char **argv) {
                       "Resource navigation replaced workspace or discarded draft");
             }
             auto selector = window.findChild<QComboBox *>("contentWorkspace");
-            check(selector && selector->count() == 7, "Content workspace selector missing");
+            check(selector && selector->count() == 6, "Content workspace selector missing");
             window.selectResource("TOWNE.DAT");
             auto activeMap = window.findChild<QStackedWidget *>("workspaces")->currentWidget();
             check(activeMap->findChild<QTreeWidget *>("mapNavigation")->parentWidget()->isHidden(),
@@ -1852,7 +1860,7 @@ int main(int argc, char **argv) {
                     action->trigger();
                     break;
                 }
-            check(selector->currentText() == "New Game", "Forward did not restore workspace");
+            check(selector->currentText() == "Game Rules", "Forward did not restore workspace");
             auto workspace = window.findChild<QStackedWidget *>("workspaces")->currentWidget();
             for (auto tabs : workspace->findChildren<QTabWidget *>())
                 for (int i = 0; i < tabs->count(); ++i)

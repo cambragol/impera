@@ -676,6 +676,18 @@ void WorkshopWindow::rebuildTree() {
             groups[label]->setExpanded(QString(label) != "Combat maps");
         }
     }
+    if (workspaceSelector->currentText() == "Graphics") {
+        for (const QString &label : {QString("Tiles"), QString("Illustrations"), QString("Fonts")}) {
+            const bool present = std::any_of(destinations.cbegin(), destinations.cend(),
+                                            [&](const auto &d) {
+                                                return d.workspace == "Graphics" && d.group == label;
+                                            });
+            if (present) {
+                groups[label] = new QTreeWidgetItem(assets, {label});
+                groups[label]->setExpanded(true);
+            }
+        }
+    }
     const auto changes = Workshop::contentChanges(project, destinations);
     for (const auto &d : destinations) {
         if (d.workspace != workspaceSelector->currentText())
@@ -783,10 +795,10 @@ void WorkshopWindow::selectResource(const QString &name) {
     // Diagnostic links can still open companion resources hidden from normal navigation.
     if (name == "INIT.OOL" || name == "QUESTION.DAT") {
         QSignalBlocker block(workspaceSelector);
-        workspaceSelector->setCurrentText("New Game");
+        workspaceSelector->setCurrentText("Game Rules");
     } else if (name == "MISCMSG.DAT" || name == "ENDMSG.DAT") {
         QSignalBlocker block(workspaceSelector);
-        workspaceSelector->setCurrentText("Story & Scenes");
+        workspaceSelector->setCurrentText("Cutscenes");
     }
     rebuildTree();
     if (name != "DUNGEON.CBT")
