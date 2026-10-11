@@ -377,6 +377,22 @@ int main(int argc, char **argv) {
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             auto overview = w.findChild<QWidget *>("modOverview");
             check(overview, "Overview did not open from workspace selector");
+            auto overviewTabs = overview->findChild<QTabWidget *>("overviewTabs");
+            auto advanced = overview->findChild<QToolButton *>("overviewAdvanced");
+            check(overviewTabs && overviewTabs->count() == 2 &&
+                      overviewTabs->tabText(0) == "Changed content" &&
+                      overviewTabs->tabText(1) == "Validation" && advanced && !advanced->isChecked(),
+                  "Overview should show only changes and validation by default");
+            for (auto button : overview->findChildren<QPushButton *>())
+                check(!QStringList{"Save Project", "Name Mod", "Export Package", "Test Mod"}
+                           .contains(button->text()), "Duplicate overview command remains");
+            advanced->click();
+            check(overviewTabs->count() == 3 &&
+                      overviewTabs->currentWidget()->objectName() == "overviewAdvancedPanel",
+                  "Advanced diagnostics are inaccessible");
+            advanced->click();
+            check(overviewTabs->count() == 2,
+                  "Advanced diagnostics did not collapse");
             auto changed = overview->findChild<QTreeWidget *>("overviewChanges");
             auto resources = overview->findChild<QTreeWidget *>("overviewPackageResources");
             check(changed && changed->topLevelItemCount() == 1 && resources && resources->topLevelItemCount() == 1, "Overview does not list changed content and actual package resources");
@@ -472,8 +488,8 @@ int main(int argc, char **argv) {
             check(graphicsWorkspace->currentText() == "Graphics" &&
                       graphicsWorkspace->count() == 6 &&
                       graphicsWorkspace->findText("New Game") < 0 &&
-                      graphicsTree->topLevelItem(0)->text(0) == "Tiles" &&
-                      graphicsTree->topLevelItem(0)->child(0)->text(0) == "Tiles",
+                      graphicsTree->topLevelItem(0)->text(0) == "Game tiles" &&
+                      graphicsTree->topLevelItem(0)->child(0)->text(0) == "Terrain, objects and characters",
                   "Graphics should put Tiles first and New Game should be consolidated");
             QByteArray scenesData(1216, 0);
             scenesData += QByteArray::fromHex("06000c030109");

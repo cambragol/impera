@@ -11,7 +11,7 @@
 namespace Workshop {
 QString artworkTitle(const QString &name) {
     static const QMap<QString, QString> titles = {
-        {"TILES.16", "Tiles"},
+        {"TILES.16", "Terrain, objects and characters"},
         {"ITEMS.16", "Dungeon item illustrations"},
         {"CREATE.16", "Character creation artwork"},
         {"TEXT.16", "Story text framing"},
@@ -208,7 +208,7 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
         case EditorKind::Artwork:
             workspace = "Graphics";
             title = artworkTitle(name);
-            group = name == "TILES.16" ? "Tiles" : "Illustrations";
+            group = name == "TILES.16" ? "Game tiles" : "Illustrations";
             break;
         case EditorKind::Fonts:
             workspace = "Graphics";

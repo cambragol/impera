@@ -41,7 +41,7 @@ Valid conversation drafts commit before switching view or navigating; invalid dr
 
 ## Artwork, stories, rules and new games (phase 5)
 
-Graphics lists Tiles first, followed by Illustrations and Fonts. Artwork collections use verified purpose names: title artwork, introduction/ending illustration sets, dungeon scenery and creatures, creation artwork and story framing. Unidentified collections and individual illustrations retain neutral numbered labels; no guessed scene assignments are presented. The gallery preserves every original slot, including empty slots. Thumbnails use nearest-neighbor previews with a checkerboard for transparency. Tile tooltips reuse the map editor’s tile names. Slot and magnification selections survive navigation and Undo; magnification does not change exported dimensions. Story and creation editors link to related artwork collections where their engine use is verified. Damaged collections show recoverable errors.
+Graphics lists Game tiles first, followed by Illustrations and Fonts. Artwork collections use verified purpose names: title artwork, introduction/ending illustration sets, dungeon scenery and creatures, creation artwork and story framing. Unidentified collections and individual illustrations retain neutral numbered labels; no guessed scene assignments are presented. The gallery preserves every original slot, including empty slots. Thumbnails use nearest-neighbor previews with a checkerboard for transparency. Tile tooltips reuse the map editor’s tile names. Slot and magnification selections survive navigation and Undo; magnification does not change exported dimensions. Story and creation editors link to related artwork collections where their engine use is verified. Damaged collections show recoverable errors.
 
 Cutscenes lists the Blackthorn, Shrine, Codex and Final rescue scenes separately. Each route opens its matching scene and includes its message source in the tooltip. Character creation lives in Game Rules, with its backgrounds, questions and sequence in one editor. When scene data is absent, standalone message/creation-text routes remain available. Introduction, ending and virtue text remain dedicated destinations.
 
@@ -49,7 +49,11 @@ Game Rules groups prices, stock and location entrances with shop/service dialogu
 
 ## Mod Overview and aggregate changes (phase 6)
 
-Select **Mod Overview** to open the project dashboard. It distinguishes changed content destinations from whole resources included in the package, explains Save/Export/Test and fresh-game behavior, and provides direct editor links. The package list also exposes changes that cannot be assigned to a named destination, including removed NPCs and unknown bytes. Explicit overrides of inherited defaults appear even when their bytes match the base.
+Select **Mod Overview** to open the project dashboard. It normally shows only
+**Changed content** and **Validation**. **Advanced** reveals Package contents and
+Compatibility details, including read-only engine coverage and unavailable NPC
+data. Save, naming, export and test commands remain in the toolbar/menus rather
+than being duplicated on the dashboard. It distinguishes changed content destinations from whole resources included in the package, explains Save/Export/Test and fresh-game behavior, and provides direct editor links. The package list also exposes changes that cannot be assigned to a named destination, including removed NPCs and unknown bytes. Explicit overrides of inherited defaults appear even when their bytes match the base.
 
 **Run validation** checks the current project, engine decoder round trip and installed package conflicts without opening a modal dialog or launching the game. Results distinguish errors, warnings and information; double-click a source to open its editor or compatibility details. Export and Test retain their existing validation gates. Returning to the dashboard refreshes live changes and resets validation to “Not checked”; a saved project can still contain changes against the original game.
 

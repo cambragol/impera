@@ -677,7 +677,7 @@ void WorkshopWindow::rebuildTree() {
         }
     }
     if (workspaceSelector->currentText() == "Graphics") {
-        for (const QString &label : {QString("Tiles"), QString("Illustrations"), QString("Fonts")}) {
+        for (const QString &label : {QString("Game tiles"), QString("Illustrations"), QString("Fonts")}) {
             const bool present = std::any_of(destinations.cbegin(), destinations.cend(),
                                             [&](const auto &d) {
                                                 return d.workspace == "Graphics" && d.group == label;
@@ -691,6 +691,9 @@ void WorkshopWindow::rebuildTree() {
     const auto changes = Workshop::contentChanges(project, destinations);
     for (const auto &d : destinations) {
         if (d.workspace != workspaceSelector->currentText())
+            continue;
+        if (d.workspace == "Mod Overview" && d.id != "overview" &&
+            !property("overviewAdvanced").toBool())
             continue;
         if (characters && !characterLocation->currentData().toString().isEmpty() &&
             d.group != characterLocation->currentData().toString())
@@ -910,14 +913,22 @@ QWidget *WorkshopWindow::overviewEditor() {
     auto title = new QLabel("Mod Overview — " + project.title);
     title->setObjectName("overviewTitle");
     title->setStyleSheet("font-size:22px;font-weight:600;");
-    layout->addWidget(title);
+    auto heading = new QHBoxLayout;
+    heading->addWidget(title, 1);
+    auto advanced = new QToolButton;
+    advanced->setObjectName("overviewAdvanced");
+    advanced->setText("Advanced");
+    advanced->setCheckable(true);
+    advanced->setToolTip("Show package files and technical compatibility diagnostics.");
+    heading->addWidget(advanced);
+    layout->addLayout(heading);
     const auto routes = Workshop::contentDestinations(project);
     const auto changes = Workshop::contentChanges(project, routes);
     int changedCount = 0;
     for (auto it = changes.begin(); it != changes.end(); ++it)
         changedCount += !it.value().isEmpty();
     auto summary = new QLabel(
-        QString("%1 changed content destinations · %2 package resources\n%3")
+        QString("%1 changed items · %2 files in the mod\n%3")
             .arg(changedCount)
             .arg(project.changed().size())
             .arg(
@@ -925,32 +936,19 @@ QWidget *WorkshopWindow::overviewEditor() {
                     ? "Project has unsaved changes."
                     : project.projectPath.isEmpty()
                         ? "Project has not been saved yet."
-                        : "No unsaved project edits; content changes are measured against the original game."));
+                        : "All changes saved."));
     summary->setObjectName("overviewSummary");
     summary->setWordWrap(true);
     summary->setToolTip("Destinations can share data. The package replaces whole changed "
                         "resources, not just the listed locations or characters.");
     layout->addWidget(summary);
-    auto row = new QHBoxLayout;
-    auto command = [&](const QString &label, const QString &actionText) {
-        auto b = new QPushButton(label);
-        row->addWidget(b);
-        b->setToolTip("Run " + actionText +
-                      " using the normal project validation and draft guards.");
-        connect(b, &QPushButton::clicked, root, [this, actionText] {
-            for (auto action : findChildren<QAction *>())
-                if (action->text() == actionText) {
-                    action->trigger();
-                    break;
-                }
-        });
-    };
-    command("Save Project", "Save Project");
-    command("Name Mod", "Name Mod");
-    command("Export Package", "Export Package");
-    command("Test Mod", "Test Mod");
-    layout->addLayout(row);
     auto tabs = new QTabWidget;
+    tabs->setObjectName("overviewTabs");
+    auto diagnostics = new QWidget(root);
+    diagnostics->setObjectName("overviewAdvancedPanel");
+    auto diagnosticsLayout = new QVBoxLayout(diagnostics);
+    auto diagnosticTabs = new QTabWidget;
+    diagnosticsLayout->addWidget(diagnosticTabs);
     auto changed = new QTreeWidget;
     changed->setObjectName("overviewChanges");
     changed->setHeaderLabels({"Content", "Workspace", "Changes"});
@@ -990,7 +988,23 @@ QWidget *WorkshopWindow::overviewEditor() {
     connect(resources, &QTreeWidget::itemDoubleClicked, root, [this](QTreeWidgetItem *item) {
         selectResource(item->data(0, Qt::UserRole).toString());
     });
-    tabs->addTab(resources, "Package contents");
+    diagnosticTabs->addTab(resources, "Package contents");
+    auto compatibility = new QTreeWidget;
+    compatibility->setObjectName("overviewCompatibilityDetails");
+    compatibility->setHeaderLabels({"Content", "Status"});
+    compatibility->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+    for (const auto &d : routes) {
+        if (d.workspace != "Mod Overview" || d.id == "overview")
+            continue;
+        auto item = new QTreeWidgetItem(
+            compatibility, {d.title, Workshop::capability(d.resource).status});
+        item->setData(0, Qt::UserRole, d.id);
+    }
+    connect(compatibility, &QTreeWidget::itemDoubleClicked, root,
+            [this](QTreeWidgetItem *item) {
+                navigateContent(item->data(0, Qt::UserRole).toString());
+            });
+    diagnosticTabs->addTab(compatibility, "Compatibility details");
     auto validation = new QWidget;
     auto vl = new QVBoxLayout(validation);
     auto status = new QLabel("Not checked");
@@ -1034,7 +1048,28 @@ QWidget *WorkshopWindow::overviewEditor() {
         if (project.resources.contains(name))
             selectResource(name);
     });
-    tabs->addTab(validation, "Validation & compatibility");
+    tabs->addTab(validation, "Validation");
+    auto showAdvanced = [this, tabs, diagnostics](bool visible) {
+        setProperty("overviewAdvanced", visible);
+        const int index = tabs->indexOf(diagnostics);
+        if (visible && index < 0)
+            tabs->addTab(diagnostics, "Advanced");
+        else if (!visible && index >= 0)
+            tabs->removeTab(index);
+        if (!visible)
+            diagnostics->hide();
+        rebuildTree();
+    };
+    connect(advanced, &QToolButton::toggled, root, [tabs, diagnostics, showAdvanced](bool visible) {
+        showAdvanced(visible);
+        if (visible)
+            tabs->setCurrentWidget(diagnostics);
+    });
+    {
+        QSignalBlocker block(advanced);
+        advanced->setChecked(property("overviewAdvanced").toBool());
+    }
+    showAdvanced(advanced->isChecked());
     layout->addWidget(tabs, 1);
     return root;
 }
