@@ -973,7 +973,7 @@ MapWorkspace::MapWorkspace(
         "Pencil (B): paint tiles with the current brush.",
         "Eyedropper (I): pick a tile from the map as your brush.",
         "Pan: drag to move the view without changing the map. Space or middle-drag also pans.",
-        "Characters: select and move NPC destinations or encounter markers.",
+        "NPCs: select and move NPC destinations or encounter markers.",
         "Select (V): drag a rectangle to copy or replace terrain.",
         "Rectangle (R): draw a filled rectangle with the current brush.",
         "Fill (F): replace connected tiles of the same kind with the current brush."};
@@ -992,7 +992,7 @@ MapWorkspace::MapWorkspace(
         if (i == MapCanvas::InspectNpc && !project->resources.contains(companion) &&
             !resource.endsWith(".CBT")) {
             button->setEnabled(false);
-            button->setToolTip("Characters: this map has no NPC schedule or encounter data.");
+            button->setToolTip("NPCs: this map has no NPC schedule or encounter data.");
         }
         tools->addWidget(button);
     }
@@ -1332,7 +1332,7 @@ MapWorkspace::MapWorkspace(
         for (int npc : candidates)
             names.append(resource.endsWith(".CBT")
                              ? combatEntity->itemText(npc)
-                             : QString("Character %1 · %2").arg(npc + 1).arg(npcName(npc)));
+                             : QString("NPC %1 · %2").arg(npc + 1).arg(npcName(npc)));
         bool ok = false;
         QString selected =
             QInputDialog::getItem(this, "Choose NPC", "Actors on this tile", names, 0, false, &ok);
@@ -1367,7 +1367,7 @@ MapWorkspace::MapWorkspace(
 }
 bool MapWorkspace::externalMode() const {
     return locationModes && locationModes->tabText(activeMode) != "Terrain" &&
-           locationModes->tabText(activeMode) != "Characters / Schedules" &&
+           locationModes->tabText(activeMode) != "NPCs / Schedules" &&
            locationModes->tabText(activeMode) != "Encounter";
 }
 bool MapWorkspace::flushLocationMode() {
@@ -1405,8 +1405,8 @@ void MapWorkspace::enableLocationModes(const QStringList &names, LocationLayerFa
         const int index = locationModes->addTab(name);
         const QString help =
             name == "Terrain" ? "Paint and select map tiles."
-            : name == "Characters / Schedules"
-                ? "Inspect characters and edit their scheduled destinations on this floor."
+            : name == "NPCs / Schedules"
+                ? "Inspect NPCs and edit their scheduled destinations on this floor."
             : name == "Signs"
                 ? "Edit sign text and place text records on this floor; terrain stays unchanged."
             : name == "Starting Objects"
@@ -1440,7 +1440,7 @@ void MapWorkspace::applyLocationMode() {
     const QString mode = locationModes->tabText(activeMode);
     canvas->terrainEditingEnabled = activeMode == 0;
     int minimum = externalMode() ? 380 : 220;
-    if (mode == "Characters / Schedules" || mode == "Encounter") {
+    if (mode == "NPCs / Schedules" || mode == "Encounter") {
         auto panel = findChild<QScrollArea *>("mapCharacterInspector");
         panel->widget()->layout()->activate();
         minimum = qMax(minimum, panel->widget()->minimumSizeHint().width() +
@@ -1459,7 +1459,7 @@ void MapWorkspace::applyLocationMode() {
     }
     // The character tool remains a shortcut into the dedicated mode when it exists.
     tool->button(MapCanvas::InspectNpc)
-        ->setEnabled(activeMode > 0 || locationModes->tabText(1) == "Characters / Schedules" ||
+        ->setEnabled(activeMode > 0 || locationModes->tabText(1) == "NPCs / Schedules" ||
                      locationModes->tabText(1) == "Encounter");
     schedule->setEnabled(!externalMode() && activeMode == 1 && !resource.endsWith(".CBT"));
     const bool showSchedule =
@@ -1737,26 +1737,26 @@ void MapWorkspace::loadPage() {
 QString MapWorkspace::npcName(int npc) const {
     MapNpcDocument npcs(project, npcResource);
     int id = npcs.dialogue(document.pages[currentPage()].settlement, npc);
-    return npcNames.value(id, QString("Unnamed character %1").arg(npc + 1));
+    return npcNames.value(id, QString("Unnamed NPC %1").arg(npc + 1));
 }
 void MapWorkspace::createNpcInspector(QVBoxLayout *layout) {
     auto title = new QLabel("NPC schedule");
     layout->addWidget(title);
     npcList = new QComboBox;
     npcList->setToolTip(
-        "Select a character, including characters whose current destination is on another floor.");
+        "Select an NPC, including NPCs whose current destination is on another floor.");
     npcList->setObjectName("mapNpcList");
-    npcList->setAccessibleName("Character");
+    npcList->setAccessibleName("NPC");
     npcList->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     npcList->setMinimumContentsLength(12);
     npcList->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     layout->addWidget(npcList);
     npcSprite = new QLabel;
-    npcSprite->setToolTip("Artwork used for the selected character.");
+    npcSprite->setToolTip("Artwork used for the selected NPC.");
     npcSprite->setAlignment(Qt::AlignCenter);
     layout->addWidget(npcSprite);
     npcInfo = new QLabel;
-    npcInfo->setToolTip("Details of the selected character and schedule change; shared "
+    npcInfo->setToolTip("Details of the selected NPC and schedule change; shared "
                         "destinations are identified here.");
     npcInfo->setObjectName("mapNpcInfo");
     npcInfo->setWordWrap(true);
@@ -1797,16 +1797,16 @@ void MapWorkspace::createNpcInspector(QVBoxLayout *layout) {
     apply->setObjectName("mapNpcMove");
     layout->addWidget(apply);
     auto locate = new QPushButton("Locate on map");
-    locate->setToolTip("Center the view on the selected destination without moving the character.");
+    locate->setToolTip("Center the view on the selected destination without moving the NPC.");
     locate->setObjectName("mapNpcLocate");
     layout->addWidget(locate);
     npcGhosts = new QCheckBox("Other destinations");
     npcGhosts->setObjectName("mapNpcGhosts");
-    npcGhosts->setToolTip("Show the selected character’s other scheduled destinations. Numbers "
+    npcGhosts->setToolTip("Show the selected NPC’s other scheduled destinations. Numbers "
                           "correspond to schedule changes 1–4.");
     layout->addWidget(npcGhosts);
     npcConversation = new QPushButton("Edit conversation");
-    npcConversation->setToolTip("Open this character’s dialogue for editing.");
+    npcConversation->setToolTip("Open this NPC’s dialogue for editing.");
     npcConversation->setObjectName("mapNpcConversation");
     layout->addWidget(npcConversation);
     auto advanced = new QPushButton("Advanced schedule details");
@@ -1814,7 +1814,7 @@ void MapWorkspace::createNpcInspector(QVBoxLayout *layout) {
     advanced->setObjectName("mapNpcAdvanced");
     layout->addWidget(advanced);
     auto hint =
-        new QLabel("Select a character, then drag to preview its destination. Release to move; "
+        new QLabel("Select an NPC, then drag to preview its destination. Release to move; "
                    "Esc cancels. Numbers identify schedule changes 1–4, not simulated movement.");
     hint->setWordWrap(true);
     hint->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
@@ -1973,7 +1973,7 @@ void MapWorkspace::refreshNpcs() {
     int npc = canvas->selectedNpc;
     npcList->setCurrentIndex(npc);
     if (npc < 0 || npc >= 32) {
-        npcInfo->setText("Select a character on the map or choose one above");
+        npcInfo->setText("Select an NPC on the map or choose one above");
         npcSprite->clear();
         npcStartHour->setEnabled(false);
         canvas->update();
@@ -2018,7 +2018,7 @@ void MapWorkspace::refreshNpcs() {
     info += "Scheduled destinations:\n" + positions.join("\n");
     npcConversation->setEnabled(conversationIndices.contains(id));
     if (!npcConversation->isEnabled())
-        info += "\nNo editable conversation is available for this character.";
+        info += "\nNo editable conversation is available for this NPC.";
     if (id >= 128)
         info += "\nMerchant or special conversation is handled by the game.";
     npcInfo->setText(info);

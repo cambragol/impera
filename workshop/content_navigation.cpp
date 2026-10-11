@@ -36,7 +36,7 @@ bool matchesSelection(const ContentDestination &d, const QMap<QString, int> &sta
     return true;
 }
 QStringList contentWorkspaces() {
-    return {"World",      "Characters", "Story & Scenes", "Artwork & Fonts",
+    return {"World",      "NPCs", "Story & Scenes", "Artwork & Fonts",
             "Game Rules", "New Game",   "Mod Overview"};
 }
 QVector<ContentDestination> characterDestinations(const Project &project) {
@@ -66,7 +66,7 @@ QVector<ContentDestination> characterDestinations(const Project &project) {
                 }
             } catch (...) {
             }
-            names.append(name.isEmpty() ? "Unnamed character" : name);
+            names.append(name.isEmpty() ? "Unnamed NPC" : name);
         }
         QMap<int, QString> locations;
         if (project.resources.contains(map)) {
@@ -94,15 +94,15 @@ QVector<ContentDestination> characterDestinations(const Project &project) {
                     const QString location =
                         locations.value(town, QString("%1 location %2").arg(stem).arg(town + 1));
                     QString name = conversation >= 0 ? names[conversation]
-                                                     : QString("Character %1").arg(slot + 1);
+                                                     : QString("NPC %1").arg(slot + 1);
                     ContentDestination d{
-                        QString("character/%1/%2/%3").arg(stem).arg(town).arg(slot), "Characters",
+                        QString("character/%1/%2/%3").arg(stem).arg(town).arg(slot), "NPCs",
                         location, name, conversation >= 0 ? talk : schedule};
                     d.character = town * 32 + slot;
                     d.conversation = conversation;
                     d.settlement = town;
                     d.scheduleResource = schedule;
-                    d.provenance = QString("%1 · character %2 · conversation number %3")
+                    d.provenance = QString("%1 · NPC %2 · conversation number %3")
                                        .arg(location)
                                        .arg(slot + 1)
                                        .arg(id);
@@ -114,19 +114,19 @@ QVector<ContentDestination> characterDestinations(const Project &project) {
         for (int i = 0; i < conversations.size(); ++i) {
             if (!users.contains(i)) {
                 ContentDestination d{
-                    QString("conversation/%1/%2").arg(stem).arg(conversations[i].id), "Characters",
+                    QString("conversation/%1/%2").arg(stem).arg(conversations[i].id), "NPCs",
                     data.size() == 4608 ? "Unassigned conversations" : "Unverified assignments", names[i], talk};
                 d.conversation = i;
                 d.provenance = data.size() == 4608
-                    ? "No scheduled character uses this conversation. It may be referenced by special game logic."
-                    : "Schedule data is missing or damaged; character assignments cannot be verified.";
+                    ? "No scheduled NPC uses this conversation. It may be referenced by special game logic."
+                    : "Schedule data is missing or damaged; NPC assignments cannot be verified.";
                 result.append(d);
             }
         }
         for (auto &d : result)
             if (d.resource == talk && d.conversation >= 0 && users.contains(d.conversation))
                 d.provenance +=
-                    QString("\n%1%2 scheduled character(s) use this conversation:\n%3")
+                    QString("\n%1%2 scheduled NPC(s) use this conversation:\n%3")
                         .arg(users[d.conversation].size() > 1 ? "Shared dialogue: " : "")
                         .arg(users[d.conversation].size())
                         .arg(users[d.conversation].join("\n"));
@@ -134,7 +134,12 @@ QVector<ContentDestination> characterDestinations(const Project &project) {
     return result;
 }
 QVector<ContentDestination> contentDestinations(const Project &project) {
-    QVector<ContentDestination> result = characterDestinations(project);
+    QVector<ContentDestination> result;
+    // Schedule-only NPCs belong on maps, not in the dialogue browser. Keep the
+    // complete identity index for map navigation, relinking and undo.
+    for (const auto &destination : characterDestinations(project))
+        if (destination.conversation >= 0)
+            result.append(destination);
     result.append({"overview", "Mod Overview", "Project", "Mod overview", "@overview"});
     bool usableScenes = false;
     if (project.resources.contains("MISCMAPS.DAT")) {
@@ -191,13 +196,17 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
             break;
         case EditorKind::Conversation:
         case EditorKind::Schedule:
-            // Damaged or empty banks remain accessible without inventing characters.
+            // Healthy schedule banks remain editable on maps even when none of
+            // their NPCs has dialogue; do not add a bank to the dialogue list.
+            if (c.editor == EditorKind::Schedule && project.data(name).size() == 4608)
+                continue;
+            // Damaged or empty banks remain accessible for compatibility.
             if (std::any_of(result.cbegin(), result.cend(), [&](const auto &d) {
                     return d.resource == name || d.scheduleResource == name;
                 }))
                 continue;
-            workspace = "Characters";
-            group = "Unavailable character data";
+            workspace = "Mod Overview";
+            group = "Unavailable NPC data";
             break;
         case EditorKind::Artwork:
             workspace = "Artwork & Fonts";
@@ -295,7 +304,7 @@ QMap<QString, QStringList> contentChanges(const Project &project,
             continue;
         QStringList parts;
         try {
-            if (d.workspace == "Characters" && d.character >= 0) {
+            if (d.workspace == "NPCs" && d.character >= 0) {
                 if (changed(d.scheduleResource)) {
                     const auto &now = project.data(d.scheduleResource);
                     const auto &old = original.data(d.scheduleResource);
@@ -308,7 +317,7 @@ QMap<QString, QStringList> contentChanges(const Project &project,
                 }
                 if (dialogueChanged(d))
                     parts.append("Conversation");
-            } else if (d.workspace == "Characters" && d.conversation >= 0) {
+            } else if (d.workspace == "NPCs" && d.conversation >= 0) {
                 if (dialogueChanged(d))
                     parts.append("Conversation");
             } else if (d.page >= 0 && MapDocument::supported(d.resource)) {
@@ -332,7 +341,7 @@ QMap<QString, QStringList> contentChanges(const Project &project,
                     if (changed(schedules) &&
                         project.data(schedules).mid(settlement * 576, 576) !=
                             original.data(schedules).mid(settlement * 576, 576))
-                        parts.append("Characters / schedules");
+                        parts.append("NPCs / schedules");
                     for (const auto &character : destinations)
                         if (character.settlement == settlement &&
                             character.scheduleResource == schedules && dialogueChanged(character)) {

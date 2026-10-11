@@ -337,7 +337,7 @@ WorkshopWindow::WorkshopWindow() {
     characterLocation = new QComboBox;
     characterLocation->setObjectName("characterLocationFilter");
     characterLocation->setToolTip(
-        "Show characters across all dialogue banks at a top-level location, "
+        "Show NPCs with editable dialogue across all dialogue banks at a top-level location, "
         "including every floor and schedule time.");
     lv->addWidget(characterLocation);
     connect(characterLocation, &QComboBox::currentIndexChanged, this, [this] { rebuildTree(); });
@@ -588,7 +588,12 @@ void WorkshopWindow::syncNavigation() {
 void WorkshopWindow::navigateContent(const QString &id) {
     if (id.isEmpty())
         return;
-    for (const auto &destination : destinations) {
+    auto navigationTargets = destinations;
+    if (id.startsWith("character/") &&
+        std::none_of(navigationTargets.cbegin(), navigationTargets.cend(),
+                     [&](const auto &d) { return d.id == id; }))
+        navigationTargets += Workshop::characterDestinations(project);
+    for (const auto &destination : navigationTargets) {
         if (destination.id != id)
             continue;
         const auto d = destination;
@@ -599,7 +604,7 @@ void WorkshopWindow::navigateContent(const QString &id) {
         prepareNavigation();
         if (!replayNavigation && navigationIndex >= 0)
             navigationStates[navigationIndex] = editorState;
-        if (d.workspace == "Characters") {
+        if (d.workspace == "NPCs") {
             if (!replayNavigation && d.character >= 0 && d.resource != current &&
                 current.left(current.size() - 4) == d.resource.left(d.resource.size() - 4) &&
                 editorState.value(current + "/character", -1) == d.character)
@@ -635,7 +640,7 @@ void WorkshopWindow::rebuildTree() {
     assets->clear();
     destinations = Workshop::contentDestinations(project);
     QMap<QString, QTreeWidgetItem *> groups;
-    const bool characters = workspaceSelector->currentText() == "Characters";
+    const bool characters = workspaceSelector->currentText() == "NPCs";
     characterLocation->setVisible(characters);
     const QString selectedLocation = characterLocation->currentData().toString();
     {
@@ -644,7 +649,7 @@ void WorkshopWindow::rebuildTree() {
         characterLocation->addItem("All locations", QString());
         QSet<QString> locations;
         for (const auto &d : destinations)
-            if (d.workspace == "Characters")
+            if (d.workspace == "NPCs")
                 locations.insert(d.group);
         QStringList sorted = locations.values();
         sorted.sort();
@@ -686,7 +691,7 @@ void WorkshopWindow::rebuildTree() {
         if (d.resource == current) {
             const int selected = editorState.value(current + "/map");
             bool matches = (d.page < 0 || selected == d.page) && Workshop::matchesSelection(d, editorState);
-            if (d.workspace == "Characters" && (d.character >= 0 || d.conversation >= 0))
+            if (d.workspace == "NPCs" && (d.character >= 0 || d.conversation >= 0))
                 matches = editorState.value(current + "/character", -1) == d.character &&
                           (d.conversation < 0 ||
                            editorState.value(current + "/conversation") == d.conversation);
@@ -698,7 +703,7 @@ void WorkshopWindow::rebuildTree() {
             }
             if (matches) {
                 assets->setCurrentItem(item);
-                if (d.workspace == "Characters" && content->currentWidget())
+                if (d.workspace == "NPCs" && content->currentWidget())
                     if (auto title = content->currentWidget()->findChild<QLabel *>("characterTitle"))
                         title->setText(d.title + " — " + d.group);
             }
@@ -776,7 +781,7 @@ void WorkshopWindow::selectResource(const QString &name) {
         for (const auto &d : destinations) {
             if (d.resource != current || !Workshop::matchesSelection(d, editorState))
                 continue;
-            if (d.workspace == "Characters" && (d.character >= 0 || d.conversation >= 0) &&
+            if (d.workspace == "NPCs" && (d.character >= 0 || d.conversation >= 0) &&
                 (editorState.value(current + "/character", -1) != d.character ||
                  (d.conversation >= 0 &&
                   editorState.value(current + "/conversation") != d.conversation)))
@@ -1186,7 +1191,7 @@ QWidget *WorkshopWindow::mapEditor(const QString &name) {
     if (name.endsWith(".CBT"))
         modes.append("Encounter");
     else if (project.resources.contains(npc))
-        modes.append("Characters / Schedules");
+        modes.append("NPCs / Schedules");
     if (project.resources.contains("SIGNS.DAT") &&
         QStringList{"BRIT.DAT", "TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT", "KEEP.DAT"}.contains(
             name))
@@ -1437,14 +1442,14 @@ QWidget *WorkshopWindow::characterEditor(const QString &name) {
     provenance->setTextFormat(Qt::PlainText);
     provenance->setWordWrap(true);
     provenance->setToolTip(
-        "Conversation edits affect every character listed here. Schedule changes "
-        "affect only the selected character.");
+        "Conversation edits affect every NPC listed here. Schedule changes "
+        "affect only the selected NPC.");
     layout->addWidget(provenance);
     if (selected.character >= 0 && selected.conversation >= 0) {
         auto users = new QPushButton("Dialogue users…");
-        users->setToolTip("List every scheduled character using this conversation, across all floors and times.");
+        users->setToolTip("List every scheduled NPC using this conversation, across all floors and times.");
         connect(users, &QPushButton::clicked, root, [this, selected] {
-            QMessageBox::information(this, "Characters sharing this dialogue", selected.provenance);
+            QMessageBox::information(this, "NPCs sharing this dialogue", selected.provenance);
         });
         layout->addWidget(users);
     }
@@ -1456,8 +1461,8 @@ QWidget *WorkshopWindow::characterEditor(const QString &name) {
         static_cast<ConversationEditor *>(dialogue)->focusCharacter();
         tabs->addTab(dialogue, "Conversation");
     } else {
-        tabs->addTab(hint("No editable conversation matches this character's "
-                          "conversation number. Merchants and special characters "
+        tabs->addTab(hint("No editable conversation matches this NPC's "
+                          "conversation number. Merchants and special NPCs "
                           "may use engine-controlled dialogue."),
                      "Conversation");
     }
@@ -1513,7 +1518,7 @@ QWidget *WorkshopWindow::characterEditor(const QString &name) {
                                 "Schedule value is outside its byte range");
                         auto data = project.data(schedule);
                         data[item->data(Qt::UserRole).toInt()] = char(value);
-                        edit({{schedule, data}}, "Edit character schedule");
+                        edit({{schedule, data}}, "Edit NPC schedule");
                     });
                     load();
                 });
@@ -1525,18 +1530,18 @@ QWidget *WorkshopWindow::characterEditor(const QString &name) {
         appearance->setValue(U5::byte(project.data(schedule), town * 576 + 512 + slot));
         appearance->setToolTip(
             "Engine appearance code; adding 256 gives the sprite tile number. Zero "
-            "disables this scheduled character. Use the map character inspector "
+            "disables this scheduled NPC. Use the map NPC inspector "
             "for sprite previews.");
         properties->addRow("Appearance code:", appearance);
         connect(appearance, &QSpinBox::valueChanged, root, [this, schedule, town, slot](int value) {
             auto data = project.data(schedule);
             data[town * 576 + 512 + slot] = char(value);
-            edit({{schedule, data}}, "Change character appearance");
+            edit({{schedule, data}}, "Change NPC appearance");
         });
         auto changeDialogue = new QPushButton("Change linked conversation…");
         changeDialogue->setObjectName("changeCharacterConversation");
         changeDialogue->setToolTip(
-            "Assign a conversation number in this character's dialogue bank. "
+            "Assign a conversation number in this NPC's dialogue bank. "
             "Numbers without an editable conversation may invoke special game "
             "dialogue. Shared conversations remain shared.");
         properties->addRow("Conversation:", changeDialogue);
@@ -1548,21 +1553,21 @@ QWidget *WorkshopWindow::characterEditor(const QString &name) {
                     const int old = U5::byte(project.data(schedule), town * 576 + 544 + slot);
                     const int value = QInputDialog::getInt(
                         this, "Link conversation",
-                        "Conversation number (within this character's bank):", old, 0, 255, 1, &ok);
+                        "Conversation number (within this NPC's bank):", old, 0, 255, 1, &ok);
                     if (!ok || value == old)
                         return;
                     auto data = project.data(schedule);
                     data[town * 576 + 544 + slot] = char(value);
-                    edit({{schedule, data}}, "Link character conversation");
+                    edit({{schedule, data}}, "Link NPC conversation");
                     // Resolve the stable character ID again: a missing/available
                     // dialogue can change its backing resource.
                     navigateContent(selected.id);
                 });
         scheduleLayout->addLayout(properties);
-        auto show = new QPushButton("Show character on map");
+        auto show = new QPushButton("Show NPC on map");
         show->setObjectName("showCharacterMap");
-        show->setToolTip("Open this character's first scheduled floor in "
-                         "Characters / Schedules mode.");
+        show->setToolTip("Open this NPC's first scheduled floor in "
+                         "NPCs / Schedules mode.");
         const QString map = schedule.left(schedule.size() - 4) + ".DAT";
         show->setEnabled(project.resources.contains(map));
         connect(show, &QPushButton::clicked, root, [this, map, schedule, town, slot] {

@@ -335,18 +335,29 @@ int main(int argc, char **argv) {
                         check(d.conversation == -1 && d.resource.endsWith(".NPC"),
                               "Special character has invented dialogue");
                 }
+                const auto navigation = Workshop::contentDestinations(p);
+                int dialogueEntries = 0;
+                for (const auto &d : navigation)
+                    if (d.workspace == "NPCs") {
+                        check(d.conversation >= 0, "Schedule-only NPC cluttered dialogue navigation");
+                        ++dialogueEntries;
+                    }
+                check(dialogueEntries == 6,
+                      "Dialogue navigation lost shared NPCs or unassigned conversations");
+                check(p.data("TOWNE.NPC") == p.resources["TOWNE.NPC"].original,
+                      "Filtering dialogue navigation modified NPC schedules");
                 WorkshopWindow w;
                 check(w.openGame(dir.path()), "Character UI fixture failed");
                 w.show();
                 auto selector = w.findChild<QComboBox *>("contentWorkspace");
-                selector->setCurrentText("Characters");
+                selector->setCurrentText("NPCs");
                 auto filter = w.findChild<QComboBox *>("characterLocationFilter");
                 check(filter && filter->findText("Moonglow") >= 0 &&
                           filter->findText("Unassigned conversations") >= 0,
                       "Cross-bank location filters missing");
                 auto tree = w.findChild<QWidget *>("resourceLibrary")->findChild<QTreeWidget *>();
                 auto choose = [&](const QString &id) {
-                    selector->setCurrentText("Characters");
+                    selector->setCurrentText("NPCs");
                     filter->setCurrentIndex(0);
                     QTreeWidgetItemIterator it(tree);
                     while (*it) {
@@ -464,10 +475,13 @@ int main(int argc, char **argv) {
                               ->text()
                               .contains("special game logic"),
                       "Unassigned conversation inaccessible or mislabeled");
-                choose("character/TOWNE/1/2");
-                check(active()->findChild<QTableWidget *>("characterSchedule") &&
-                          !active()->findChild<QWidget *>("conversationEditor"),
-                      "Special character cannot edit schedule without dialogue");
+                QTreeWidgetItemIterator remaining(tree);
+                while (*remaining) {
+                    check((*remaining)->data(0, Qt::UserRole + 2).toString() !=
+                              "character/TOWNE/1/2",
+                          "NPC without dialogue remained in the dialogue tree");
+                    ++remaining;
+                }
                 const QString screenshots = qEnvironmentVariable("IMPERA_WORKSHOP_SCREENSHOT_DIR");
                 if (!screenshots.isEmpty()) {
                     choose("character/TOWNE/0/0");
@@ -1147,7 +1161,7 @@ int main(int argc, char **argv) {
             auto draft = active()->findChild<QPlainTextEdit *>("locationTextDraft");
             draft->selectAll();
             draft->insertPlainText("Changed ground");
-            setMode("Characters / Schedules");
+            setMode("NPCs / Schedules");
             check(Workshop::signSource(
                       Workshop::readSigns(w.projectForTests().data("SIGNS.DAT"))[0].text) ==
                       "Changed ground",
@@ -3437,7 +3451,7 @@ int main(int argc, char **argv) {
                     app.processEvents();
                 }
                 w.show();
-                w.findChild<QComboBox *>("contentWorkspace")->setCurrentText("Characters");
+                w.findChild<QComboBox *>("contentWorkspace")->setCurrentText("NPCs");
                 auto characterTree =
                     w.findChild<QWidget *>("resourceLibrary")->findChild<QTreeWidget *>();
                 const auto originalCharacters = Workshop::characterDestinations(p);
