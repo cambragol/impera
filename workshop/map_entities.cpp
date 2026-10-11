@@ -10,6 +10,9 @@
 using U5::require;
 namespace Workshop {
 QString actorName(int shape) {
+    // Combat group names do not always describe the NPC appearance artwork.
+    if (shape == 96)
+        return "Man in stocks";
     if (shape >= 64 && shape <= 252)
         return QString::fromLatin1(engineActorNames[(shape - 64) / 4]).toLower();
     return QString("Appearance %1").arg(shape);
