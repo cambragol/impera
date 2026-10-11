@@ -2,8 +2,37 @@
 #include "dialogue.h"
 #include "map_editor.h"
 #include "resource_document.h"
+#include "scene_editor.h"
 #include <algorithm>
 namespace Workshop {
+QString artworkTitle(const QString &name) {
+    static const QMap<QString, QString> titles = {
+        {"TILES.16", "Terrain, objects and characters"},
+        {"ITEMS.16", "Dungeon item illustrations"},
+        {"CREATE.16", "Character creation artwork"},
+        {"TEXT.16", "Story text framing"},
+        {"ULTIMA.16", "Title artwork"},
+        {"STARTSC.16", "Title scene artwork"},
+        {"ENDSC.16", "Final rescue artwork"}};
+    if (titles.contains(name)) return titles[name];
+    const auto stem = name.section('.', 0, 0);
+    for (const auto prefix : {QString("STORY"), QString("END"), QString("DNG"), QString("MON")}) {
+        bool ok = false;
+        int number = stem.mid(prefix.size()).toInt(&ok);
+        if (stem.startsWith(prefix) && ok) {
+            QString purpose = prefix == "STORY" ? "Introduction illustrations"
+                            : prefix == "END" ? "Ending illustrations"
+                            : prefix == "DNG" ? "Dungeon scenery" : "Dungeon creature illustrations";
+            return purpose + QString(" — set %1").arg(prefix == "MON" ? number + 1 : number);
+        }
+    }
+    return "Artwork collection — " + stem;
+}
+bool matchesSelection(const ContentDestination &d, const QMap<QString, int> &state) {
+    for (auto it = d.selection.begin(); it != d.selection.end(); ++it)
+        if (state.value(it.key(), 0) != it.value()) return false;
+    return true;
+}
 QStringList contentWorkspaces() {
     return {"World",      "Characters", "Story & Scenes", "Artwork & Fonts",
             "Game Rules", "New Game",   "Mod Overview"};
@@ -104,6 +133,15 @@ QVector<ContentDestination> characterDestinations(const Project &project) {
 }
 QVector<ContentDestination> contentDestinations(const Project &project) {
     QVector<ContentDestination> result = characterDestinations(project);
+    bool usableScenes = false;
+    if (project.resources.contains("MISCMAPS.DAT")) {
+        try {
+            SceneDocument::validate(project.data("MISCMAPS.DAT"));
+            usableScenes = true;
+        } catch (...) {
+            // Keep independent message editors available when their scene bank is damaged.
+        }
+    }
     for (auto it = project.resources.begin(); it != project.resources.end(); ++it) {
         const auto name = it.key();
         const auto c = capability(name);
@@ -158,9 +196,8 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
             break;
         case EditorKind::Artwork:
             workspace = "Artwork & Fonts";
-            title = "Illustration " + name.section('.', 0, 0).toLower();
-            if (name == "TILES.16")
-                title = "Terrain and object tiles";
+            title = artworkTitle(name);
+            group = name == "TILES.16" ? "Game tiles" : "Illustrations";
             break;
         case EditorKind::Fonts:
             workspace = "Artwork & Fonts";
@@ -168,23 +205,49 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
                 title += " (Hercules)";
             break;
         case EditorKind::State:
-        case EditorKind::WorldObjects:
             workspace = "New Game";
+            group = "Starting game";
+            title = "Starting party and world state";
+            break;
+        case EditorKind::WorldObjects:
+            if (name == "INIT.OOL" && project.resources.contains("UNDER.OOL")) continue;
+            workspace = "New Game";
+            group = "Starting objects";
+            title = name == "BRIT.OOL" ? "Britannia objects" : "Underworld objects";
             break;
         case EditorKind::Tables:
-            workspace = "Game Rules";
+            workspace = name == "DATA.OVL" ? "Mod Overview" : "Game Rules";
+            group = name == "DATA.OVL" ? "Compatibility details" : "Shops and locations";
+            title = name == "DATA.OVL" ? "Engine compatibility coverage" : "Prices, stock and location entrances";
             break;
+        case EditorKind::Scenes:
+            for (int scene = 0; scene < SceneDocument::names().size(); ++scene) {
+                ContentDestination d{"scene/" + QString::number(scene),
+                    scene == 4 ? "New Game" : "Story & Scenes", "Scenes",
+                    SceneDocument::names()[scene], name};
+                d.selection["scene/current"] = scene;
+                d.sources = {name, scene == 4 ? "QUESTION.DAT" : scene == 3 ? "ENDMSG.DAT" : "MISCMSG.DAT"};
+                result.append(d);
+            }
+            continue;
         case EditorKind::Story:
         case EditorKind::Narrative:
-        case EditorKind::Scenes:
-            workspace = "Story & Scenes";
+            if (usableScenes &&
+                QStringList{"QUESTION.DAT", "MISCMSG.DAT", "ENDMSG.DAT"}.contains(name)) continue;
+            workspace = name == "QUESTION.DAT" ? "New Game" : name == "SHOPPE.DAT" ? "Game Rules" : "Story & Scenes";
+            group = name == "SHOPPE.DAT" ? "Shops and locations" : "Stories and messages";
+            if (name == "SHOPPE.DAT") title = "Shop and service dialogue";
+            if (name == "KARMA.DAT") title = "Dreams and virtue speeches";
             break;
         default:
             workspace = "Mod Overview";
             group = "Compatibility details";
             break;
         }
-        result.append({"content/" + name, workspace, group, title, name, -1});
+        ContentDestination d{"content/" + name, workspace, group, title, name, -1};
+        d.sources = {name};
+        if (name == "UNDER.OOL" && project.resources.contains("INIT.OOL")) d.sources.append("INIT.OOL");
+        result.append(d);
     }
     return result;
 }

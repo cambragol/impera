@@ -1,4 +1,5 @@
 #include "dialogue.h"
+#include "content_navigation.h"
 #include "dialogue_editor.h"
 #include "dungeon_editor.h"
 #include "engine_tables.h"
@@ -79,6 +80,70 @@ int main(int argc, char **argv) {
         std::cout << "PASS " << name << "\n";
     };
     try {
+        test("Content routes consolidate companions and artwork preserves slot identity", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            for (const QString name : {"MISCMAPS.DAT", "QUESTION.DAT", "MISCMSG.DAT", "ENDMSG.DAT", "INIT.OOL", "UNDER.OOL", "SHOPPE.DAT", "DATA.OVL"})
+                p.resources[name] = {QByteArray(), QByteArray(), false};
+            QByteArray sceneBank(1216, 0);
+            sceneBank += QByteArray::fromHex("06000c030109");
+            p.resources["MISCMAPS.DAT"] = {sceneBank, sceneBank, false};
+            auto routes = Workshop::contentDestinations(p);
+            QSet<QString> ids;
+            int scenes = 0, underworld = 0;
+            for (const auto &d : routes) {
+                check(!ids.contains(d.id), "Duplicate semantic destination");
+                ids.insert(d.id);
+                check(d.resource != "QUESTION.DAT" && d.resource != "MISCMSG.DAT" && d.resource != "ENDMSG.DAT", "Scene message companion duplicated");
+                if (d.resource == "MISCMAPS.DAT") {
+                    ++scenes;
+                    int scene = d.selection.value("scene/current", -1);
+                    check(scene >= 0 && scene <= 4 && Workshop::matchesSelection(d, d.selection), "Scene selection missing");
+                    check((d.workspace == "New Game") == (scene == 4), "Creation route in wrong workspace");
+                    check(d.sources.size() == 2, "Scene message provenance missing");
+                }
+                if (d.resource == "UNDER.OOL" || d.resource == "INIT.OOL") ++underworld;
+                if (d.resource == "SHOPPE.DAT") check(d.workspace == "Game Rules", "Shop dialogue misplaced");
+                if (d.resource == "DATA.OVL") check(d.workspace == "Mod Overview", "Overlay coverage is not a rule editor");
+            }
+            check(scenes == 5 && underworld == 1, "Scene or effective-world routes missing");
+            p.resources["MISCMAPS.DAT"].edited = QByteArray(1, 0);
+            routes = Workshop::contentDestinations(p);
+            check(std::any_of(routes.begin(), routes.end(), [](const auto &d) { return d.resource == "MISCMSG.DAT"; }), "Damaged scenes hide independent messages");
+            p.resources.remove("MISCMAPS.DAT");
+            routes = Workshop::contentDestinations(p);
+            check(std::any_of(routes.begin(), routes.end(), [](const auto &d) { return d.resource == "QUESTION.DAT" && d.workspace == "New Game"; }), "Missing scene file hides creation text");
+            check(Workshop::artworkTitle("DNG1.16").contains("Dungeon scenery") && Workshop::artworkTitle("STORY2.16").contains("Introduction"), "Verified artwork names missing");
+            check(Workshop::artworkTitle("UNKNOWN.16").contains("UNKNOWN"), "Unknown artwork purpose invented");
+            WorkshopWindow w;
+            check(w.openGame(dir.path()), "Artwork fixture failed");
+            w.selectResource("TILES.16");
+            auto imageSlots = w.findChild<QComboBox *>("imageSlot");
+            auto gallery = w.findChild<QListWidget *>("artworkGallery");
+            auto zoom = w.findChild<QComboBox *>("artworkZoom");
+            check(imageSlots && imageSlots->count() == 512 && gallery && gallery->count() == 512, "Artwork slots lost");
+            imageSlots->setCurrentIndex(127);
+            zoom->setCurrentIndex(4);
+            w.selectResource("INIT.GAM");
+            w.selectResource("TILES.16");
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            check(w.findChild<QComboBox *>("imageSlot")->currentIndex() == 127 && w.findChild<QComboBox *>("artworkZoom")->currentIndex() == 4, "Artwork selection or zoom not restored");
+            check(w.projectForTests().changed().isEmpty(), "Artwork navigation edited resources");
+            QByteArray scenesData(1216, 0);
+            scenesData += QByteArray::fromHex("06000c030109");
+            file(dir.path() + "/MISCMAPS.DAT", scenesData);
+            check(w.openGame(dir.path()), "Scene navigation fixture failed");
+            auto workspace = w.findChild<QComboBox *>("contentWorkspace");
+            workspace->setCurrentText("New Game");
+            auto tree = w.findChild<QWidget *>("resourceLibrary")->findChild<QTreeWidget *>();
+            tree->setCurrentItem(treeItem(tree, "Character creation"));
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            auto sceneSelector = w.findChild<QComboBox *>("sceneSelector");
+            check(sceneSelector && sceneSelector->currentIndex() == 4, "Creation destination opened wrong scene");
+            sceneSelector->setCurrentIndex(0);
+            check(workspace->currentText() == "Story & Scenes", "Scene selector lost semantic workspace");
+
+        });
         test(
             "Cross-bank character identity, shared dialogue and unused "
             "conversations",

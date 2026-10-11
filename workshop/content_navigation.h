@@ -7,8 +7,12 @@ struct ContentDestination {
     int page = -1;
     int character = -1, conversation = -1, settlement = -1;
     QString scheduleResource, provenance;
+    QMap<QString, int> selection;
+    QStringList sources;
 };
 QVector<ContentDestination> characterDestinations(const Project &project);
 QVector<ContentDestination> contentDestinations(const Project &project);
 QStringList contentWorkspaces();
+QString artworkTitle(const QString &resource);
+bool matchesSelection(const ContentDestination &, const QMap<QString, int> &state);
 } // namespace Workshop

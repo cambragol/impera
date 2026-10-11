@@ -91,6 +91,18 @@ QScrollArea *makeScroll(QWidget *widget, bool resize = false) {
     area->setWidgetResizable(resize);
     return area;
 }
+QIcon artworkPreview(const QImage &image) {
+    if (image.isNull()) return {};
+    QImage preview(48, 48, QImage::Format_ARGB32);
+    QPainter painter(&preview);
+    for (int y = 0; y < 48; y += 6)
+        for (int x = 0; x < 48; x += 6)
+            painter.fillRect(x, y, 6, 6, (x / 6 + y / 6) % 2 ? QColor("#384254") : QColor("#222b39"));
+    auto scaled = image.scaled(48, 48, Qt::KeepAspectRatio, Qt::FastTransformation);
+    painter.drawImage((48 - scaled.width()) / 2, (48 - scaled.height()) / 2, scaled);
+    painter.end();
+    return QIcon(QPixmap::fromImage(preview));
+}
 class PixelCanvas : public QWidget {
   public:
     QImage image;
@@ -553,6 +565,8 @@ void WorkshopWindow::navigateContent(const QString &id) {
         }
         if (!replayNavigation && d.page >= 0)
             editorState[d.resource + "/map"] = d.page;
+        for (auto it = d.selection.begin(); it != d.selection.end(); ++it)
+            editorState[it.key()] = it.value();
         selectResource(d.resource);
         if (!replayNavigation &&
             (navigationIndex < 0 || navigationHistory.value(navigationIndex) != id)) {
@@ -610,22 +624,28 @@ void WorkshopWindow::rebuildTree() {
             groups[d.group]->setExpanded(true);
         }
         const auto &r = project.resources[d.resource];
+        bool companionChanged = false;
+        for (const auto &source : d.sources) {
+            if (!project.resources.contains(source)) continue;
+            const auto &companion = project.resources[source];
+            companionChanged |= companion.edited != companion.original || companion.included;
+        }
         const bool scheduleChanged =
             !d.scheduleResource.isEmpty() && (project.resources[d.scheduleResource].edited !=
                                                   project.resources[d.scheduleResource].original ||
                                               project.resources[d.scheduleResource].included);
         auto item = new QTreeWidgetItem(
             groups[d.group],
-            {d.title + ((r.edited != r.original || r.included || scheduleChanged) ? " *" : "")});
+            {d.title + ((r.edited != r.original || r.included || scheduleChanged || companionChanged) ? " *" : "")});
         item->setData(0, Qt::UserRole, d.resource);
         item->setData(0, Qt::UserRole + 2, d.id);
         item->setToolTip(
             0, d.provenance + "\n" + Workshop::capability(d.resource).status +
-                   "\nSource: " + d.resource +
+                   "\nSource: " + (d.sources.isEmpty() ? d.resource : d.sources.join(" / ")) +
                    (d.scheduleResource.isEmpty() ? QString() : " / " + d.scheduleResource));
         if (d.resource == current) {
             const int selected = editorState.value(current + "/map");
-            bool matches = d.page < 0 || selected == d.page;
+            bool matches = (d.page < 0 || selected == d.page) && Workshop::matchesSelection(d, editorState);
             if (d.workspace == "Characters" && (d.character >= 0 || d.conversation >= 0))
                 matches = editorState.value(current + "/character", -1) == d.character &&
                           (d.conversation < 0 ||
@@ -688,11 +708,19 @@ void WorkshopWindow::selectResource(const QString &name) {
     current = name;
     destinations = Workshop::contentDestinations(project);
     for (const auto &d : destinations)
-        if (d.resource == name) {
+        if (d.resource == name && Workshop::matchesSelection(d, editorState)) {
             QSignalBlocker block(workspaceSelector);
             workspaceSelector->setCurrentText(d.workspace);
             break;
         }
+    // Diagnostic links can still open companion resources hidden from normal navigation.
+    if (name == "INIT.OOL" || name == "QUESTION.DAT") {
+        QSignalBlocker block(workspaceSelector);
+        workspaceSelector->setCurrentText("New Game");
+    } else if (name == "MISCMSG.DAT" || name == "ENDMSG.DAT") {
+        QSignalBlocker block(workspaceSelector);
+        workspaceSelector->setCurrentText("Story & Scenes");
+    }
     rebuildTree();
     if (name != "DUNGEON.CBT")
         dungeonRoomNavigation = false;
@@ -701,7 +729,7 @@ void WorkshopWindow::selectResource(const QString &name) {
     rebuildEditor();
     if (!replayNavigation)
         for (const auto &d : destinations) {
-            if (d.resource != current)
+            if (d.resource != current || !Workshop::matchesSelection(d, editorState))
                 continue;
             if (d.workspace == "Characters" && (d.character >= 0 || d.conversation >= 0) &&
                 (editorState.value(current + "/character", -1) != d.character ||
@@ -777,6 +805,16 @@ void WorkshopWindow::rebuildEditor() {
     content->setCurrentWidget(w);
     if (auto map = dynamic_cast<MapWorkspace *>(w->findChild<QWidget *>("mapWorkspace")))
         map->useSharedNavigation();
+    if (auto scenes = w->findChild<QComboBox *>("sceneSelector"))
+        connect(scenes, &QComboBox::currentIndexChanged, w, [this] {
+            for (const auto &d : destinations)
+                if (d.resource == current && Workshop::matchesSelection(d, editorState)) {
+                    QSignalBlocker block(workspaceSelector);
+                    workspaceSelector->setCurrentText(d.workspace);
+                    break;
+                }
+            rebuildTree();
+        });
     if (oldView && !w->findChild<QWidget *>("mapWorkspace"))
         QTimer::singleShot(0, w, [w, scrollPosition] {
             auto view = w->findChild<QScrollArea *>("canvasView");
@@ -811,6 +849,41 @@ QWidget *WorkshopWindow::resourceEditor(const QString &name) {
         layout->addLayout(navigation);
     } else
         delete navigation;
+    QStringList related;
+    if (name == "STORY.DAT") related = {"STORY1.16", "STORY2.16", "STORY3.16", "STORY4.16", "STORY5.16", "STORY6.16", "TEXT.16"};
+    else if (name == "END.DAT") related = {"END1.16", "END2.16", "TEXT.16"};
+    else if (name == "QUESTION.DAT") related = {"CREATE.16"};
+    else if (name == "MISCMAPS.DAT") related = {"CREATE.16", "ENDSC.16"};
+    if (!related.isEmpty()) {
+        auto artwork = new QHBoxLayout;
+        artwork->addWidget(new QLabel("Related artwork:"));
+        auto collections = new QComboBox;
+        collections->setObjectName("relatedArtwork");
+        collections->setToolTip("Collections used by this story or scene. Select a collection, then Open artwork.");
+        for (const auto &source : related) {
+            if (!project.resources.contains(source)) continue;
+            QIcon icon;
+            QString tooltip = "Source: " + source + ". Original image ordering is preserved.";
+            try {
+                auto images = U5::readGraphics(source, project.data(source)).images;
+                for (const auto &image : images)
+                    if (!image.isNull()) { icon = artworkPreview(image); break; }
+            } catch (...) {
+                tooltip += " Preview unavailable: damaged artwork.";
+            }
+            collections->addItem(icon, Workshop::artworkTitle(source), source);
+            collections->setItemData(collections->count() - 1, tooltip, Qt::ToolTipRole);
+        }
+        auto open = new QPushButton("Open artwork");
+        open->setEnabled(collections->count() > 0);
+        open->setToolTip("Open the selected collection. Valid pending text is applied before navigating.");
+        artwork->addWidget(collections, 1);
+        artwork->addWidget(open);
+        connect(open, &QPushButton::clicked, this, [this, collections] {
+            navigateContent("content/" + collections->currentData().toString());
+        });
+        layout->addLayout(artwork);
+    }
     QWidget *editor = nullptr;
 
     const auto kind = Workshop::capability(name).editor;
@@ -980,12 +1053,17 @@ QWidget *WorkshopWindow::mapEditor(const QString &name) {
 }
 QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
     auto graphics = std::make_shared<U5::Graphics>(U5::readGraphics(name, project.data(name)));
+    require(!graphics->images.isEmpty(), "Artwork collection has no image slots");
     QVBoxLayout *layout;
     auto w = panel(&layout);
+    auto heading = new QLabel(Workshop::artworkTitle(name));
+    heading->setObjectName("artworkTitle");
+    heading->setToolTip("Source: " + name + ". Numbered images retain their original slot ordering.");
+    layout->addWidget(heading);
     auto row = new QHBoxLayout;
     auto slot = new QComboBox;
     for (int i = 0; i < graphics->images.size(); i++)
-        slot->addItem(QString("%1 — %2").arg(i).arg(graphics->images[i].isNull()
+        slot->addItem(QString("%1 — %2").arg(graphics->tiles ? QString("Tile %1 · %2").arg(i).arg(MapDocument::tileName(i)) : QString("Image %1").arg(i + 1)).arg(graphics->images[i].isNull()
                                                         ? "Empty"
                                                         : QString("%1 × %2")
                                                               .arg(graphics->images[i].width())
@@ -996,25 +1074,31 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
     row->addWidget(slot, 1);
     auto zoom = new QComboBox;
     zoom->addItems({"1×", "2×", "4×", "6×", "8×", "12×"});
-    zoom->setCurrentIndex(3);
+    zoom->setObjectName("artworkZoom");
+    zoom->setCurrentIndex(qBound(0, editorState.value(name + "/zoom", 3), 5));
+    zoom->setToolTip("Magnify source pixels without smoothing; does not resize exported artwork.");
+    slot->setToolTip("Select an original image slot. Empty slots are preserved for compatibility.");
     row->addWidget(zoom);
     layout->addLayout(row);
     auto canvas = new PixelCanvas;
     canvas->setObjectName("pixelCanvas");
     canvas->image = graphics->images[slot->currentIndex()];
+    canvas->zoom = QVector<int>{1, 2, 4, 6, 8, 12}[zoom->currentIndex()];
     canvas->size();
     auto view = makeScroll(canvas);
     view->setObjectName("canvasView");
     auto imageSplit = new QSplitter;
     auto gallery = new QListWidget;
+    gallery->setObjectName("artworkGallery");
+    gallery->setToolTip("Original image slots. Choose a thumbnail to edit it; transparent pixels reveal the canvas background.");
     gallery->setViewMode(QListView::IconMode);
     gallery->setResizeMode(QListView::Adjust);
     gallery->setIconSize(QSize(48, 48));
     gallery->setGridSize(QSize(76, 76));
     gallery->setMaximumWidth(280);
     for (int i = 0; i < graphics->images.size(); i++) {
-        auto item = new QListWidgetItem(QIcon(QPixmap::fromImage(graphics->images[i])),
-                                        QString::number(i), gallery);
+        auto item = new QListWidgetItem(artworkPreview(graphics->images[i]),
+                                        graphics->tiles ? QString::number(i) : QString("Image %1").arg(i + 1), gallery);
         item->setToolTip(slot->itemText(i));
     }
     gallery->setCurrentRow(slot->currentIndex());
@@ -1049,6 +1133,7 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
         canvas->size();
     });
     connect(zoom, &QComboBox::currentIndexChanged, w, [=](int i) {
+        editorState[name + "/zoom"] = i;
         canvas->zoom = QVector<int>{1, 2, 4, 6, 8, 12}[i];
         canvas->size();
     });
@@ -1065,7 +1150,7 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
         } else {
             canvas->image = img;
             canvas->size();
-            gallery->item(i)->setIcon(QIcon(QPixmap::fromImage(img)));
+            gallery->item(i)->setIcon(artworkPreview(img));
         }
     };
     canvas->commit = change;
@@ -1127,7 +1212,7 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
                 canvas->image = graphics->images[slot->currentIndex()];
                 canvas->size();
                 for (int i = 0; i < 512; i++)
-                    gallery->item(i)->setIcon(QIcon(QPixmap::fromImage(graphics->images[i])));
+                    gallery->item(i)->setIcon(artworkPreview(graphics->images[i]));
             });
         });
     }

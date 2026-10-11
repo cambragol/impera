@@ -1,6 +1,6 @@
 # Workshop content navigation
 
-Phases 1–4 of the overarching UI redesign replace file-first navigation with a persistent content navigator.
+Phases 1–5 of the overarching UI redesign replace file-first navigation with a persistent content navigator.
 
 Choose World, Characters, Story & Scenes, Artwork & Fonts, Game Rules, New Game, or Mod Overview in the workspace selector. Search filters the current workspace by content name or category. World lists settlements once; selecting a settlement opens its main floor. Other floors remain in the editor's floor selector. Combat encounters use numbered labels where their purpose has not been verified.
 
@@ -37,7 +37,14 @@ Schedules show four changes with start hour, destination coordinates, floor and 
 
 Valid conversation drafts commit before switching view or navigating; invalid drafts prevent leaving. Undo and Back/Forward preserve character identity and the selected view. The existing conversation editor retains topics, questions, preview, simulation and validation. Compatibility routes for damaged or empty banks remain available. No resource or package format changes are introduced. Change markers still follow the underlying conversation/schedule resource scope; per-character aggregate tracking remains phase 6.
 
+## Artwork, stories, rules and new games (phase 5)
+
+Artwork collections use verified purpose names: title artwork, introduction/ending illustration sets, dungeon scenery and creatures, creation artwork and story framing. Unidentified collections and individual illustrations retain neutral numbered labels; no guessed scene assignments are presented. The gallery preserves every original slot, including empty slots. Thumbnails use nearest-neighbor previews with a checkerboard for transparency. Tile tooltips reuse the map editor’s tile names. Slot and magnification selections survive navigation and Undo; magnification does not change exported dimensions. Story and creation editors link to related artwork collections where their engine use is verified. Damaged collections show recoverable errors.
+
+Story & Scenes lists the Blackthorn, Shrine, Codex and Final rescue scenes separately. Each route opens its matching scene and includes its message source in the tooltip. Character creation lives in New Game, with its backgrounds, questions and sequence in one editor. When scene data is absent, standalone message/creation-text routes remain available. Introduction, ending and virtue text remain dedicated destinations.
+
+Game Rules groups prices, stock and location entrances with shop/service dialogue. Engine overlay coverage belongs to Mod Overview and opens its read-only coverage tab. New Game groups starting party/world state and world objects; the effective Underworld object list appears once, with both initial and override sources recorded. Direct resource access remains available for diagnostics. Companion change markers use resource scope; precise aggregate tracking is still phase 6. Resource serializers and mod package formats are unchanged.
+
 ## Remaining phases
 
-5. Refine artwork names and previews and consolidate story, rules and new-game routes.
 6. Add aggregate content change tracking, a dedicated Mod Overview dashboard and simplified project toolbar. Until then Mod Overview contains read-only compatibility details, and change markers follow the underlying resource scope.

@@ -83,7 +83,7 @@ static bool overridden(const QByteArray &b, int table, int index) {
             return true;
     return false;
 }
-QWidget *tableEditor(Project *project, const QString &, TextCommit commit,
+QWidget *tableEditor(Project *project, const QString &resource, TextCommit commit,
                      QMap<QString, int> *state, std::function<bool()> *flush) {
     auto root = new QWidget;
     root->setObjectName("engineTableEditor");
@@ -312,6 +312,7 @@ QWidget *tableEditor(Project *project, const QString &, TextCommit commit,
         }
     });
     tabs->addTab(inventory, "Overlay coverage inventory");
+    tabs->setCurrentIndex(resource == "DATA.OVL" ? 1 : 0);
     kind->setCurrentIndex(qBound(0, state->value("tables/kind", 1) - 1, 7));
     load();
     *flush = [] { return true; };
