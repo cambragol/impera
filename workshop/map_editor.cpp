@@ -137,11 +137,11 @@ QIcon MapCanvas::toolIcon(int i) {
     return QIcon(icon);
 }
 void MapCanvas::resizeMap() {
-    setFixedSize(int(std::ceil(side * 16 * zoom)), int(std::ceil(side * 16 * zoom)));
+    setFixedSize(int(std::ceil(side * 16 * zoom)), int(std::ceil(rowCount() * 16 * zoom)));
     update();
 }
 QPoint MapCanvas::cellAt(QPointF p) const {
-    if (p.x() < 0 || p.y() < 0 || p.x() >= side * 16 * zoom || p.y() >= side * 16 * zoom)
+    if (p.x() < 0 || p.y() < 0 || p.x() >= side * 16 * zoom || p.y() >= rowCount() * 16 * zoom)
         return {-1, -1};
     return {int(std::floor(p.x() / (16 * zoom))), int(std::floor(p.y() / (16 * zoom)))};
 }
@@ -151,7 +151,8 @@ void MapCanvas::paintEvent(QPaintEvent *e) {
     double cell = 16 * zoom;
     auto r = e->rect();
     p.fillRect(r, QColor("#141b27"));
-    for (int y = qMax(0, int(r.top() / cell)); y <= qMin(side - 1, int(r.bottom() / cell)); ++y)
+    for (int y = qMax(0, int(r.top() / cell)); y <= qMin(rowCount() - 1, int(r.bottom() / cell));
+         ++y)
         for (int x = qMax(0, int(r.left() / cell)); x <= qMin(side - 1, int(r.right() / cell));
              ++x) {
             int offset = y * side + x;
@@ -179,14 +180,14 @@ void MapCanvas::paintEvent(QPaintEvent *e) {
                        .adjusted(2, 2, -2, -2));
     }
     for (auto a : actors)
-        if (a.x >= 0 && a.y >= 0 && a.x < side && a.y < side && a.tile >= 0 &&
+        if (a.x >= 0 && a.y >= 0 && a.x < side && a.y < rowCount() && a.tile >= 0 &&
             a.tile < tiles.size() && a.label.isEmpty())
             p.drawImage(QRectF(a.x * cell, a.y * cell, cell, cell), tiles[a.tile]);
     if (tool == InspectNpc) {
         for (auto actor : actors)
             if (!actor.label.isEmpty()) {
                 QRectF r(actor.x * cell, actor.y * cell, cell, cell);
-                if (actor.x < 0 || actor.y < 0 || actor.x >= side || actor.y >= side)
+                if (actor.x < 0 || actor.y < 0 || actor.x >= side || actor.y >= rowCount())
                     continue;
                 p.fillRect(r.adjusted(2, 2, -2, -2), QColor(20, 30, 60, 180));
                 p.setPen(actor.label.startsWith("T") ? QColor("#ffbd55") : QColor("#72caff"));
@@ -441,7 +442,7 @@ void MapCanvas::say(const QString &message) {
         feedback(message);
 }
 bool MapCanvas::editable(QPoint cell) const {
-    return cell.x() >= 0 && cell.y() >= 0 && cell.x() < side && cell.y() < side &&
+    return cell.x() >= 0 && cell.y() >= 0 && cell.x() < side && cell.y() < rowCount() &&
            (selection.isEmpty() || selection.contains(cell));
 }
 void MapCanvas::finishEdit() {
@@ -496,8 +497,8 @@ bool MapCanvas::copySelection() {
         say("Select terrain before copying");
         return false;
     }
-    auto area = selection.intersected(QRect(0, 0, side, side));
-    if (area != selection || ids.size() != side * side)
+    auto area = selection.intersected(QRect(0, 0, side, rowCount()));
+    if (area != selection || ids.size() != side * rowCount())
         return false;
     QByteArray payload = clipboardMagic.toLatin1();
     for (int value : {area.width(), area.height()}) {
@@ -541,7 +542,7 @@ bool MapCanvas::beginPaste() {
 }
 bool MapCanvas::pasteFits() const {
     return hover.x() >= 0 && hover.y() >= 0 && hover.x() + stampSize.width() <= side &&
-           hover.y() + stampSize.height() <= side;
+           hover.y() + stampSize.height() <= rowCount();
 }
 int MapCanvas::pasteChangedCells() const {
     if (!pasting() || !pasteFits())
@@ -606,7 +607,7 @@ void MapCanvas::keyPressEvent(QKeyEvent *e) {
             QPoint previous = keyboardCell;
             keyboardCell += direction;
             keyboardCell.setX(qBound(0, keyboardCell.x(), side - 1));
-            keyboardCell.setY(qBound(0, keyboardCell.y(), side - 1));
+            keyboardCell.setY(qBound(0, keyboardCell.y(), rowCount() - 1));
             if (e->modifiers() == Qt::ShiftModifier && tool != InspectNpc) {
                 if (selection.isEmpty())
                     selection = QRect(previous, QSize(1, 1));
@@ -710,7 +711,9 @@ void MapView::setZoom(double scale, QPoint anchor, bool fit) {
 }
 void MapView::fitMap() {
     auto s = viewport()->size() - QSize(4, 4);
-    setZoom(qMin(s.width(), s.height()) / double(canvas->side * 16), {-1, -1}, true);
+    setZoom(
+        qMin(s.width() / double(canvas->side * 16), s.height() / double(canvas->rowCount() * 16)),
+        {-1, -1}, true);
 }
 void MapView::resizeEvent(QResizeEvent *e) {
     QScrollArea::resizeEvent(e);

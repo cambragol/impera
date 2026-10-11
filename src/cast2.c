@@ -1,4 +1,5 @@
 #include "common/common.h"
+#include "mod/runtime.h"
 
 #include "savegame.h"
 #include "common/save_slots.h"
@@ -665,10 +666,12 @@ static void CAST2_0966_ShrineOfVirtue(void)
     D_5c5a[0]._0_tile = D_5c5a[0]._1_animTile = TILE_ACTOR_BEGGAR;
     ULTIMA_5910_UpdateFrame();
     // "...and thou dost kneel before the Altar.\n\n"
-    ULTIMA_1850_PrintString((char*)&D_b21e[0x36d]);
+    ULTIMA_1850_PrintString(
+        (char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (0x36d), (char *)&D_b21e[0x36d]));
     ULTIMA_3ae6(10);
     // "Upon what virtue dost thou meditate?\n\n:"
-    ULTIMA_1850_PrintString((char*)&D_b21e[0x398]);
+    ULTIMA_1850_PrintString(
+        (char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (0x398), (char *)&D_b21e[0x398]));
 
     ULTIMA_3b1c_GetString(D_bd08, 0xc);
 
@@ -715,7 +718,8 @@ static void CAST2_0966_ShrineOfVirtue(void)
     if (!local_c)
     {
         // "\n\nThine thoughts are unfocused.\n"
-        ULTIMA_1850_PrintString((char*)&D_b21e[0x3c0]);
+        ULTIMA_1850_PrintString(
+            (char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (0x3c0), (char *)&D_b21e[0x3c0]));
     }
     else
     {
@@ -724,18 +728,22 @@ static void CAST2_0966_ShrineOfVirtue(void)
         {
             // TODO: 58cc, 58ce: u8?
             *((byte*)&D_58cc) |= (1 << local_a);
-            ULTIMA_1850_PrintString((char*)&D_b21e[0x3e1]);
+            ULTIMA_1850_PrintString(
+                (char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (0x3e1), (char *)&D_b21e[0x3e1]));
 
             D_5c5a[0]._0_tile = D_5c5a[0]._1_animTile = TILE_ACTOR_AVATAR;
 
             ULTIMA_266c_GetChar();
             // "\n\nThe Altar speaks and a Quest is ordained! "
-            ULTIMA_1850_PrintString((char*)&D_b21e[0x40e]);
-            ULTIMA_1850_PrintString((char*)&D_b21e[D_4b5e[local_a]]);
+            ULTIMA_1850_PrintString(
+                (char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (0x40e), (char *)&D_b21e[0x40e]));
+            ULTIMA_1850_PrintString((char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (D_4b5e[local_a]),
+                                                             (char *)&D_b21e[D_4b5e[local_a]]));
             ULTIMA_1850_PrintString(_TEXT(0x9598, "\"\n"));
             ULTIMA_266c_GetChar();
             // "\n\"Return again when thy Quest is done!\"\n"
-            ULTIMA_1850_PrintString((char*)&D_b21e[0x44b]);
+            ULTIMA_1850_PrintString(
+                (char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (0x44b), (char *)&D_b21e[0x44b]));
 
             // 0ac6 (NOT MATCHING)
             for (local_8 = 0; local_8 < 7; local_8++)
@@ -753,7 +761,8 @@ static void CAST2_0966_ShrineOfVirtue(void)
             {
                 // 0b63
                 // "\n\nOffer how many hundredweights gold? "
-                ULTIMA_1850_PrintString((char*)&D_b21e[0x474]);
+                ULTIMA_1850_PrintString(
+                    (char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (0x474), (char *)&D_b21e[0x474]));
 
                 // 0b6a
                 do
@@ -776,7 +785,8 @@ static void CAST2_0966_ShrineOfVirtue(void)
                 if ((int)D_57aa < local_4 * 100)
                 {
                     // "Thou hast not that much gold!"
-                    ULTIMA_1850_PrintString((char*)&D_b21e[0x49b]);
+                    ULTIMA_1850_PrintString((char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (0x49b),
+                                                                     (char *)&D_b21e[0x49b]));
                 }
                 else
                 {
@@ -822,7 +832,8 @@ static void CAST2_0966_ShrineOfVirtue(void)
             *((byte*)&D_58cc) &= (1 << local_a & (byte)D_58cc) ^ 0xff;
 
             // "\n\nA thunderous voice booms:\n\n\"WELL DONE!\"\n\n"
-            ULTIMA_1850_PrintString((char*)&D_b21e[0x4b9]);
+            ULTIMA_1850_PrintString(
+                (char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (0x4b9), (char *)&D_b21e[0x4b9]));
             ULTIMA_0a70_GRAP_2d_SetPenColor(D_13b0_brightWhiteColor);
             ULTIMA_0b86_GRAP_XorFillRect(8, 8, 0xb7, 0xb7);
 
@@ -899,9 +910,11 @@ static void CAST2_0d24_Codex(void)
     int local_4;
 
     ULTIMA_266c_GetChar();
-    ULTIMA_1850_PrintString((char*)&D_b21e[0x4e5]);
+    ULTIMA_1850_PrintString(
+        (char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (0x4e5), (char *)&D_b21e[0x4e5]));
     ULTIMA_266c_GetChar();
-    ULTIMA_1850_PrintString((char*)&D_b21e[0x515]);
+    ULTIMA_1850_PrintString(
+        (char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (0x515), (char *)&D_b21e[0x515]));
     ULTIMA_266c_GetChar();
 
     for (local_4 = 0; local_4 < 8; local_4++)
@@ -912,14 +925,16 @@ static void CAST2_0d24_Codex(void)
 
     if (local_4 == 8)
     {
-        ULTIMA_1850_PrintString((char*)&D_b21e[0x53e]);
+        ULTIMA_1850_PrintString(
+            (char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (0x53e), (char *)&D_b21e[0x53e]));
     }
     else
     {
         *((byte*)&D_58ce) |= 1 << local_4;
 
         ULTIMA_16ba_PrintChar('\"');
-        ULTIMA_1850_PrintString((char*)&D_b21e[D_4b6e[local_4]]);
+        ULTIMA_1850_PrintString((char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (D_4b6e[local_4]),
+                                                         (char *)&D_b21e[D_4b6e[local_4]]));
         ULTIMA_1850_PrintString(_TEXT(0x95e6, "\"\n\n"));
         ULTIMA_266c_GetChar();
 
@@ -934,23 +949,28 @@ static void CAST2_0d24_Codex(void)
             ULTIMA_0a70_GRAP_2d_SetPenColor(D_13ae_redColor);
             ULTIMA_0b86_GRAP_XorFillRect(8, 8, 0xb7, 0xb7);
             ULTIMA_3072_ShakeScreen();
-            ULTIMA_1850_PrintString((char*)&D_b21e[0x555]);
+            ULTIMA_1850_PrintString(
+                (char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (0x555), (char *)&D_b21e[0x555]));
             ULTIMA_266c_GetChar();
             ULTIMA_1850_PrintString(_TEXT(0x95ea, "Thou dost read:\n\n"));
             ULTIMA_1c9e_SelectCharset(1);
-            ULTIMA_1850_PrintString((char*)&D_b21e[0x57f]);
+            ULTIMA_1850_PrintString(
+                (char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (0x57f), (char *)&D_b21e[0x57f]));
             ULTIMA_1c9e_SelectCharset(0);
             ULTIMA_266c_GetChar();
             ULTIMA_1c9e_SelectCharset(1);
-            ULTIMA_1850_PrintString((char*)&D_b21e[0x5d1]);
+            ULTIMA_1850_PrintString(
+                (char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (0x5d1), (char *)&D_b21e[0x5d1]));
             ULTIMA_1c9e_SelectCharset(0);
             ULTIMA_266c_GetChar();
             ULTIMA_1c9e_SelectCharset(1);
-            ULTIMA_1850_PrintString((char*)&D_b21e[0x60c]);
+            ULTIMA_1850_PrintString(
+                (char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (0x60c), (char *)&D_b21e[0x60c]));
             ULTIMA_1c9e_SelectCharset(0);
             ULTIMA_266c_GetChar();
             ULTIMA_1c9e_SelectCharset(1);
-            ULTIMA_1850_PrintString((char*)&D_b21e[0x680]);
+            ULTIMA_1850_PrintString(
+                (char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (0x680), (char *)&D_b21e[0x680]));
             ULTIMA_1c9e_SelectCharset(0);
             ULTIMA_266c_GetChar();
         }
@@ -1036,12 +1056,14 @@ void CAST2_0e76_Shrine(void)
     if (local_6 != TILE_MAP_CODEX)
     {
         // "\nThou dost approach the tranquil Shrine...\n\n"
-        ULTIMA_1850_PrintString((char*)&D_b21e[0x6ae]);
+        ULTIMA_1850_PrintString(
+            (char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (0x6ae), (char *)&D_b21e[0x6ae]));
     }
     else
     {
         // "\nThe Codex of Ultimate Wisdom lies before thee..."
-        ULTIMA_1850_PrintString((char*)&D_b21e[0x6db]);
+        ULTIMA_1850_PrintString(
+            (char *)MOD_SceneMessage("MISCMSG.DAT", 939 + (0x6db), (char *)&D_b21e[0x6db]));
     }
 
     // 0f7b (OK)

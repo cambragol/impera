@@ -386,8 +386,10 @@ void ULTIMA_256e_ReadFileFromDisk(char* fileName, void* addr, u16 size, u16 offs
     int local_4 = 0;
 
 #if !defined(TARGET_DOS16)
+    /* Scene banks contain multiple strings; resolve overrides at each print call. */
     const char *override = MOD_NarrativeText(fileName, offset);
-    if (override && strcmp(fileName, "SHOPPE.DAT") != 0) {
+    if (override && strcmp(fileName, "SHOPPE.DAT") != 0 && strcmp(fileName, "MISCMSG.DAT") != 0 &&
+        strcmp(fileName, "ENDMSG.DAT") != 0) {
         size_t length = strlen(override) + 1;
         if (length <= size) {
             memset(addr, 0, size);

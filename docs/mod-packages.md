@@ -100,3 +100,18 @@ support. The package encoding is unchanged, so older builds can decode a package
 without implementing these effects. There is no minimum-engine-version field in
 `IMOD0001`; version enforcement is reserved for a future format/schema extension.
 Workshop's package preview reports these compatibility limits.
+
+## Special scenes
+
+`MISCMAPS.DAT` replacements preserve the original scene format. Both Workshop and
+the native loader check the creation block (at `0x2c0`, bytecode at block `0x200`)
+against the same instruction decoder: buffer capacity, actor references, tile
+coordinates, positive waits, matched non-nested repeats and a reachable restart.
+Unknown one-byte operations follow the original interpreter's no-op behavior;
+Workshop preserves them and disables structural/parameter edits for that stream.
+
+Extended Blackthorn, shrine, Codex and final-rescue text uses the existing
+`TEXT.OVR` schema with new verified scene IDs. Overrides are resolved at the actual
+message print, never by replacing a bulk message-bank read. Other entries still
+use the original bank. These IDs require Phase 6 Impera: older narrative-enabled
+builds reject unknown entries. DAT-only map/message edits retain package version 1.

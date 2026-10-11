@@ -243,3 +243,8 @@ const char *MOD_NarrativeText(const char *resource, unsigned offset) {
     int valid;
     return entry && r ? U5_FindNarrativeText(r->data, r->size, entry->id, &valid) : NULL;
 }
+
+const char *MOD_SceneMessage(const char *resource, unsigned offset, const char *fallback) {
+    const char *text = MOD_NarrativeText(resource, offset);
+    return text ? text : fallback;
+}

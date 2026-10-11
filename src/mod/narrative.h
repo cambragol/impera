@@ -17,10 +17,16 @@ static const U5NarrativeEntry *U5_NarrativeEntry(const char *resource, unsigned 
 static unsigned U5_TextWord(const unsigned char *b) {
     return b[0] | ((unsigned)b[1] << 8) | ((unsigned)b[2] << 16) | ((unsigned)b[3] << 24);
 }
+static unsigned U5_NarrativeLimit(const U5NarrativeEntry *entry) {
+    if (!strcmp(entry->resource, "ENDMSG.DAT") ||
+        (!strcmp(entry->resource, "MISCMSG.DAT") && entry->offset < 0x3ab))
+        return 1000;
+    return !strcmp(entry->resource, "SHOPPE.DAT") ? 1500 : 2000;
+}
 static int U5_NarrativeTextValid(const U5NarrativeEntry *entry, const unsigned char *text,
                                  size_t length) {
     int shop = !strcmp(entry->resource, "SHOPPE.DAT");
-    if (!length || length > (shop ? 1500u : 2000u) || text[length - 1] ||
+    if (!length || length > U5_NarrativeLimit(entry) || text[length - 1] ||
         memchr(text, 0, length - 1))
         return 0;
     for (size_t i = 0; i + 1 < length; ++i) {

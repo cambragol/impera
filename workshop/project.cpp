@@ -269,6 +269,11 @@ QVector<ModDiagnostic> validateMod(const Project &project) {
                            "Requires Impera with narrative override v1 / package v2 support. Older "
                            "engines reject the package. Entries take precedence over DAT text; "
                            "another TEXT.OVR package is a whole-resource conflict."});
+        if (name == "MISCMAPS.DAT")
+            result.append({ModDiagnostic::Information, name,
+                           "Scene terrain and verified creation bytecode apply at runtime. "
+                           "Actors/timing in other scenes remain coded; use Test in Impera to "
+                           "check animation and scene layout."});
         if (name.endsWith(".HCS"))
             result.append({ModDiagnostic::Warning, name, Workshop::capability(name).status});
         if (name == "INIT.GAM" || name == "INIT.OOL" || name == "BRIT.OOL" || name == "UNDER.OOL")

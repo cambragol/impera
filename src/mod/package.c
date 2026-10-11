@@ -1,4 +1,5 @@
 #include "package.h"
+#include "creation_scene.h"
 #include "narrative.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -142,6 +143,14 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
         if (MOD_Crc32(entry->data, outSize) != outCrc) {
             reason = "Mod output checksum mismatch";
             goto fail;
+        }
+        if (!strcmp(entry->name, "MISCMAPS.DAT")) {
+            U5CreationPreview state;
+            if (entry->size <= 1216 || entry->size > 2704 ||
+                !U5_CreationPreview(entry->data + 704, entry->size - 704, ~0u, &state)) {
+                reason = "Invalid character-creation scene sequence";
+                goto fail;
+            }
         }
         if (!strcmp(entry->name, "TEXT.OVR")) {
             int valid;

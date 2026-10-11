@@ -71,6 +71,8 @@ class MapCanvas : public QWidget {
     void clearSelection();
     int pasteChangedCells() const;
     QVector<QImage> tiles;
+    int rows = 0;
+    int rowCount() const { return rows > 0 ? rows : side; }
     int side = 32, brush = 1, tool = 0;
     double zoom = 2;
     bool grid = false;

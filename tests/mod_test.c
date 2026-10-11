@@ -1,6 +1,7 @@
 #undef NDEBUG
 #include "common/common.h"
 #include "common/file.h"
+#include "mod/creation_scene.h"
 #include "mod/narrative.h"
 #include "mod/package.h"
 #include "mod/runtime.h"
@@ -72,10 +73,12 @@ static void value(const char *path, const char *expected, int useMod) {
 static void narrativeResources(void) {
     Buffer text = {0}, package;
     bytes(&text, "ITXT0001", 8);
-    number(&text, 2);
-    const char *ids[] = {"ending/page/1", "shop/D_3c10/0"};
-    const char *messages[] = {"Extended ending text", "A reagent costs % gold"};
-    for (unsigned i = 0; i < 2; ++i) {
+    number(&text, 4);
+    const char *ids[] = {"ending/page/1", "shop/D_3c10/0", "scene/blackthorn/0",
+                         "scene/final rescue/0"};
+    const char *messages[] = {"Extended ending text", "A reagent costs % gold",
+                              "Extended interrogation", "Extended rescue"};
+    for (unsigned i = 0; i < 4; ++i) {
         number(&text, (uint32_t)strlen(ids[i]));
         bytes(&text, ids[i], strlen(ids[i]));
         number(&text, (uint32_t)strlen(messages[i]) + 1);
@@ -95,6 +98,9 @@ static void narrativeResources(void) {
     assert(MOD_LoadedCount() == 1);
     assert(!strcmp(MOD_NarrativeText("END.DAT", 0), messages[0]));
     assert(!strcmp(MOD_NarrativeText("SHOPPE.DAT", 0x1c1c), messages[1]));
+    assert(!strcmp(MOD_SceneMessage("MISCMSG.DAT", 0, "old"), messages[2]));
+    assert(!strcmp(MOD_SceneMessage("ENDMSG.DAT", 0, "old"), messages[3]));
+    assert(!strcmp(MOD_SceneMessage("MISCMSG.DAT", 0x2d, "original"), "original"));
     assert(!MOD_NarrativeText("END.DAT", 0x1a8)); // Original fallback.
     assert(!MOD_NarrativeText("END.DAT", 1));     // Not a verified entry.
     header(&package, 1);
@@ -107,6 +113,24 @@ static void narrativeResources(void) {
     assert(!MOD_NarrativeText("END.DAT", 0));
     remove("game/Mods/20-narrative.imperamod");
     remove("game/Mods/21-invalid-narrative.imperamod");
+}
+static void sceneResources(void) {
+    unsigned char scene[1227] = {0};
+    const unsigned char code[] = {6, 0, 12, 0, 0, 32, 5, 1, 3, 1, 9};
+    memcpy(scene + 1216, code, sizeof(code));
+    Buffer package;
+    ModPackage decoded;
+    char error[256];
+    header(&package, 1);
+    rawEntry(&package, "MISCMAPS.DAT", "base", 4, scene, sizeof(scene));
+    assert(MOD_Decode(package.bytes, package.size, readBase, NULL, &decoded, error, sizeof(error)));
+    MOD_Free(&decoded);
+    scene[1225] = 0; // A zero wait underflows the original interpreter.
+    header(&package, 1);
+    rawEntry(&package, "MISCMAPS.DAT", "base", 4, scene, sizeof(scene));
+    assert(
+        !MOD_Decode(package.bytes, package.size, readBase, NULL, &decoded, error, sizeof(error)));
+    assert(strstr(error, "creation"));
 }
 static void worldResources(void) {
     static unsigned char overlay[U5_WORLD_INDEX_OFFSET + 256], altered[sizeof(overlay)];
@@ -315,6 +339,7 @@ int main(void) {
     worldResources();
     dungeonResources();
     narrativeResources();
+    sceneResources();
     puts("Mod package validation, atomic mounting, order, conflicts, reloads and original preservation "
          "passed");
     return 0;

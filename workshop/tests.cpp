@@ -2,10 +2,12 @@
 #include "dialogue_editor.h"
 #include "dungeon_editor.h"
 #include "location_text.h"
+#include "mod/creation_scene.h"
 #include "mod/package.h"
 #include "mod/world_resources.h"
 #include "narrative_editor.h"
 #include "resource_document.h"
+#include "scene_editor.h"
 #include "text_preview.h"
 #include "window.h"
 #include <QTemporaryDir>
@@ -31,6 +33,16 @@ template <class F> static void rejects(F fn) {
         failed = true;
     }
     check(failed, "Expected invalid resource to be rejected");
+}
+// End iteration before selection/undo can replace the tree's owning workspace.
+static QTreeWidgetItem *treeItem(QTreeWidget *tree, const QString &text, bool heading = false) {
+    QTreeWidgetItemIterator it(tree);
+    while (*it) {
+        if ((*it)->text(0) == text && (!heading || (*it)->childCount()))
+            return *it;
+        ++it;
+    }
+    throw std::runtime_error("Expected tree entry is missing");
 }
 static void file(const QString &path, const QByteArray &bytes) {
     QFile f(path);
@@ -60,6 +72,179 @@ int main(int argc, char **argv) {
         std::cout << "PASS " << name << "\n";
     };
     try {
+        test("Scene maps preserve padding, unrelated scenes and creation trailer", [] {
+            QByteArray b(1216, char(213));
+            b += QByteArray::fromHex("06000c00002005010e020d00010f030109");
+            b += "preserved trailer";
+            Workshop::SceneDocument::validate(b);
+            for (int scene = 0; scene < 5; ++scene)
+                for (int stage = 0; stage < (scene == 4 ? 4 : 1); ++stage) {
+                    auto cells = Workshop::SceneDocument::map(b, scene, stage);
+                    cells[0] = 9;
+                    cells[cells.size() - 1] = 7;
+                    auto changed = Workshop::SceneDocument::changeMap(b, scene, stage, cells);
+                    check(Workshop::SceneDocument::map(changed, scene, stage) == cells,
+                          "Scene map edit failed");
+                    int delta = 0;
+                    for (int i = 0; i < b.size(); ++i)
+                        delta += b[i] != changed[i];
+                    check(delta == 2, "Scene edit changed padding or unrelated bytes");
+                }
+            auto steps = Workshop::SceneDocument::steps(b);
+            QVector<QByteArray> bytes;
+            for (auto step : steps)
+                bytes.append(step.bytes);
+            check(Workshop::SceneDocument::changeSteps(b, bytes) == b,
+                  "Sequence roundtrip changed bytes");
+            QVector<MapCanvas::Actor> actors;
+            int stage;
+            Workshop::SceneDocument::preview(b, 6, &actors, &stage);
+            check(stage == 0 && actors.size() == 1 && actors[0].x == 7 && actors[0].y == 1,
+                  "Repeat preview differs from engine movement");
+            bytes.insert(bytes.size() - 1, QByteArray::fromHex("0302"));
+            auto longer = Workshop::SceneDocument::changeSteps(b, bytes);
+            check(longer.endsWith("preserved trailer") && longer.left(1216) == b.left(1216),
+                  "Structural edit lost original bytes");
+            bytes[2] = QByteArray::fromHex("0000201201");
+            rejects([&] { Workshop::SceneDocument::changeSteps(b, bytes); });
+            auto unknown = b;
+            unknown.insert(1216, char(33));
+            Workshop::SceneDocument::validate(unknown);
+            rejects([&] { Workshop::SceneDocument::changeSteps(unknown, bytes); });
+            for (auto bad : {QByteArray::fromHex("030009"), QByteArray::fromHex("0f09"),
+                             QByteArray::fromHex("0e0209"), QByteArray::fromHex("000020130009"),
+                             QByteArray::fromHex("02000109"), QByteArray::fromHex("060409")})
+                rejects([&] {
+                    Workshop::SceneDocument::validate(b.left(1216) + QByteArray::fromHex("0600") +
+                                                      bad);
+                });
+            auto effects =
+                b.left(1216) + QByteArray::fromHex("06000c0000200501040702050a0c0803010009");
+            Workshop::SceneDocument::validate(effects);
+            check(uchar(Workshop::SceneDocument::preview(effects, 3)[2 * 19 + 7]) ==
+                      TILE_MAP_MOONGATE,
+                  "Moongate opening preview failed");
+            check(uchar(Workshop::SceneDocument::preview(effects, 4)[2 * 19 + 7]) == TILE_MAP_GRASS,
+                  "Moongate closing preview failed");
+            check(uchar(Workshop::SceneDocument::preview(effects, 5)[3 * 19 + 8]) == 12,
+                  "Terrain operation preview failed");
+            check(Workshop::SceneDocument::affectedCell(effects, 6) == QPoint(5, 1),
+                  "Removed actor navigation lost its coordinates");
+            MapCanvas canvas;
+            canvas.side = 19;
+            canvas.rows = 4;
+            canvas.zoom = 1;
+            canvas.resizeMap();
+            check(canvas.height() == 64 && canvas.cellAt({303, 63}) == QPoint(18, 3) &&
+                      canvas.cellAt({10, 64}) == QPoint(-1, -1),
+                  "Rectangular canvas clipping failed");
+        });
+        test("Original special scenes and message entry points (optional)", [] {
+            if (!qEnvironmentVariableIsSet("U5_GAME_DIR"))
+                return;
+            Project p;
+            p.openGame(qEnvironmentVariable("U5_GAME_DIR"));
+            auto b = p.data("MISCMAPS.DAT");
+            Workshop::SceneDocument::validate(b);
+            auto steps = Workshop::SceneDocument::steps(b);
+            for (int i = 0; i < steps.size(); ++i)
+                Workshop::SceneDocument::preview(b, i);
+            check(Workshop::narrativeEntries("MISCMSG.DAT").size() == 47 &&
+                      Workshop::narrativeEntries("ENDMSG.DAT").size() == 11,
+                  "Missing scene message entry points");
+            for (auto name : {"MISCMSG.DAT", "ENDMSG.DAT"}) {
+                Workshop::validateNarrative(p, name);
+                for (auto e : Workshop::narrativeEntries(name))
+                    check(Workshop::changeNarrative(
+                              p, *e,
+                              Workshop::narrativeSource(Workshop::narrativeText(p, *e), false),
+                              false)[name] == p.data(name),
+                          "Scene text no-op changed original bytes");
+            }
+        });
+        test("Native scene workspace, sequence editing and undo", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            QByteArray b(1216, 0);
+            b += QByteArray::fromHex("06000c0000200501030109");
+            file(dir.path() + "/MISCMAPS.DAT", b);
+            WorkshopWindow w;
+            check(w.openGame(dir.path()), "Open scene fixture failed");
+            w.selectResource("MISCMAPS.DAT");
+            auto scenes = w.findChild<QComboBox *>("sceneSelector");
+            check(scenes, "Missing scene selector");
+            scenes->setCurrentIndex(4);
+            w.findChild<QTabWidget *>("sceneTabs")->setCurrentIndex(2);
+            auto list = w.findChild<QListWidget *>("creationSteps");
+            list->setCurrentRow(3);
+            auto apply = w.findChild<QPushButton *>("applyCreationStep");
+            auto fields = apply->parentWidget()->findChildren<QSpinBox *>();
+            check(fields.size() == 4, "Missing sequence operands");
+            fields[0]->setValue(2);
+            apply->click();
+            check(w.projectForTests().data("MISCMAPS.DAT").endsWith(QByteArray::fromHex("030209")),
+                  "Native sequence edit failed");
+            for (auto a : w.findChildren<QAction *>())
+                if (a->text().startsWith("Undo ")) {
+                    a->trigger();
+                    break;
+                }
+            app.processEvents();
+            app.processEvents();
+            check(w.projectForTests().data("MISCMAPS.DAT") == b, "Scene undo failed");
+            check(w.findChild<QTabWidget *>("sceneTabs")->currentIndex()==2,"Undo lost the active scene tab");
+            list = w.findChild<QListWidget *>("creationSteps");
+            list->setCurrentRow(3);
+            apply = w.findChild<QPushButton *>("applyCreationStep");
+            fields = apply->parentWidget()->findChildren<QSpinBox *>();
+            fields[0]->setValue(3);
+            list->setCurrentRow(4);
+            check(w.projectForTests().data("MISCMAPS.DAT").endsWith(QByteArray::fromHex("030309")),
+                  "Step navigation lost a parameter draft");
+            auto canvas = dynamic_cast<MapCanvas *>(w.findChild<QWidget *>("sceneMap"));
+            check(canvas, "Missing scene map canvas");
+            auto cells = canvas->ids;
+            cells[0] = 5;
+            check(canvas->commit(cells), "Native scene map commit failed");
+            auto package = w.projectForTests().package();
+            Project restored;
+            restored.openGame(dir.path());
+            restored.importPackage(package);
+            check(restored.data("MISCMAPS.DAT") == w.projectForTests().data("MISCMAPS.DAT"),
+                  "Scene package roundtrip failed");
+        });
+        test("Scene messages, scoped search and navigation drafts", [&] {
+            QTemporaryDir dir;
+            fixture(dir.path());
+            QByteArray b(1216, 0);
+            b += QByteArray::fromHex("06000c030109");
+            file(dir.path() + "/MISCMAPS.DAT", b);
+            file(dir.path() + "/MISCMSG.DAT", QByteArray(2745, 0));
+            WorkshopWindow w;
+            check(w.openGame(dir.path()), "Open scene message fixture failed");
+            w.selectResource("MISCMAPS.DAT");
+            auto scenes = w.findChild<QComboBox *>("sceneSelector");
+            auto entries = w.findChild<QListWidget *>("narrativeEntries");
+            auto text = w.findChild<QPlainTextEdit *>("narrativeText");
+            text->setPlainText("New interrogation");
+            text->document()->setModified(true);
+            scenes->setCurrentIndex(2);
+            check(w.projectForTests().data("MISCMSG.DAT").startsWith("New interrogation"),
+                  "Scene navigation lost message draft");
+            entries = w.findChild<QListWidget *>("narrativeEntries");
+            for (int i = 0; i < entries->count(); ++i)
+                if (!entries->item(i)->isHidden())
+                    check(entries->item(i)->text().startsWith("Codex"),
+                          "Scene exposes unrelated messages");
+            auto filter = entries->parentWidget()->parentWidget()->findChild<QLineEdit *>();
+            check(filter, "Missing scene message search");
+            filter->setText("Blackthorn");
+            filter->clear();
+            for (int i = 0; i < entries->count(); ++i)
+                if (!entries->item(i)->isHidden())
+                    check(entries->item(i)->text().startsWith("Codex"),
+                          "Search bypassed scene scope");
+        });
         test("Narrative fixed entries, budgets and original byte preservation", [] {
             QTemporaryDir dir;
             auto p = fixture(dir.path());
@@ -1553,11 +1738,7 @@ int main(int argc, char **argv) {
                       active()->findChild<QCheckBox *>("mapNpcGhosts")->isChecked(),
                   "Dialogue return lost NPC state");
             auto tree = active()->findChild<QTreeWidget *>("mapNavigation");
-            QTreeWidgetItemIterator location(tree);
-            while (*location && ((*location)->childCount() == 0 || (*location)->text(0) != "Yew"))
-                ++location;
-            check(bool(*location), "Yew location heading missing");
-            tree->setCurrentItem(*location);
+            tree->setCurrentItem(treeItem(tree, "Yew", true));
             app.processEvents();
             app.processEvents();
             active()->findChild<QComboBox *>("mapNpcList")->setCurrentIndex(1);
@@ -1747,14 +1928,7 @@ int main(int argc, char **argv) {
             editor = dynamic_cast<ConversationEditor *>(
                 active()->findChild<QWidget *>("conversationEditor"));
             auto tree = editor->findChild<QTreeWidget *>("conversationOutline");
-            QTreeWidgetItemIterator it(tree);
-            while (*it) {
-                if ((*it)->text(0) == "help / hint") {
-                    tree->setCurrentItem(*it);
-                    break;
-                }
-                ++it;
-            }
+            tree->setCurrentItem(treeItem(tree, "help / hint"));
             auto aliases = editor->findChild<QLineEdit *>("conversationAliases");
             check(aliases && aliases->text() == "help, hint", "Shared aliases absent");
             aliases->setText("help, clue");
@@ -1934,20 +2108,12 @@ int main(int argc, char **argv) {
                       floors->findData(6) < 0,
                   "Floor selector includes other locations");
             auto tree = workspace.findChild<QTreeWidget *>("mapNavigation");
-            QTreeWidgetItemIterator location(tree);
-            while (*location && ((*location)->childCount() == 0 || (*location)->text(0) != "Yew"))
-                ++location;
-            check(bool(*location), "Yew location heading missing");
-            tree->setCurrentItem(*location);
+            tree->setCurrentItem(treeItem(tree, "Yew", true));
             app.processEvents();
             check(floors->currentData().toInt() == 7 && floors->count() == 2 &&
                       floors->findData(0) < 0,
                   "Location heading did not open its main floor");
-            QTreeWidgetItemIterator moonglow(tree);
-            while (*moonglow &&
-                   ((*moonglow)->childCount() == 0 || (*moonglow)->text(0) != "Moonglow"))
-                ++moonglow;
-            tree->setCurrentItem(*moonglow);
+            tree->setCurrentItem(treeItem(tree, "Moonglow", true));
             app.processEvents();
             npcs[16 + 3] = 3;
             npcs[16 + 6] = 3;

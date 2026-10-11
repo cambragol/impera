@@ -1,8 +1,9 @@
 #include "common/common.h"
-#include "vars.h"
 #include "funcs.h"
 #include "macros.h"
+#include "mod/runtime.h"
 #include "tiles.h"
+#include "vars.h"
 
 #include "blckthrn.h"
 #include "cast2.h"
@@ -190,22 +191,26 @@ static void BLCKTHRN_0278(int param_1, int param_2)
     switch (param_1)
     {
     case 0:
-        ULTIMA_1850_PrintString((char*)&D_b21e[0x0]);
+        ULTIMA_1850_PrintString(
+            (char *)MOD_SceneMessage("MISCMSG.DAT", 0 + (0x0), (char *)&D_b21e[0x0]));
         ULTIMA_1850_PrintString(D_1f4e[param_2]);
         ULTIMA_1850_PrintString(_TEXT(0x6f6e, "?\""));
         break;
     case 1:
-        ULTIMA_1850_PrintString((char*)&D_b21e[0x2d]);
+        ULTIMA_1850_PrintString(
+            (char *)MOD_SceneMessage("MISCMSG.DAT", 0 + (0x2d), (char *)&D_b21e[0x2d]));
         ULTIMA_1850_PrintString(D_1f4e[param_2]);
         ULTIMA_1850_PrintString(_TEXT(0x6f72, "?\""));
         break;
     case 2:
-        ULTIMA_1850_PrintString((char*)&D_b21e[0x52]);
+        ULTIMA_1850_PrintString(
+            (char *)MOD_SceneMessage("MISCMSG.DAT", 0 + (0x52), (char *)&D_b21e[0x52]));
         ULTIMA_1850_PrintString(D_1f4e[param_2]);
         ULTIMA_1850_PrintString(_TEXT(0x6f76, "?\""));
         break;
     case 3:
-        ULTIMA_1850_PrintString((char*)&D_b21e[0xac]);
+        ULTIMA_1850_PrintString(
+            (char *)MOD_SceneMessage("MISCMSG.DAT", 0 + (0xac), (char *)&D_b21e[0xac]));
         break;
     }
 }
@@ -256,11 +261,13 @@ static void BLCKTHRN_03ae(int param_1)
 
     if (param_1 != 0)
     {
-        ULTIMA_1850_PrintString((char*)&D_b21e[0xf1]);
+        ULTIMA_1850_PrintString(
+            (char *)MOD_SceneMessage("MISCMSG.DAT", 0 + (0xf1), (char *)&D_b21e[0xf1]));
     }
     else
     {
-        ULTIMA_1850_PrintString((char*)&D_b21e[0x12d]);
+        ULTIMA_1850_PrintString(
+            (char *)MOD_SceneMessage("MISCMSG.DAT", 0 + (0x12d), (char *)&D_b21e[0x12d]));
     }
 
     ULTIMA_3ae6(10);
@@ -314,7 +321,8 @@ static void BLCKTHRN_03ae(int param_1)
         ULTIMA_1850_PrintString(D_55a8_party[0xf].name);
         ULTIMA_1850_PrintString(_TEXT(0x6f96, " is sliced in half! "));
         ULTIMA_266c_GetChar();
-        ULTIMA_1850_PrintString((char*)&D_b21e[0x1a0]);
+        ULTIMA_1850_PrintString(
+            (char *)MOD_SceneMessage("MISCMSG.DAT", 0 + (0x1a0), (char *)&D_b21e[0x1a0]));
     }
 
     ULTIMA_16ba_PrintChar('\n');
@@ -328,9 +336,11 @@ static void BLCKTHRN_0510(void)
 
 static void BLCKTHRN_051c(void)
 {
-    ULTIMA_1850_PrintString((char*)&D_b21e[0x229]);
+    ULTIMA_1850_PrintString(
+        (char *)MOD_SceneMessage("MISCMSG.DAT", 0 + (0x229), (char *)&D_b21e[0x229]));
     BLCKTHRN_00be(D_36da);
-    ULTIMA_1850_PrintString((char*)&D_b21e[0x25f]);
+    ULTIMA_1850_PrintString(
+        (char *)MOD_SceneMessage("MISCMSG.DAT", 0 + (0x25f), (char *)&D_b21e[0x25f]));
     ULTIMA_1850_PrintString(D_55a8_party[1].name);
     ULTIMA_1850_PrintString(_TEXT(0x6fac, " die!\" "));
     ULTIMA_266c_GetChar();
@@ -359,7 +369,8 @@ static void BLCKTHRN_054a(int param_1, int param_2)
             }
             else
             {
-                ULTIMA_1850_PrintString((char*)&D_b21e[0x29c]);
+                ULTIMA_1850_PrintString(
+                    (char *)MOD_SceneMessage("MISCMSG.DAT", 0 + (0x29c), (char *)&D_b21e[0x29c]));
                 BLCKTHRN_0510();
             }
             break;
@@ -367,7 +378,8 @@ static void BLCKTHRN_054a(int param_1, int param_2)
 
         if (param_2 < 2)
         {
-            ULTIMA_1850_PrintString((char*)&D_b21e[0x2dc]);
+            ULTIMA_1850_PrintString(
+                (char *)MOD_SceneMessage("MISCMSG.DAT", 0 + (0x2dc), (char *)&D_b21e[0x2dc]));
             BLCKTHRN_0510();
             break;
         }
@@ -515,7 +527,8 @@ void BLCKTHRN_060e_Capture(void)
         }
         ULTIMA_1850_PrintString(_TEXT(0x70ce, "at once!\""));
         BLCKTHRN_00be(D_370e);
-        ULTIMA_1850_PrintString((char*)&D_b21e[0x32c]);
+        ULTIMA_1850_PrintString(
+            (char *)MOD_SceneMessage("MISCMSG.DAT", 0 + (0x32c), (char *)&D_b21e[0x32c]));
         ULTIMA_266c_GetChar();
         BLCKTHRN_054a(local_c, local_a);
         if (D_5c5a[8]._0_tile != 0)

@@ -54,7 +54,7 @@ int narrativeBudget(const QByteArray &bytes, const U5NarrativeEntry &entry) {
     // Expand only into verified zero padding. Unidentified non-prose bytes remain untouched.
     while (end < limit && bytes[end] == 0)
         ++end;
-    return qMin(end - int(entry.offset), strcmp(entry.resource, "SHOPPE.DAT") == 0 ? 1500 : 2000);
+    return qMin(end - int(entry.offset), int(U5_NarrativeLimit(&entry)));
 }
 static const QStringList tags = {"shop", "keeper", "time", "price", "quantity", "item", "customer"};
 QString narrativeSource(const QByteArray &bytes, bool shop) {
@@ -292,8 +292,11 @@ QWidget *narrativeEditor(Project *project, const QString &resource, TextCommit c
     auto previewInput = new QPlainTextEdit(root);
     previewInput->hide();
     previewInput->setProperty("sceneHeight", 200);
-    auto preview =
-        textPreviewPanel(project, previewInput, shop || resource == "KARMA.DAT" ? 144 : 320);
+    auto preview = textPreviewPanel(project, previewInput,
+                                    shop || resource == "KARMA.DAT" || resource == "MISCMSG.DAT" ||
+                                            resource == "ENDMSG.DAT"
+                                        ? 144
+                                        : 320);
     form->addWidget(preview);
     if (resource == "QUESTION.DAT" || resource == "END.DAT") {
         auto mode = preview->findChild<QComboBox *>();
@@ -313,7 +316,7 @@ QWidget *narrativeEditor(Project *project, const QString &resource, TextCommit c
         auto entry = (*entries)[*current];
         try {
             auto bytes = encodeNarrative(text->toPlainText(), shop);
-            int limit = extended->isChecked() ? (shop ? 1500 : 2000)
+            int limit = extended->isChecked() ? int(U5_NarrativeLimit(entry))
                                               : narrativeBudget(project->data(resource), *entry);
             budget->setText(QString("%1 / %2 bytes including terminator. %3")
                                 .arg(bytes.size() + 1)
@@ -345,6 +348,15 @@ QWidget *narrativeEditor(Project *project, const QString &resource, TextCommit c
             apply->setEnabled(false);
         }
     };
+    auto caption = [=](const U5NarrativeEntry *entry) {
+        QString label = QString::fromLatin1(entry->label);
+        if (resource == "MISCMSG.DAT" || resource == "ENDMSG.DAT") {
+            auto snippet = QString::fromLatin1(narrativeText(*project, *entry)).simplified();
+            if (!snippet.isEmpty())
+                label += "\n" + snippet.left(55) + (snippet.size() > 55 ? "…" : "");
+        }
+        return label;
+    };
     auto save = [=]() -> bool {
         if (*current < 0 || !text->document()->isModified())
             return true;
@@ -356,6 +368,7 @@ QWidget *narrativeEditor(Project *project, const QString &resource, TextCommit c
                     "Edit " + QString::fromLatin1(entry->label)))
                 return false;
             text->document()->setModified(false);
+            list->item(*current)->setText(caption(entry));
             return true;
         } catch (const std::exception &e) {
             QMessageBox::warning(root, "Cannot apply narrative text", QString::fromUtf8(e.what()));
@@ -365,9 +378,10 @@ QWidget *narrativeEditor(Project *project, const QString &resource, TextCommit c
     if (flush)
         *flush = save;
     for (auto entry : *entries) {
-        auto item = new QListWidgetItem(QString::fromLatin1(entry->label), list);
-        item->setToolTip(QString("%1\nConsumer: %2\nStable entry: %3")
-                             .arg(entry->label, entry->resource, entry->id));
+        auto item = new QListWidgetItem(caption(entry), list);
+        item->setToolTip(QString("%1\nConsumer: %2\nStable entry: %3\nFile offset: 0x%4")
+                             .arg(entry->label, entry->resource, entry->id)
+                             .arg(entry->offset, 0, 16));
         if (resource == "END.DAT") {
             int page = list->count() - 1;
             try {
@@ -412,6 +426,13 @@ QWidget *narrativeEditor(Project *project, const QString &resource, TextCommit c
                     .arg(U5D_5174[b]);
         }
         context->setText(description);
+        if (resource == "MISCMSG.DAT") {
+            bool runic = entry->offset == 0x3ab + 0x57f || entry->offset == 0x3ab + 0x5d1 ||
+                         entry->offset == 0x3ab + 0x60c || entry->offset == 0x3ab + 0x680;
+            if (auto panel = root->findChild<QWidget *>("textPreviewPanel"))
+                if (auto font = panel->findChild<QComboBox *>())
+                    font->setCurrentIndex(runic ? 1 : 0);
+        }
         if (resource == "END.DAT") {
             try {
                 auto name = U5D_3df4[row] ? "END2.16" : "END1.16";
@@ -444,7 +465,8 @@ QWidget *narrativeEditor(Project *project, const QString &resource, TextCommit c
     });
     QObject::connect(filter, &QLineEdit::textChanged, root, [=](const QString &query) {
         for (int i = 0; i < list->count(); ++i)
-            list->item(i)->setHidden(!list->item(i)->text().contains(query, Qt::CaseInsensitive));
+            list->item(i)->setHidden(list->item(i)->data(Qt::UserRole + 1).toBool() ||
+                                     !list->item(i)->text().contains(query, Qt::CaseInsensitive));
     });
     auto karmaUpdate = [=] {
         int index = qMin(4, karma->value() / 20);

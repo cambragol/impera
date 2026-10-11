@@ -52,6 +52,18 @@ for source in ['shoppes.c','shoppes2.c','shoppes3.c']:
             prefix='Inn' if source=='shoppes3.c' else 'Tavern' if o<0x1491 else 'Shipwright'
             response+=1
             add('SHOPPE.DAT',o,f'shop/message/{o}',f'{prefix}: response {response}')
+# Scene messages refer into bank reads; IDs use absolute file positions.
+for source,resource,base,prefix in [('blckthrn.c','MISCMSG.DAT',0,'Blackthorn'),('cast2.c','MISCMSG.DAT',0x3ab,'Shrine/Codex'),('endgame.c','ENDMSG.DAT',0,'Final rescue')]:
+    code=(root/'src'/source).read_text()
+    offsets=sorted(set(int(v,0) for v in re.findall(r'MOD_SceneMessage\("[^"]+",\s*\d+\s*\+\s*\((0x[0-9a-f]+|[0-9]+)\)',code)))
+    offsets=sorted(set(offsets + [int(v,0) for v in re.findall(r'PrintString\(\(char\*\)&D_b21e\[(0x[0-9a-f]+|[0-9]+)\]',code)]))
+    if resource=='ENDMSG.DAT': offsets=sorted(set([0]+offsets))
+    for i,o in enumerate(offsets):
+        context = ('Shrine' if o < 0x4e5 or o == 0x6ae else 'Codex') if source == 'cast2.c' else prefix
+        add(resource,base+o,f'scene/{prefix.lower()}/{o}',f'{context}: message {i+1}')
+for table,group in [('D_4b5e','Virtue failure'),('D_4b6e','Virtue teaching')]:
+    for i,o in enumerate(values(table)):
+        add('MISCMSG.DAT',0x3ab+o,f'scene/{table}/{i}',f'{"Shrine" if table == "D_4b5e" else "Codex"} - {group}: {virtues[i]}')
 # Multiple callers share an entry. Its first semantic ID is canonical; list all contexts.
 unique={}
 for r,o,id,label in rows:

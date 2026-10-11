@@ -11,6 +11,7 @@ enum class EditorKind {
     Dungeon,
     LocationText,
     Narrative,
+    Scenes,
     Inspector
 };
 struct Capability {

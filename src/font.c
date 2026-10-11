@@ -1,9 +1,10 @@
 #include "common/common.h"
-#include "savegame.h"
 #include "common/save_slots.h"
 #include "funcs.h"
-#include "vars.h"
 #include "macros.h"
+#include "mod/creation_scene.h"
+#include "savegame.h"
+#include "vars.h"
 
 #include <string.h>
 
@@ -310,6 +311,11 @@ void FONT_04a4(void)
         }
     }
 
+    U5CreationPreview verified;
+    if (!U5_CreationPreview(D_b21e, 2000, ~0u, &verified)) {
+        DEBUG_Error("Invalid character-creation scene sequence");
+        return;
+    }
     D_5893_map_id = 0x42;
 
     for (local_e = 0x200; local_e < 2000; local_e++)

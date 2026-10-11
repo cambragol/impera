@@ -409,3 +409,41 @@ Developer audit: `scripts/generate-narrative-tables.py` derives the catalogue,
 virtue outcomes, ending artwork placement and shop dictionary from the engine.
 Run `python scripts/generate-narrative-tables.py --check` after changing those
 tables. Python is not a Workshop build or runtime dependency.
+
+### Special scenes
+
+The **Scenes** library group contains **Special scenes**, plus direct access to
+its message documents. Select Blackthorn imprisonment, Shrine ritual, Codex
+interaction, Final rescue or Character creation. **Map** paints stored terrain
+using the normal tools. Four 11×11 scene maps retain their row padding; creation
+has four 19×4 backgrounds named The Summoning, The Journey, The Arrival and The
+Welcoming. Other backgrounds, reserved bytes and trailing data are preserved.
+
+**Messages** opens the same undoable text document as the library. Entries are
+scoped to the chosen scene and linked to verified runtime consumers. Codex runic
+messages select the runic preview automatically. Fixed text preserves offsets;
+extended scene text uses the existing `TEXT.OVR` companion. Blackthorn and rescue
+entries allow at most 999 text bytes; shrine/Codex entries allow 1,999. Scene
+layout and scrolling still need testing in Impera.
+
+**Sequence** edits character creation's verified instructions: actors, movement,
+waits, moongates, background/terrain changes, visual effects, clearing actors and
+repeats. Parameters, insertion, deletion and reordering are undoable. Inserting
+**Begin repeat** wraps the selected step in a matched repeat block. Restart stays
+last. Navigation/save/export apply valid parameter drafts; invalid drafts block
+navigation until corrected. Unknown operations make the sequence read-only while
+remaining byte-for-byte intact; its maps remain editable.
+
+The preview shows static terrain and actor positions after a selected step's first
+execution; later steps include completed repeats. **Go to affected background**
+opens the corresponding map/cell. It does not reproduce intermediate animation,
+audio, exact timing or keyboard interruption. Character creation has no text
+opcode: questions are in Messages, and stage titles remain engine code. The other
+four scenes' actors, branching and timing also remain fixed engine code. This is
+an editor for the original scene resources, not a general cinematic scripting
+system. Impera validates creation instructions before mounting a mod or running
+the sequence, rejecting unsafe references, coordinates and control flow.
+
+Extended scene messages require an engine with Workshop Phase 6 support, in
+addition to package-version-2 support. Older narrative-enabled builds do not have
+these scene entry points. Ordinary DAT edits use the existing version-1 format.

@@ -11,4 +11,5 @@ const uint8_t *MOD_BritanniaIndex(void);
 /* Build fresh worlds from resources, never from persisted SAVEGAME lists. */
 int MOD_InitializeWorldObjects(void *worlds512);
 const char *MOD_NarrativeText(const char *resource, unsigned offset);
+const char *MOD_SceneMessage(const char *resource, unsigned offset, const char *fallback);
 #endif

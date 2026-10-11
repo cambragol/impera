@@ -4,6 +4,7 @@
 #include "location_text.h"
 #include "mod/world_resources.h"
 #include "narrative_editor.h"
+#include "scene_editor.h"
 using U5::require;
 namespace Workshop {
 Capability capability(const QString &resource) {
@@ -23,6 +24,13 @@ Capability capability(const QString &resource) {
                                     : "Shops",
                 "Narrative", "Editable fixed entries and optional extended text",
                 EditorKind::Narrative};
+    if (n == "MISCMAPS.DAT")
+        return {"Special scenes", "Scenes",
+                "Editable backgrounds and verified creation instructions", EditorKind::Scenes};
+    if (n == "MISCMSG.DAT" || n == "ENDMSG.DAT")
+        return {n == "MISCMSG.DAT" ? "Shrine / Codex / Blackthorn messages"
+                                   : "Final rescue messages",
+                "Scenes", "Editable runtime message entries", EditorKind::Narrative};
     if (n == "TEXT.OVR")
         return {"Extended narrative text", "Narrative",
                 "Versioned companion; edit through its source narrative document",
@@ -74,6 +82,18 @@ ResourceDocument::ResourceDocument(const Project &p, QString r)
 }
 QVector<Entry> ResourceDocument::entries() const {
     const auto size = project.data(resource).size();
+    if (resource == "MISCMAPS.DAT") {
+        QVector<Entry> result;
+        for (int i = 0; i < 4; ++i)
+            result.append({QString("scene/%1").arg(i), SceneDocument::names()[i], i * 176, 176});
+        for (int i = 0; i < 4; ++i)
+            result.append({QString("creation/background/%1").arg(i), SceneDocument::stages()[i],
+                           704 + i * 128, 128});
+        for (auto step : SceneDocument::steps(project.data(resource)))
+            result.append({QString("creation/step/%1").arg(step.offset), step.title, step.offset,
+                           step.bytes.size()});
+        return result;
+    }
     if (capability(resource).editor == EditorKind::Narrative) {
         QVector<Entry> result;
         for (auto entry : narrativeEntries(resource))
@@ -150,6 +170,10 @@ QMap<QString, QByteArray> ResourceDocument::replace(const Entry &e, const QByteA
 void validateResource(const Project &project, const QString &name) {
     const auto &b = project.data(name);
     const auto kind = capability(name).editor;
+    if (kind == EditorKind::Scenes) {
+        SceneDocument::validate(b);
+        return;
+    }
     if (kind == EditorKind::Narrative || name == "TEXT.OVR") {
         validateNarrative(project, name);
         return;

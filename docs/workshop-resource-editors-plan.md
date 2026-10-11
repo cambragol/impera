@@ -369,6 +369,15 @@ package diagnostic; changing that wording requires updating the engine binary.
 
 ## Phase 6 — Special scenes (`MISCMAPS.DAT`, `MISCMSG.DAT`, `ENDMSG.DAT`)
 
+Implemented: named scenes with Map / Messages / Sequence tabs; four padded 11×11
+maps and four 19×4 creation backgrounds; 58 audited scene message entry points;
+validated creation parameter/structural editing and static step previews. Engine
+and Workshop share instruction bounds/control-flow validation. Unknown operations
+freeze sequence editing while maps remain editable. Fixed actors, scene titles,
+intermediate effects/audio and timing are explicitly labelled as coded behavior.
+See [authoring instructions](../workshop/README.md#special-scenes).
+
+
 UI: named scene list and tabs **Map / Messages / Sequence**. Map reuses the 11×11
 canvas; the inspector distinguishes stored terrain from actors placed by engine
 code. Add navigation between messages, scene steps and affected cells.
