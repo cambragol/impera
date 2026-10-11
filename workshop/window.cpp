@@ -3,6 +3,7 @@
 #include "dungeon_editor.h"
 #include "location_text.h"
 #include "mod/package.h"
+#include "narrative_editor.h"
 #include "resource_document.h"
 #include "text_preview.h"
 #include <QMouseEvent>
@@ -578,8 +579,9 @@ QWidget *WorkshopWindow::resourceEditor(const QString &name) {
         if (action->text() == "Resource Library")
             action->setChecked(!name.endsWith(".TLK") && !MapDocument::supported(name));
     const auto kind = Workshop::capability(name).editor;
-    if (kind == Workshop::EditorKind::LocationText) {
-        editor = Workshop::locationTextEditor(
+    if (kind == Workshop::EditorKind::LocationText || kind == Workshop::EditorKind::Narrative) {
+        editor = (kind == Workshop::EditorKind::Narrative ? Workshop::narrativeEditor
+                                                          : Workshop::locationTextEditor)(
             &project, name,
             [this](const QMap<QString, QByteArray> &changes, const QString &title) {
                 return guard([&] {

@@ -1,6 +1,6 @@
 # Workshop resource editors: implementation plan
 
-Status: Phases 1–4 implemented; Phases 5–9 remain proposals. Continue on `feature/native-modding` unless
+Status: Phases 1–5 implemented; Phases 6–9 remain proposals. Continue on `feature/native-modding` unless
 instructed otherwise. This extends the [Other Resources audit](workshop-other-resources-audit.md)
 and existing [map workspace plan](workshop-map-ui.md).
 
@@ -339,6 +339,33 @@ Acceptance: every identified original entry can be selected and previewed; token
 survive round trips and sample substitution; all six ending pages and virtue-pair
 questions resolve to the right entries. Extended text works in the engine and an
 older engine gives a clear incompatibility error rather than silently ignoring it.
+
+### Phase 5 outcome
+
+Implemented a shared Narrative workspace for all four documents: 30 creation
+entries (28 virtue pairs), six ending pages, six distinct karma speeches and 194
+unique shop entries. Every nonempty original SHOPPE string corresponds to an
+audited runtime entry; aliases retain one underlying identity. The engine-derived
+catalogue includes `D_3b2a/3b6a/3baa` greetings/refusals/farewells, `D_3c48`
+equipment, `D_3c10` reagents, `D_3cbe` weapons transactions, `D_3c0a` guild
+supplies, `D_4c66/4d44/4d56/4d5e` tavern responses, `D_4e6e` inn offers and
+all literal reads in the three shop consumers. Embedded reagent/weapon-bank
+lookups consult the companion without corrupting the cached DAT bank.
+
+Fixed edits preserve byte positions and unidentified data; budgets include NUL
+and only verified zero padding can be reused. Optional longer entries use
+`TEXT.OVR` schema 1 with catalog-checked semantic IDs and length limits, carried
+in package version 2. Runtime and editor share token validation and bounded shop
+substitution. DAT-only/version-1 packages remain supported. Whole-resource
+conflicts retain the existing first-valid-package rule rather than introducing
+implicit entry merges. Companion entries take precedence over DAT strings.
+
+Previews include font rendering, ending artwork/thumbnails, read-only virtue
+outcomes and karma/shop sample context. Scene layout remains explicitly
+approximate; artwork exclusions and proportional justification require a test in
+Impera. Byte overflow is blocked independently of approximate layout warnings.
+Previously distributed engines reject version 2 with their old generic malformed
+package diagnostic; changing that wording requires updating the engine binary.
 
 ## Phase 6 — Special scenes (`MISCMAPS.DAT`, `MISCMSG.DAT`, `ENDMSG.DAT`)
 

@@ -1,9 +1,11 @@
 #include "common/common.h"
-#include "key/mouse.h"
 #include "funcs.h"
-#include "vars.h"
+#include "key/mouse.h"
 #include "macros.h"
+#include "mod/narrative.h"
+#include "mod/runtime.h"
 #include "tiles.h"
+#include "vars.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -12,127 +14,34 @@
 #include "shoppes.h"
 #include "zstats.h"
 
-static char* SHOPPES_0000(char* param_1, char* param_2)
-{
-    while (*param_1 = *param_2++)
-    {
-        param_1++;
+void SHOPPES_0026(char *input) {
+    char price[16], quantity[16];
+    u5_itoa(D_b118, price, 10);
+    u5_itoa(D_b11a, quantity, 10);
+    const char *values[7] = {
+        D_aafc, D_aafe,   D_587f < 12 ? "morning" : D_587f < 18 ? "afternoon" : "evening",
+        price,  quantity, D_ab00,
+        D_ac62};
+    char output[SCRATCH_SIZE - 1500];
+    if (!U5_ExpandShopText((const unsigned char *)input, output, sizeof(output), values)) {
+        DEBUG_Error("Shop message exceeds output buffer or has an invalid phrase token");
+        strcpy(output, "[Shop message unavailable]");
     }
-
-    return param_1;
-}
-
-void SHOPPES_0026(char* param_1)
-{
-    byte local_e;
-    char local_c[6];
-    char* local_6;
-    char* local_4;
-
-#if !defined(TARGET_DOS16)
-    // prevents direct modification of protected memory
-    char buf[256];
-    //strcpy_s(buf, sizeof(buf), param_1);
-    strcpy(buf, param_1);
-    param_1 = buf;
-#endif
-
-    local_6 = param_1;
-    local_4 = D_b7fa;
-
-    while (*local_6 != 0)
-    {
-        // 0068
-        local_e = *local_6;
-        if (local_e == 0x23 || local_e == 0x24 || local_e == 0x40 || local_e == 0x25 || local_e == 0x5e ||
-            local_e == 0x26 || local_e == 0x2a || local_e >= 0x80)
-        {
-            // 008d
-            *local_6 = 0;
-            local_4 = SHOPPES_0000(local_4, param_1);
-            *local_6 = local_e;
-            param_1 = local_6 + 1;
-        }
-
-        // 00a4
-        local_6++;
-
-        if (local_e >= 0x80)
-        {
-            // 00ab
-            *local_4++ = 0x20;
-            local_4 = SHOPPES_0000(local_4, D_24ea[local_e - 0x80]);
-            if (*local_6 != 0 && (byte)*local_6 < 0x80)
-            {
-                *local_4++ = 0x20;
-            }
-        }
-        else
-        {
-            // 0036
-            switch (local_e)
-            {
-            case 0x23: // '#'
-                // 0056
-                local_4 = SHOPPES_0000(local_4, D_aafc); // 3ef24
-                break;
-
-            case 0x24: // '$'
-                // 00d0
-                local_4 = SHOPPES_0000(local_4, D_aafe); // 3ef28
-                continue;
-
-            case 0x40: // '('
-                // 00d8
-                if (D_587f < 0xc)
-                {
-                    local_4 = SHOPPES_0000(local_4, _TEXT(0x7826, "morning"));
-                }
-                else if (D_587f < 0x12)
-                {
-                    local_4 = SHOPPES_0000(local_4, _TEXT(0x782e, "afternoon"));
-                }
-                else
-                {
-                    local_4 = SHOPPES_0000(local_4, _TEXT(0x7838, "evening"));
-                }
-                break;
-
-            case 0x25: // '%'
-                // 00fc
-                u5_itoa(D_b118, local_c, 10);
-                local_4 = SHOPPES_0000(local_4, local_c);
-                break;
-
-            case 0x5e: // '^'
-                // 0114
-                u5_itoa(D_b11a, local_c, 10);
-                local_4 = SHOPPES_0000(local_4, local_c);
-                break;
-
-            case 0x26: // '&'
-                // 0122
-                local_4 = SHOPPES_0000(local_4, D_ab00);
-                break;
-
-            case 0x2a: // '*'
-                // 012a
-                local_4 = SHOPPES_0000(local_4, D_ac62);
-                break;
-            }
-        }
-    }
-
-    // 014a
-    strcpy(local_4, param_1);
-
+    memcpy(D_b7fa, output, strlen(output) + 1);
     ULTIMA_1850_PrintString(D_b7fa);
 }
-
-void SHOPPES_017a(int param_1)
-{
-    ULTIMA_256e_ReadFileFromDisk(/*0x7840*/ "SHOPPE.DAT", D_b21e, 1500, param_1);
-    SHOPPES_0026(D_b21e);
+static void SHOPPES_PrintEntry(unsigned offset, char *fallback) {
+    const char *text = MOD_NarrativeText("SHOPPE.DAT", offset);
+    SHOPPES_0026((char *)(text ? text : fallback));
+}
+void SHOPPES_017a(int offset) {
+    const char *text = MOD_NarrativeText("SHOPPE.DAT", offset);
+    if (text) {
+        SHOPPES_0026((char *)text);
+        return;
+    }
+    ULTIMA_256e_ReadFileFromDisk("SHOPPE.DAT", D_b21e, 1500, offset);
+    SHOPPES_0026((char *)D_b21e);
 }
 
 void SHOPPES_019a(void)
@@ -393,7 +302,8 @@ static int SHOPPES_0502(int param_1, int param_2, int param_3)
         D_b11a = D_3a5a[D_b114][local_8];
 
         ULTIMA_1850_PrintString(_TEXT(0x7952, "\n\n\""));
-        SHOPPES_0026((char*)&D_b21e[D_3c10[local_8] - 0x1a67]); // 0x1a67: file load offset
+        SHOPPES_PrintEntry(D_3c10[local_8],
+                           (char *)&D_b21e[D_3c10[local_8] - 0x1a67]); // 0x1a67: file load offset
         ULTIMA_1850_PrintString(_TEXT(0x7956, " Is this thy need?\" "));
         if (ULTIMA_1f12_GetCurrentTextX() > 0xc)
         {
@@ -412,7 +322,7 @@ static int SHOPPES_0502(int param_1, int param_2, int param_3)
                 ULTIMA_1850_PrintString(_TEXT(0x7982, "Yes\n"));
                 if (D_57aa < D_b118)
                 {
-                    SHOPPES_0026((char*)&D_b21e[0x4c4]);
+                    SHOPPES_PrintEntry(0x1f2b, (char *)&D_b21e[0x4c4]);
                     param_3 = -1;
                 }
                 else
@@ -949,7 +859,10 @@ static int SHOPPES_0e76(int param_1, int param_2)
             }
 
             //SHOPPES_0026(D_3cbe[iVar5] + 0xa65e);
-            SHOPPES_0026((char*)&D_b21e[D_3cbe[ULTIMA_2092_RandomRange(0, 7)] + 0xa65e - 0xb21e]);
+            {
+                unsigned offset = D_3cbe[ULTIMA_2092_RandomRange(0, 7)];
+                SHOPPES_PrintEntry(offset, (char *)&D_b21e[offset - 0xbc0]);
+            }
             ULTIMA_1850_PrintString(_TEXT(0x7d68, "\n\nDeal?\" "));
             do
             {

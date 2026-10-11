@@ -82,7 +82,7 @@ TextPreview previewText(const QByteArray &font, const QString &text, FontMode mo
 }
 } // namespace Workshop
 namespace Workshop {
-QWidget *textPreviewPanel(const Project *project, QPlainTextEdit *text) {
+QWidget *textPreviewPanel(const Project *project, QPlainTextEdit *text, int width) {
     auto panel = new QWidget;
     panel->setObjectName("textPreviewPanel");
     auto layout = new QVBoxLayout(panel);
@@ -135,7 +135,12 @@ QWidget *textPreviewPanel(const Project *project, QPlainTextEdit *text) {
                 font = U5::decompress(f.readAll());
             } else
                 font = project->data(kind == FontMode::Runic ? "RUNES.CH" : "IBM.CH");
-            auto result = previewText(font, text->toPlainText(), kind, 320);
+            auto result = previewText(font, text->toPlainText(), kind, width);
+            int sceneHeight = text->property("sceneHeight").toInt();
+            if (sceneHeight > 0 && result.image.height() > sceneHeight)
+                result.issues.append(
+                    "Approximate layout exceeds the scene height. Shorten/reflow the text and test "
+                    "the scene in Impera; artwork changes the available text area.");
             image->setPixmap(QPixmap::fromImage(
                 result.image.scaled(result.image.width() * 2, result.image.height() * 2,
                                     Qt::IgnoreAspectRatio, Qt::FastTransformation)));

@@ -1,8 +1,9 @@
 #include "resource_document.h"
 #include "dialogue.h"
-#include "location_text.h"
 #include "dungeon_editor.h"
+#include "location_text.h"
 #include "mod/world_resources.h"
+#include "narrative_editor.h"
 using U5::require;
 namespace Workshop {
 Capability capability(const QString &resource) {
@@ -15,6 +16,17 @@ Capability capability(const QString &resource) {
         return {n, "NPC schedules", "Editable daily routines", EditorKind::Schedule};
     if (n == "INIT.GAM")
         return {"Starting state", "Starting state", "Applied to new games", EditorKind::State};
+    if (QStringList{"QUESTION.DAT", "END.DAT", "KARMA.DAT", "SHOPPE.DAT"}.contains(n))
+        return {n == "QUESTION.DAT" ? "Character creation"
+                : n == "END.DAT"    ? "Ending"
+                : n == "KARMA.DAT"  ? "Karma speeches"
+                                    : "Shops",
+                "Narrative", "Editable fixed entries and optional extended text",
+                EditorKind::Narrative};
+    if (n == "TEXT.OVR")
+        return {"Extended narrative text", "Narrative",
+                "Versioned companion; edit through its source narrative document",
+                EditorKind::Inspector};
     if (n == "STORY.DAT")
         return {"Introduction story", "Story", "Editable fixed text windows", EditorKind::Story};
     if (n == "SIGNS.DAT" || n == "LOOK2.DAT")
@@ -62,6 +74,13 @@ ResourceDocument::ResourceDocument(const Project &p, QString r)
 }
 QVector<Entry> ResourceDocument::entries() const {
     const auto size = project.data(resource).size();
+    if (capability(resource).editor == EditorKind::Narrative) {
+        QVector<Entry> result;
+        for (auto entry : narrativeEntries(resource))
+            result.append({entry->id, entry->label, entry->offset,
+                           narrativeBudget(project.data(resource), *entry)});
+        return result;
+    }
     if(resource=="SIGNS.DAT") {
         QVector<Entry> result;
         int offset = 66;
@@ -131,6 +150,10 @@ QMap<QString, QByteArray> ResourceDocument::replace(const Entry &e, const QByteA
 void validateResource(const Project &project, const QString &name) {
     const auto &b = project.data(name);
     const auto kind = capability(name).editor;
+    if (kind == EditorKind::Narrative || name == "TEXT.OVR") {
+        validateNarrative(project, name);
+        return;
+    }
     if (kind == EditorKind::LocationText) {
         if (name == "SIGNS.DAT") {
             const QStringList maps = {"TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT", "KEEP.DAT"};

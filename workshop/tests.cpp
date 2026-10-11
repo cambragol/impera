@@ -4,6 +4,7 @@
 #include "location_text.h"
 #include "mod/package.h"
 #include "mod/world_resources.h"
+#include "narrative_editor.h"
 #include "resource_document.h"
 #include "text_preview.h"
 #include "window.h"
@@ -59,6 +60,140 @@ int main(int argc, char **argv) {
         std::cout << "PASS " << name << "\n";
     };
     try {
+        test("Narrative fixed entries, budgets and original byte preservation", [] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            QByteArray bytes(7746, 0);
+            for (auto e : Workshop::narrativeEntries("QUESTION.DAT"))
+                bytes.replace(e->offset, 6, "Hello", 6);
+            p.resources["QUESTION.DAT"] = {bytes, bytes};
+            auto entries = Workshop::narrativeEntries("QUESTION.DAT");
+            check(entries.size() == 30, "Expected intro, completion and 28 virtue pairs");
+            auto changes = Workshop::changeNarrative(p, *entries[2], "A new question", false);
+            auto changed = changes["QUESTION.DAT"];
+            check(changed.size() == bytes.size(), "Fixed text changed resource length");
+            check(changed.left(entries[2]->offset) == bytes.left(entries[2]->offset),
+                  "Unrelated prefix changed");
+            check(changed.mid(entries[2]->offset + 15) == bytes.mid(entries[2]->offset + 15),
+                  "Unrelated suffix changed");
+            rejects([&] { Workshop::changeNarrative(p, *entries[2], QString(2100, 'a'), false); });
+            check(Workshop::narrativeEntries("END.DAT").size() == 6, "Six ending pages missing");
+            check(Workshop::narrativeEntries("KARMA.DAT").size() == 6,
+                  "Distinct karma speeches missing");
+            check(Workshop::narrativeEntries("SHOPPE.DAT").size() == 194,
+                  "Shop subtables incomplete");
+        });
+        test("Shop tokens roundtrip and bounded runtime substitution", [] {
+            QByteArray raw("# $ @ % ^ & * ");
+            raw += char(128);
+            raw += " sword";
+            auto source = Workshop::narrativeSource(raw, true);
+            check(Workshop::encodeNarrative(source, true) == raw, "Shop token roundtrip failed");
+            const char *values[7] = {"shop", "keeper", "morning", "25", "2", "sword", "Avatar"};
+            char out[256];
+            check(U5_ExpandShopText(reinterpret_cast<const unsigned char *>(raw.constData()), out,
+                                    sizeof(out), values),
+                  "Substitution failed");
+            check(QByteArray(out) == "shop keeper morning 25 2 sword Avatar  the  sword",
+                  "Substitution spacing differs from original engine");
+            char small[5];
+            check(!U5_ExpandShopText(reinterpret_cast<const unsigned char *>(raw.constData()),
+                                     small, sizeof(small), values),
+                  "Overflow was not rejected");
+            rejects([] { Workshop::encodeNarrative("[unknown]", true); });
+            rejects([] { Workshop::encodeNarrative("[word:87]", true); });
+            rejects([] { Workshop::encodeNarrative(QString(QChar(0x100)), false); });
+        });
+        test("Extended narrative packages, project persistence and schema validation", [] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            QByteArray bytes(3698, 0);
+            for (auto e : Workshop::narrativeEntries("END.DAT"))
+                bytes.replace(e->offset, 6, "Hello", 6);
+            file(dir.path() + "/END.DAT", bytes);
+            p.openGame(dir.path());
+            auto entry = Workshop::narrativeEntries("END.DAT")[0];
+            auto changes = Workshop::changeNarrative(p, *entry, QString(600, 'a'), true);
+            for (auto it = changes.begin(); it != changes.end(); ++it)
+                p.resources[it.key()].edited = it.value();
+            p.validate();
+            check(p.data("END.DAT") == bytes, "Extended text moved fixed offsets");
+            check(Workshop::narrativeText(p, *entry) == QByteArray(600, 'a'),
+                  "Extended lookup failed");
+            auto package = p.package();
+            check(package.startsWith("IMOD0002"), "Missing extended package compatibility version");
+            auto q = fixture(dir.path());
+            q.openGame(dir.path());
+            q.importPackage(package);
+            check(Workshop::narrativeText(q, *entry) == QByteArray(600, 'a'),
+                  "Imported extended text lost");
+            p.save(dir.path() + "/narrative.imperaproject");
+            Project loaded;
+            loaded.load(dir.path() + "/narrative.imperaproject");
+            check(loaded.data("TEXT.OVR") == p.data("TEXT.OVR"), "Saved companion lost");
+            auto session = prepareModTest(p, dir.path() + "/sessions");
+            check(QFile::exists(session + "/Mods/workshop.imperamod"),
+                  "Isolated narrative test package missing");
+            auto diagnostics = validateMod(p);
+            for (auto d : diagnostics)
+                check(d.severity != ModDiagnostic::Error, "Extended package validation failed");
+            auto corrupt = p;
+            corrupt.resources["TEXT.OVR"].edited[0] = 'X';
+            rejects([&] { corrupt.validate(); });
+            auto fixed = Workshop::changeNarrative(p, *entry, "Short", false);
+            for (auto it = fixed.begin(); it != fixed.end(); ++it)
+                p.resources[it.key()].edited = it.value();
+            check(Workshop::narrativeText(p, *entry) == "Short",
+                  "Removing override did not restore DAT precedence");
+        });
+        test("Narrative native UI, selection and undo", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            QByteArray bytes(7746, 0);
+            for (auto e : Workshop::narrativeEntries("QUESTION.DAT"))
+                bytes.replace(e->offset, 6, "Hello", 6);
+            file(dir.path() + "/QUESTION.DAT", bytes);
+            WorkshopWindow w;
+            check(w.openGame(dir.path()), "Open narrative game failed");
+            w.selectResource("QUESTION.DAT");
+            auto list = w.findChild<QListWidget *>("narrativeEntries");
+            auto text = w.findChild<QPlainTextEdit *>("narrativeText");
+            auto apply = w.findChild<QPushButton *>("applyNarrative");
+            check(list && text && apply, "Narrative controls missing");
+            list->setCurrentRow(2);
+            text->selectAll();
+            text->insertPlainText("Changed question");
+            apply->click();
+            check(w.projectForTests().data("QUESTION.DAT") != bytes,
+                  "Native narrative edit failed");
+            for (auto a : w.findChildren<QAction *>())
+                if (a->text().startsWith("Undo ")) {
+                    a->trigger();
+                    break;
+                }
+            app.processEvents();
+            app.processEvents();
+            check(w.projectForTests().data("QUESTION.DAT") == bytes, "Narrative undo failed");
+        });
+        test("Original narrative entries and token schemas (optional)", [] {
+            if (!qEnvironmentVariableIsSet("U5_GAME_DIR"))
+                return;
+            Project p;
+            p.openGame(qEnvironmentVariable("U5_GAME_DIR"));
+            for (auto name : QStringList{"QUESTION.DAT", "END.DAT", "KARMA.DAT", "SHOPPE.DAT"}) {
+                Workshop::validateNarrative(p, name);
+                for (auto entry : Workshop::narrativeEntries(name)) {
+                    auto raw = Workshop::narrativeText(p, *entry);
+                    bool shop = name == "SHOPPE.DAT";
+                    check(Workshop::encodeNarrative(Workshop::narrativeSource(raw, shop), shop) ==
+                              raw,
+                          "Original narrative token no-op failed");
+                    check(Workshop::changeNarrative(p, *entry, Workshop::narrativeSource(raw, shop),
+                                                    false)[name] == p.data(name),
+                          "Original fixed text no-op altered resource bytes");
+                }
+            }
+        });
         test("Sign codec preserves glyphs, locations and unknown trailer", [] {
             QByteArray seed(66, 0);
             seed += char(255);

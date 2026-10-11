@@ -71,6 +71,7 @@ drafts rather than silently discarding them. Package imports become undoable edi
 | Combat setup | Edit starting party positions for four directions, monster tiles/positions, triggers and changed-tile metadata; retain all padding/sentinel bytes |
 | Graphics | All DOS `.16` image containers and 512 tiles; thumbnail gallery, EGA pixel painting, PNG import/export, full tilesheet import/export, one-bit alpha masks |
 | Conversations | Searchable NPCs, Basics/Topics/Questions outline, shared keyword aliases, ordered text/action forms, reference-safe question deletion, byte budgets, diagnostics, Advanced source, conversation sandbox and DOS font preview |
+| Narrative | 30 creation entries with virtue choices, six illustrated ending pages, karma context/sample values, 194 shop entries with token substitution; fixed-offset or versioned extended text, byte budgets, font previews and undo |
 | Story | Twenty fixed-offset text pages; original capacity, offsets, padding and terminators retained; normal, runic and proportional font previews |
 | Starting state | Party position, time, supplies, plot items, reagents, moonstones, shrine/dungeon flags, Shadowlord settings; sixteen character records, statistics/equipment, safe party joining/removal |
 | Resource inspector | Paged hex editing, per-edit undo, importing outputs from the Python editors, reverting a resource; other resource types remain available here |
@@ -363,3 +364,48 @@ a room bank in the original game; modifying a shared room affects both.
 Unmatched ladders are warnings. Missing combat rooms, truncated layouts and newly
 introduced impossible features block export. An already-loaded dungeon in a save
 can retain its old layout; leave and re-enter to load the package's layout.
+
+### Narrative
+
+The **Narrative** library group contains **Character creation**, **Ending**,
+**Karma speeches**, and **Shops**. Search the entry list by virtue, page or
+service. Creation shows all 28 virtue pairs plus the introduction and completion
+message, with read-only A/B outcomes. Ending lists six illustrated pages. Karma
+lets you select Lord British or Blackthorn and a sample value from 0–100.
+Shops includes equipment descriptions, reagent descriptions, tavern responses,
+guild supplies, healer messages, shipwright messages and inn services.
+
+**Apply text** commits an undoable edit. Navigation/save/export also check the
+current draft. Fixed edits retain original offsets and show the byte allowance,
+including the terminating byte; nothing is silently truncated. **Extended text**
+stores a verified entry in a mod-only `TEXT.OVR` companion, retaining the original
+DAT bytes. Limits remain 1,999 text bytes for creation/ending/karma and 1,499 for
+shops. Shop substitution output is additionally bounded to 1,499 bytes.
+
+Shop buttons insert `[shop]`, `[keeper]`, `[time]`, `[price]`, `[quantity]`,
+`[item]`, or `[customer]`. Sample fields show the corresponding runtime values.
+**Insert word** adds an original compressed-word token (`[word:NN]`); its spacing
+matches the engine. `[[` escapes an opening bracket. Proportional previews support
+`{` paragraph indentation and `_` discretionary hyphens. Font/layout previews
+are approximate: ending artwork exclusions and the engine's word justification
+can change wrapping. A byte-valid message can still overflow a scene; use **Test
+in Impera** to verify its final appearance.
+
+Extended-text exports use **package version 2 / narrative schema 1**. Use an
+Impera build containing this feature. Existing version-1 packages and original
+DAT replacements continue working. Within an accepted package, an extended entry
+wins over DAT text, and entries absent from the companion use DAT text. Installed
+packages still follow the existing whole-resource conflict rule: the first valid
+package in filename order is accepted; later overlapping packages are rejected,
+including two companions containing otherwise different entries. The companion
+cannot be merged implicitly.
+
+Previously released engines reject version-2 packages instead of ignoring their
+text. Their existing diagnostic is “Malformed or truncated mod package”; this
+change cannot improve messages in binaries already distributed. New engines
+identify unsupported package versions and narrative schemas explicitly.
+
+Developer audit: `scripts/generate-narrative-tables.py` derives the catalogue,
+virtue outcomes, ending artwork placement and shop dictionary from the engine.
+Run `python scripts/generate-narrative-tables.py --check` after changing those
+tables. Python is not a Workshop build or runtime dependency.

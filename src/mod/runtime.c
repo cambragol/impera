@@ -1,6 +1,7 @@
 #include "runtime.h"
 #include "common/common.h"
 #include "common/file.h"
+#include "narrative.h"
 #include "package.h"
 #include "world_resources.h"
 #include <SDL3/SDL.h>
@@ -233,4 +234,12 @@ int MOD_InitializeWorldObjects(void *worlds512) {
           mountedResource("BRIT.OOL") ? "mod override" : "normal empty start",
           mountedResource("UNDER.OOL") ? "mod override" : "INIT.OOL");
     return 1;
+}
+
+const char *MOD_NarrativeText(const char *resource, unsigned offset) {
+    const ModResource *r = mountedResource("TEXT.OVR");
+    if (!r) return NULL;
+    const U5NarrativeEntry *entry = U5_NarrativeEntry(resource, offset);
+    int valid;
+    return entry && r ? U5_FindNarrativeText(r->data, r->size, entry->id, &valid) : NULL;
 }

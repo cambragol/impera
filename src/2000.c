@@ -1,10 +1,11 @@
 #include "common/common.h"
-#include "key/mouse.h"
 #include "common/file.h"
-#include "vars.h"
 #include "funcs.h"
+#include "key/mouse.h"
 #include "macros.h"
+#include "mod/runtime.h"
 #include "tiles.h"
+#include "vars.h"
 
 #include "audio/aud_sfx.h"
 #include "event/event.h"
@@ -385,6 +386,15 @@ void ULTIMA_256e_ReadFileFromDisk(char* fileName, void* addr, u16 size, u16 offs
     int local_4 = 0;
 
 #if !defined(TARGET_DOS16)
+    const char *override = MOD_NarrativeText(fileName, offset);
+    if (override && strcmp(fileName, "SHOPPE.DAT") != 0) {
+        size_t length = strlen(override) + 1;
+        if (length <= size) {
+            memset(addr, 0, size);
+            memcpy(addr, override, length);
+            return;
+        }
+    }
     if (FILE_ReadFile(fileName, addr, size, offset) != 0)
     {
         DEBUG_Error("Cannot read required game file '%s' (offset=%u, size=%u): %s. Check the runtime data directory and filename case.",

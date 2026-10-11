@@ -13,5 +13,5 @@ struct TextPreview {
 // Proportional input is the decoded DOS bit-image resource, not conversation tokens.
 TextPreview previewText(const QByteArray &font, const QString &text, FontMode mode,
                         int width = 144);
-QWidget *textPreviewPanel(const Project *project, QPlainTextEdit *text);
+QWidget *textPreviewPanel(const Project *project, QPlainTextEdit *text, int width = 320);
 } // namespace Workshop

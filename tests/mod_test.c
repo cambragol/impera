@@ -1,6 +1,7 @@
 #undef NDEBUG
 #include "common/common.h"
 #include "common/file.h"
+#include "mod/narrative.h"
 #include "mod/package.h"
 #include "mod/runtime.h"
 #include "mod/world_resources.h"
@@ -67,6 +68,45 @@ static void value(const char *path, const char *expected, int useMod) {
     assert(fread(b, 1, sizeof(b) - 1, f) == strlen(expected));
     assert(!strcmp(b, expected));
     fclose(f);
+}
+static void narrativeResources(void) {
+    Buffer text = {0}, package;
+    bytes(&text, "ITXT0001", 8);
+    number(&text, 2);
+    const char *ids[] = {"ending/page/1", "shop/D_3c10/0"};
+    const char *messages[] = {"Extended ending text", "A reagent costs % gold"};
+    for (unsigned i = 0; i < 2; ++i) {
+        number(&text, (uint32_t)strlen(ids[i]));
+        bytes(&text, ids[i], strlen(ids[i]));
+        number(&text, (uint32_t)strlen(messages[i]) + 1);
+        bytes(&text, messages[i], strlen(messages[i]) + 1);
+    }
+    int valid;
+    assert(U5_FindNarrativeText(text.bytes, text.size, ids[0], &valid));
+    assert(valid);
+    for (size_t n=0;n<text.size;++n) {
+        U5_FindNarrativeText(text.bytes,n,ids[0],&valid);assert(!valid);
+    }
+    header(&package, 1);
+    memcpy(package.bytes, "IMOD0002", 8);
+    rawEntry(&package, "TEXT.OVR", "", 0, text.bytes, text.size);
+    put("game/Mods/20-narrative.imperamod", package.bytes, package.size);
+    FILE_SetDataDirectory("game");
+    assert(MOD_LoadedCount() == 1);
+    assert(!strcmp(MOD_NarrativeText("END.DAT", 0), messages[0]));
+    assert(!strcmp(MOD_NarrativeText("SHOPPE.DAT", 0x1c1c), messages[1]));
+    assert(!MOD_NarrativeText("END.DAT", 0x1a8)); // Original fallback.
+    assert(!MOD_NarrativeText("END.DAT", 1));     // Not a verified entry.
+    header(&package, 1);
+    memcpy(package.bytes, "IMOD0002", 8);
+    rawEntry(&package, "TEXT.OVR", "", 0, "invalid", 7);
+    put("game/Mods/21-invalid-narrative.imperamod", package.bytes, package.size);
+    FILE_SetDataDirectory("game");
+    assert(MOD_LoadedCount() == 1);
+    FILE_SetDataDirectory(NULL);
+    assert(!MOD_NarrativeText("END.DAT", 0));
+    remove("game/Mods/20-narrative.imperamod");
+    remove("game/Mods/21-invalid-narrative.imperamod");
 }
 static void worldResources(void) {
     static unsigned char overlay[U5_WORLD_INDEX_OFFSET + 256], altered[sizeof(overlay)];
@@ -274,6 +314,7 @@ int main(void) {
     remove("SAVEGAME/INIT.GAM");
     worldResources();
     dungeonResources();
+    narrativeResources();
     puts("Mod package validation, atomic mounting, order, conflicts, reloads and original preservation "
          "passed");
     return 0;

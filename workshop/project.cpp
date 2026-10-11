@@ -29,6 +29,8 @@ void Project::openGame(const QString &directory) {
     require(dir.exists(), "Game folder does not exist");
     for (const auto &name : dir.entryList(QDir::Files, QDir::Name)) {
         QString upper = name.toUpper();
+        if (upper == "TEXT.OVR")
+            continue; // Companion resources are package-only.
         if (!MOD_AllowedResource(upper.toLatin1().constData()))
             continue;
         require(!next.resources.contains(upper), "Ambiguous filename case in game folder: " + name);
@@ -39,6 +41,7 @@ void Project::openGame(const QString &directory) {
             "Select a DOS Ultima 5 folder containing TILES.16 and INIT.GAM");
     U5::readGraphics("TILES.16", next.data("TILES.16"));
     require(next.data("INIT.GAM").size() == 4192, "INIT.GAM must use the 4192-byte DOS layout");
+    next.resources.insert("TEXT.OVR", {{}, {}});
     *this = next;
 }
 const QByteArray &Project::data(const QString &name) const {
@@ -71,7 +74,8 @@ QByteArray Project::package() const {
     auto list = changed();
     require(!list.isEmpty(), "There are no changes to export");
     require(list.size() <= MOD_MAX_ENTRIES, "Too many modified resources");
-    QByteArray out("IMOD0001", 8), nameBytes = title.toUtf8();
+    QByteArray out(list.contains("TEXT.OVR") ? "IMOD0002" : "IMOD0001", 8),
+        nameBytes = title.toUtf8();
     append32(out, nameBytes.size());
     append32(out, list.size());
     out += nameBytes;
@@ -153,6 +157,8 @@ void Project::save(const QString &path) {
                         {"bytes", QString::fromLatin1(r.edited.toBase64())}});
     }
     root["edits"] = edits;
+    if (changed().contains("TEXT.OVR"))
+        root["requires"] = QJsonObject{{"narrativeOverrides", 1}, {"packageVersion", 2}};
     QJsonObject annotations;
     for (auto it = dialogueNames.cbegin(); it != dialogueNames.cend(); ++it)
         annotations.insert(it.key(), it.value());
@@ -224,17 +230,23 @@ QVector<ModDiagnostic> validateMod(const Project &project) {
                        "No modified resources; there is no package to export or test."});
     for (const auto &name : changes) {
         try {
-            QString actual;
-            QDir source(project.sourceDirectory);
-            for (const auto &file : source.entryList(QDir::Files))
-                if (file.toUpper() == name) {
-                    actual = source.filePath(file);
-                    break;
-                }
-            require(!actual.isEmpty() &&
+            if (name == "TEXT.OVR") {
+                require(project.resources[name].original.isEmpty(),
+                        "Narrative companion must have an empty original base");
+            } else {
+                QString actual;
+                QDir source(project.sourceDirectory);
+                for (const auto &file : source.entryList(QDir::Files))
+                    if (file.toUpper() == name) {
+                        actual = source.filePath(file);
+                        break;
+                    }
+                require(
+                    !actual.isEmpty() &&
                         readLimited(actual, MOD_MAX_RESOURCE) == project.resources[name].original,
                     "Original game file changed or is missing since this project opened. Reopen "
                     "the project against the intended base files.");
+            }
         } catch (const std::exception &error) {
             result.append({ModDiagnostic::Error, name, QString::fromUtf8(error.what())});
         }
@@ -252,6 +264,11 @@ QVector<ModDiagnostic> validateMod(const Project &project) {
                        QString("Package replaces this entire resource (%1 bytes → %2 bytes).")
                            .arg(project.resources[name].original.size())
                            .arg(project.data(name).size())});
+        if (name == "TEXT.OVR")
+            result.append({ModDiagnostic::Information, name,
+                           "Requires Impera with narrative override v1 / package v2 support. Older "
+                           "engines reject the package. Entries take precedence over DAT text; "
+                           "another TEXT.OVR package is a whole-resource conflict."});
         if (name.endsWith(".HCS"))
             result.append({ModDiagnostic::Warning, name, Workshop::capability(name).status});
         if (name == "INIT.GAM" || name == "INIT.OOL" || name == "BRIT.OOL" || name == "UNDER.OOL")
@@ -459,6 +476,8 @@ QString prepareModTest(const Project &project, const QString &sessionsDirectory)
                 "Cannot make test file writable");
     }
     for (const auto &name : project.resources.keys()) {
+        if (name == "TEXT.OVR")
+            continue; // Virtual companion exists only inside the package.
         auto bytes = readLimited(destination.filePath(name), MOD_MAX_RESOURCE);
         require(bytes == project.resources[name].original,
                 "Original resource changed since this project opened: " + name);
