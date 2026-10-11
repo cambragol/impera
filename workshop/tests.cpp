@@ -1,5 +1,6 @@
 #include "dialogue.h"
 #include "font_editor.h"
+#include "world_objects.h"
 #include "dialogue_editor.h"
 #include "dungeon_editor.h"
 #include "location_text.h"
@@ -73,6 +74,46 @@ int main(int argc, char **argv) {
         std::cout << "PASS " << name << "\n";
     };
     try {
+        test("World objects use fresh-game precedence and preserve properties", [] {
+            QTemporaryDir dir;auto p=fixture(dir.path());
+            QByteArray seed(256,0);seed[8]=seed[9]=41;seed[10]=14;seed[11]=char(242);seed[12]=char(255);
+            p.resources["INIT.OOL"]={seed,seed};
+            QByteArray used(256,char(77));
+            p.resources["BRIT.OOL"]={used,used};p.resources["UNDER.OOL"]={used,used};
+            check(Workshop::WorldObjects::effective(p,0)==QByteArray(256,0),"Used Britannia seeded new game");
+            check(Workshop::WorldObjects::effective(p,1)==seed,"Underworld did not inherit INIT.OOL");
+            auto r=seed.mid(8,8);r[2]=55;r[6]=char(203);
+            auto b=Workshop::WorldObjects::change(p,1,1,r);
+            check(b.mid(8,8)==r && b.mid(16)==seed.mid(16),"Object move lost properties");
+            rejects([&]{Workshop::WorldObjects::change(p,1,0,r);});
+            r[4]=0;rejects([&]{Workshop::WorldObjects::change(p,1,1,r);});
+        });
+        test("World object inclusion survives project/package persistence and undo", [&] {
+            QTemporaryDir dir;auto p=fixture(dir.path());QByteArray empty(256,0);
+            for(QString name:{"INIT.OOL","BRIT.OOL","UNDER.OOL"})file(dir.path()+"/"+name,empty);
+            WorkshopWindow w;check(w.openGame(dir.path()),"Object fixture open");w.selectResource("BRIT.OOL");
+            w.findChild<QPushButton *>("addWorldObject")->click();
+            check(w.findChild<QListWidget *>("worldObjectList")->count()==1,"Create object failed");
+            check(uchar(w.projectForTests().data("BRIT.OOL")[8])==36 &&
+                  uchar(w.projectForTests().data("BRIT.OOL")[13])==99,"Ship defaults wrong");
+            w.findChild<QSpinBox *>("worldObjectX")->setValue(101);
+            check(uchar(w.projectForTests().data("BRIT.OOL")[10])==101,"Object placement failed");
+            auto package=w.projectForTests().package();Project imported;imported.openGame(dir.path());imported.importPackage(package);
+            check(Workshop::WorldObjects::effective(imported,0)==w.projectForTests().data("BRIT.OOL"),"Exported world objects lost");
+            w.findChild<QPushButton *>("removeWorldObject")->click();
+            // Clearing the shape preserves other fields. Explicit inclusion also supports a byte-identical empty override.
+            auto &model=w.projectForTests();model.resources["BRIT.OOL"].edited=empty;
+            check(model.changed().contains("BRIT.OOL"),"Empty explicit override disappeared");
+            model.save(dir.path()+"/objects.imperaproject");Project saved;saved.load(dir.path()+"/objects.imperaproject");
+            check(saved.resources["BRIT.OOL"].included && saved.changed().contains("BRIT.OOL"),"Saved inclusion disappeared");
+            Project roundtrip;roundtrip.openGame(dir.path());roundtrip.importPackage(saved.package());
+            check(roundtrip.resources["BRIT.OOL"].included,"Zero-span package lost explicit inclusion");
+            w.findChild<QPushButton *>("revertWorldObjects")->click();
+            check(!model.changed().contains("BRIT.OOL"),"Inherited revert failed");
+            for(auto a:w.findChildren<QAction *>())if(a->text().startsWith("Undo ")){a->trigger();break;}
+            app.processEvents();app.processEvents();
+            check(model.resources["BRIT.OOL"].included,"Undo did not restore inclusion");
+        });
         test("Bitmap fonts preserve every slot and verified row bit order", [] {
             for (QString name : {"IBM.CH", "RUNES.CH", "IBM.HCS", "RUNES.HCS"}) {
                 int stride = Workshop::FontDocument::stride(name);
@@ -731,18 +772,16 @@ int main(int argc, char **argv) {
             QTemporaryDir dir;
             auto p = fixture(dir.path());
             file(dir.path() + "/INIT.OOL", QByteArray(256, 3));
+            file(dir.path() + "/BRIT.OOL", QByteArray(256, 0));
+            file(dir.path() + "/UNDER.OOL", QByteArray(256, 0));
             WorkshopWindow window;
             window.openGame(dir.path());
             window.selectResource("INIT.OOL");
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-            auto entries = window.findChild<QListWidget *>("resourceEntries");
-            check(entries && entries->count() == 32, "Resource shell missing stable entries");
-            check(entries->item(2)->data(Qt::UserRole).toString() == "INIT.OOL/object/2",
-                  "Navigation uses display labels");
-            QMetaObject::invokeMethod(entries, "itemDoubleClicked", Qt::DirectConnection,
-                                      Q_ARG(QListWidgetItem *, entries->item(2)));
+            check(window.findChild<QListWidget *>("worldObjectList"), "Starting objects workspace missing");
             auto offset = window.findChild<QSpinBox *>("resourceByteOffset");
-            check(offset && offset->value() == 16, "Entry did not navigate to byte span");
+            check(offset, "Advanced byte navigation absent");
+            offset->setValue(16);
             auto table = window.findChild<QTableWidget *>("byteInspector");
             check(table, "Inspector absent");
             table->item(0, 0)->setText("09");

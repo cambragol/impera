@@ -4,6 +4,7 @@
 #include "mod/package.h"
 #include "mod/world_resources.h"
 #include "resource_document.h"
+#include "world_objects.h"
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
@@ -52,7 +53,7 @@ const QByteArray &Project::data(const QString &name) const {
 QStringList Project::changed() const {
     QStringList list;
     for (auto it = resources.begin(); it != resources.end(); ++it)
-        if (it->edited != it->original)
+        if (it->edited != it->original || it->included)
             list << it.key();
     return list;
 }
@@ -136,6 +137,7 @@ void Project::importPackage(const QByteArray &bytes) {
     next.title = QString::fromUtf8(decoded.title);
     for (unsigned i = 0; i < decoded.count; i++) {
         auto &e = decoded.entries[i];
+        next.resources[QString::fromLatin1(e.name)].included = true;
         next.resources[QString::fromLatin1(e.name)].edited =
             QByteArray(reinterpret_cast<char *>(e.data), e.size);
     }
@@ -152,6 +154,7 @@ void Project::save(const QString &path) {
         const auto &r = resources[name];
         edits.append(
             QJsonObject{{"name", name},
+                        {"included", r.included},
                         {"baseSize", r.original.size()},
                         {"baseCrc", double(MOD_Crc32(r.original.constData(), r.original.size()))},
                         {"bytes", QString::fromLatin1(r.edited.toBase64())}});
@@ -210,6 +213,8 @@ void Project::load(const QString &path) {
         require(bool(decoded) && decoded.decoded.size() <= MOD_MAX_RESOURCE,
                 "Invalid project resource bytes");
         r.edited = decoded.decoded;
+        require(!edit.contains("included") || edit["included"].isBool(), "Invalid inclusion flag");
+        r.included = edit["included"].toBool();
     }
     next.validate();
     next.projectPath = path;
@@ -255,7 +260,7 @@ QVector<ModDiagnostic> validateMod(const Project &project) {
             single.title = "Validation";
             for (auto it = single.resources.begin(); it != single.resources.end(); ++it)
                 if (it.key() != name && !(name == "BRIT.DAT" && it.key() == "DATA.OVL"))
-                    it->original = it->edited;
+                    { it->original = it->edited; it->included = false; }
             single.validate();
         } catch (const std::exception &error) {
             result.append({ModDiagnostic::Error, name, QString::fromUtf8(error.what())});
@@ -282,6 +287,21 @@ QVector<ModDiagnostic> validateMod(const Project &project) {
                            "New games use an empty Britannia list unless BRIT.OOL is overridden; "
                            "UNDER.OOL overrides take precedence over INIT.OOL. World starts use "
                            "that world's object list; settlement actors remain in INIT.GAM."});
+        if (name.endsWith(".OOL")) {
+            const auto objects = project.data(name);
+            if (objects.size() == 256) {
+                for (int slot = 0; slot < 32; ++slot) {
+                    int tile = U5::byte(objects, slot*8);
+                    if (!tile) continue;
+                    int floor = U5::byte(objects, slot*8+4);
+                    if (slot == 0 || floor != (name == "BRIT.OOL" ? 0 : 255) ||
+                        !QList<int>{1,2,15,16,17,25,27,30,36,37,38,39,40,41,42,43}.contains(tile))
+                        result.append({ModDiagnostic::Warning, name,
+                            QString("Object slot %1 contains an unusual/reserved shape or floor. Preserved; inspect Advanced details and test a fresh game.").arg(slot),
+                            QString("object/%1").arg(slot)});
+                }
+            }
+        }
         if (name == "INIT.OOL" && changes.contains("UNDER.OOL"))
             result.append({ModDiagnostic::Warning, name,
                            "UNDER.OOL overrides this initial underworld object list in new games."});

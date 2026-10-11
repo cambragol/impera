@@ -434,6 +434,11 @@ uses project resources rather than relying on the checkout's font paths.
 
 ## Phase 8 — Starting world objects (`INIT.OOL`, `BRIT.OOL`, `UNDER.OOL`)
 
+Implemented: effective two-world object workspace and map layer, placement,
+capacity, ship condition, provenance and undoable revert-to-inherited. Explicit
+resource inclusion persists through projects/packages. Fresh-game testing is
+labelled in Test Mod. Unverified properties remain read-only.
+
 UI: **Starting world objects** layer on Britannia/Underworld, a named object list,
 map placement and type-dependent inspector. Show object artwork, coordinates,
 world/floor and supported properties such as ship condition. Display remaining

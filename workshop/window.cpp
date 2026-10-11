@@ -7,6 +7,7 @@
 #include "resource_document.h"
 #include "scene_editor.h"
 #include "font_editor.h"
+#include "world_objects.h"
 #include "text_preview.h"
 #include <QMouseEvent>
 #include <QPainter>
@@ -17,23 +18,28 @@ namespace {
 class Change : public QUndoCommand {
     Project *project;
     QMap<QString, QByteArray> before, after;
+    QMap<QString, bool> beforeInclusion, afterInclusion;
     std::function<void()> notify;
 
   public:
     Change(Project *p, const QMap<QString, QByteArray> &changes, const QString &title,
-           std::function<void()> callback)
-        : project(p), after(changes), notify(callback) {
+           std::function<void()> callback, const QMap<QString, bool> &inclusion)
+        : project(p), after(changes), afterInclusion(inclusion), notify(callback) {
         setText(title);
         for (auto it = changes.begin(); it != changes.end(); ++it)
             before[it.key()] = p->data(it.key());
+        for(auto it=inclusion.begin();it!=inclusion.end();++it)
+            beforeInclusion[it.key()]=p->resources[it.key()].included;
     }
-    void apply(const QMap<QString, QByteArray> &changes) {
+    void apply(const QMap<QString, QByteArray> &changes, const QMap<QString, bool> &inclusion) {
         for (auto it = changes.begin(); it != changes.end(); ++it)
             project->resources[it.key()].edited = it.value();
+        for(auto it=inclusion.begin();it!=inclusion.end();++it)
+            project->resources[it.key()].included=it.value();
         notify();
     }
-    void undo() override { apply(before); }
-    void redo() override { apply(after); }
+    void undo() override { apply(before, beforeInclusion); }
+    void redo() override { apply(after, afterInclusion); }
 };
 class QuestionNameChange : public QUndoCommand {
     Project *project;
@@ -489,12 +495,16 @@ void WorkshopWindow::rebuildTree() {
             assets->setCurrentItem(item);
     }
 }
-void WorkshopWindow::edit(const QMap<QString, QByteArray> &changes, const QString &description) {
+void WorkshopWindow::edit(const QMap<QString, QByteArray> &changes, const QString &description,
+                          const QMap<QString, bool> &inclusion) {
     QMap<QString, QByteArray> actual;
     for (auto it = changes.begin(); it != changes.end(); ++it)
         if (it.value() != project.data(it.key()))
             actual.insert(it.key(), it.value());
-    if (actual.isEmpty())
+    bool inclusionChanged=false;
+    for(auto it=inclusion.begin();it!=inclusion.end();++it)
+        inclusionChanged |= project.resources[it.key()].included != it.value();
+    if (actual.isEmpty() && !inclusionChanged)
         return;
     history.push(new Change(&project, actual, description, [this, first = true]() mutable {
         updateSummary();
@@ -510,7 +520,7 @@ void WorkshopWindow::edit(const QMap<QString, QByteArray> &changes, const QStrin
                 rebuildEditor();
             });
         }
-    }));
+    }, inclusion));
 }
 void WorkshopWindow::selectResource(const QString &name) {
     if (flushDraft && !flushDraft()) {
@@ -581,7 +591,19 @@ QWidget *WorkshopWindow::resourceEditor(const QString &name) {
         if (action->text() == "Resource Library")
             action->setChecked(!name.endsWith(".TLK") && !MapDocument::supported(name));
     const auto kind = Workshop::capability(name).editor;
-    if (kind == Workshop::EditorKind::LocationText || kind == Workshop::EditorKind::Narrative ||
+    auto objectCommit = [this](const QString &name, const QByteArray &bytes, bool included) {
+        return guard([&] {
+            Project candidate = project;
+            candidate.resources[name].edited = bytes;
+            candidate.resources[name].included = included;
+            candidate.validate();
+            edit({{name, bytes}}, "Edit starting world objects", {{name, included}});
+        });
+    };
+    if (kind == Workshop::EditorKind::WorldObjects) {
+        editor = Workshop::worldObjectEditor(&project, name == "BRIT.OOL" ? 0 : 1,
+                                             objectCommit, &editorState, &flushDraft);
+    } else if (kind == Workshop::EditorKind::LocationText || kind == Workshop::EditorKind::Narrative ||
         kind == Workshop::EditorKind::Scenes || kind == Workshop::EditorKind::Fonts) {
         editor = (kind == Workshop::EditorKind::Fonts ? Workshop::fontEditor
                   : kind == Workshop::EditorKind::Scenes      ? Workshop::sceneEditor
@@ -634,6 +656,17 @@ QWidget *WorkshopWindow::resourceEditor(const QString &name) {
         editor = mapEditor(name);
         if (name.endsWith(".CBT"))
             tabs->addTab(combatEditor(name), "Combat setup");
+        if ((name == "BRIT.DAT" || name == "UNDER.DAT") &&
+            project.resources.contains("INIT.OOL") && project.resources.contains("BRIT.OOL") &&
+            project.resources.contains("UNDER.OOL")) {
+            std::function<bool()> objectFlush;
+            tabs->addTab(Workshop::worldObjectEditor(&project, name == "BRIT.DAT" ? 0 : 1,
+                objectCommit, &editorState, &objectFlush), "Starting world objects");
+            auto terrainFlush = flushDraft;
+            flushDraft = [terrainFlush, objectFlush] {
+                return (!terrainFlush || terrainFlush()) && (!objectFlush || objectFlush());
+            };
+        }
     }
     if (!editor) {
         QVBoxLayout *layout;
@@ -1384,7 +1417,7 @@ QWidget *WorkshopWindow::bytesEditor(const QString &name) {
         if (QMessageBox::question(this, "Revert resource", "Discard edits to " + name + "?",
                                   QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
             return;
-        edit({{name, project.resources[name].original}}, "Revert " + name);
+        edit({{name, project.resources[name].original}}, "Revert " + name, {{name, false}});
         rebuildEditor();
     });
     actions->addStretch();
@@ -1412,7 +1445,7 @@ bool WorkshopWindow::reviewPackage(bool launch) {
     auto explanation = new QLabel(
         "Double-click a resource to inspect it. Warnings preserve unusual values; errors block "
         "export/testing. Overlapping installed packages are rejected, not merged. Test Mod ignores "
-        "installed packages and uses a separate runtime folder.");
+        "installed packages and uses a separate runtime folder. Start a fresh game creates a clean test session; choose Create A New Character, then Journey Onwards. Normal saves are never reset.");
     explanation->setWordWrap(true);
     layout->addWidget(explanation);
     auto report = new QTreeWidget;
@@ -1450,7 +1483,7 @@ bool WorkshopWindow::reviewPackage(bool launch) {
                 }
             });
     auto buttons = new QDialogButtonBox(QDialogButtonBox::Cancel);
-    auto proceed = buttons->addButton(launch ? "Launch isolated test" : "Continue",
+    auto proceed = buttons->addButton(launch ? "Start a fresh game" : "Continue",
                                       QDialogButtonBox::AcceptRole);
     proceed->setEnabled(!errors && !project.changed().isEmpty());
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);

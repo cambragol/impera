@@ -1,6 +1,7 @@
 #include "resource_document.h"
 #include "dialogue.h"
 #include "font_editor.h"
+#include "world_objects.h"
 #include "dungeon_editor.h"
 #include "location_text.h"
 #include "mod/world_resources.h"
@@ -20,6 +21,9 @@ Capability capability(const QString &resource) {
         return {n, "Conversations", "Editable structured dialogue", EditorKind::Conversation};
     if (n.endsWith(".NPC"))
         return {n, "NPC schedules", "Editable daily routines", EditorKind::Schedule};
+    if (QStringList{"INIT.OOL", "BRIT.OOL", "UNDER.OOL"}.contains(n))
+        return {n == "INIT.OOL" ? "Initial underworld objects" : n == "BRIT.OOL" ? "Britannia starting objects" : "Underworld starting objects",
+                "Starting state", "Effective world objects for new games; existing saves unchanged", EditorKind::WorldObjects};
     if (n == "INIT.GAM")
         return {"Starting state", "Starting state", "Applied to new games", EditorKind::State};
     if (QStringList{"QUESTION.DAT", "END.DAT", "KARMA.DAT", "SHOPPE.DAT"}.contains(n))
@@ -231,9 +235,8 @@ void validateResource(const Project &project, const QString &name) {
         require(b.size() == 4608, "NPC schedules must be 4608 bytes");
     else if (kind == EditorKind::State)
         require(b.size() == 4192, "INIT.GAM must be 4192 bytes");
-    else if (name == "INIT.OOL" || name == "BRIT.OOL" || name == "UNDER.OOL")
-        require(b.size() == U5_WORLD_OBJECT_SIZE,
-                name + ": world objects must contain 32 eight-byte records");
+    else if (kind == EditorKind::WorldObjects)
+        WorldObjects::validate(name, b, project.resources[name].original);
     else if (kind == EditorKind::Story)
         U5::storyPages(b);
     else if (name == "BRIT.DAT" || name == "DATA.OVL") {

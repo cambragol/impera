@@ -2,6 +2,7 @@
 #include "project.h"
 namespace Workshop {
 enum class EditorKind {
+    WorldObjects,
     Fonts,
     Artwork,
     Conversation,

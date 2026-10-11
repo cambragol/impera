@@ -38,7 +38,8 @@ class WorkshopWindow : public QMainWindow {
     bool saveProject();
     void rebuildTree();
     void updateSummary();
-    void edit(const QMap<QString, QByteArray> &changes, const QString &description);
+    void edit(const QMap<QString, QByteArray> &changes, const QString &description,
+              const QMap<QString, bool> &inclusion = {});
     QWidget *resourceEditor(const QString &name);
     QWidget *mapEditor(const QString &name);
     QWidget *graphicsEditor(const QString &name);

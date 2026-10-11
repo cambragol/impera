@@ -3,6 +3,7 @@
 #include <QMap>
 struct Resource {
     QByteArray original, edited;
+    bool included = false; // Explicit new-game override, even if bytes equal the base.
 };
 class Project {
   public:
