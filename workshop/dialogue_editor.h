@@ -13,6 +13,9 @@ class ConversationEditor : public QWidget {
     bool flush();
     void focusCharacter();
 
+  protected:
+    void hideEvent(QHideEvent *) override;
+
   private:
     Project *project;
     QString resource;
@@ -28,17 +31,25 @@ class ConversationEditor : public QWidget {
     QLineEdit *search, *aliases;
     QLabel *budget, *context, *status;
     QTabWidget *tabs, *previewTabs;
-    QPlainTextEdit *source, *readable;
+    QPlainTextEdit *source;
+    QDialog *auxiliary = nullptr;
+    QWidget *keywordChips;
+    QCheckBox *showTrace;
+    QPushButton *replyButton, *deleteButton, *upButton, *downButton, *duplicateButton, *nameButton;
     QComboBox *sourceScope, *locationFilter;
     void filterNpcs();
     bool wholeSource = false;
     void refreshSource();
-    QLabel *dosImage;
+    QLabel *dosImage, *previewNotes;
     QWidget *blocksWidget;
     QVBoxLayout *blocksLayout;
     QTimer timer;
-    QVector<std::function<QByteArray()>> readers;
+    QMap<int, QVector<std::function<QByteArray()>>> readers;
     QVector<Dialogue::Block> currentBlocks;
+    QMap<int, QVector<int>> entryShapes;
+    QMap<int, QVector<QPair<int, int>>> readerRanges;
+    int resolveDisplayedBlock(int entry, int block) const;
+    QMap<int, QLabel *> entryErrors;
     QVector<Dialogue::Issue> issues;
     QListWidget *diagnostics;
     QTreeWidget *transcript;
@@ -53,12 +64,21 @@ class ConversationEditor : public QWidget {
     void buildOutline(int selectEntry);
     void loadEntry(int entry);
     void buildBlocks();
+    void buildEntryBlocks(int entry, QVBoxLayout *layout);
+    void buildKeywords(int entry, QBoxLayout *layout);
+    void replaceKeywords(int entry, const QStringList &keywords);
+    void activateEntry(int entry);
+    int entryPrefix(int entry) const;
+    int selectedQuestion() const;
+    void updateOutlineActions();
+    void openAuxiliary(int tab);
+    void insertBlock(int entry, int before, const QByteArray &bytes, bool resolved = false);
     void changed();
     bool applyDraft();
     void install(const QByteArray &bytes, const QString &description, int selectEntry = -1);
     void updateDiagnostics();
-    void mutateBlocks(int block, int delta, bool remove);
-    void addBlock(bool isText);
+    void mutateBlocks(int entry, int block, int delta, bool remove);
+    void addBlock(bool isText, int entry = -1, int before = -1);
     void aliasesChanged();
     void addTopic(bool reply);
     void deleteSelected();

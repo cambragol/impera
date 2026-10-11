@@ -1,6 +1,8 @@
 #include "dialogue.h"
 #include "content_navigation.h"
 #include "dialogue_editor.h"
+#include "dialogue_preview.h"
+#include "dialogue_surface.h"
 #include "dungeon_editor.h"
 #include "engine_tables.h"
 #include "font_editor.h"
@@ -25,6 +27,7 @@
 #include <random>
 extern "C" int WorkshopEngineFindSign(const unsigned char *, unsigned, unsigned, unsigned, unsigned, unsigned);
 extern "C" int WorkshopEngineDungeonRoom(int, unsigned char);
+extern "C" int WorkshopEngineTalkWords(const unsigned char *, int, int *);
 extern "C" int WorkshopEngineMatch(const unsigned char *, char *);
 extern "C" int WorkshopEngineDecode(const void *, size_t, void **, unsigned *);
 static void check(bool ok, const char *message) {
@@ -2884,6 +2887,328 @@ int main(int argc, char **argv) {
             restored.importPackage(package);
             check(restored.data("TOWNE.TLK") == w.projectForTests().data("TOWNE.TLK"),
                   "Native edited package roundtrip");
+        });
+        test("Protected inline dialogue controls, literal paste and lossless spans", [&] {
+            auto original = U5::encodeText("Speak to <Avatar> in <Rune>Yew<Rune>! <the> end.");
+            DialogueTextSurface surface(Dialogue::blocks(original));
+            surface.resize(600, 150);
+            surface.show();
+            app.processEvents();
+            check(surface.bytes() == original,
+                  "Inline controls normalized untouched words or bytes");
+            auto cursor = surface.textCursor();
+            cursor.setPosition(0);
+            cursor.insertText("Please ");
+            check(surface.bytes().endsWith(U5::encodeText("<Rune>Yew<Rune>! <the> end.")),
+                  "Editing one span changed later untouched text or rune controls");
+            const auto valid = surface.bytes();
+            const int token = surface.toPlainText().indexOf(QChar::ObjectReplacementCharacter);
+            cursor = surface.textCursor();
+            cursor.setPosition(token);
+            cursor.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
+            cursor.removeSelectedText(); // Also exercise non-keyboard deletion protection.
+            check(surface.bytes() == valid, "Programmatic deletion destroyed an inline control");
+            cursor = surface.textCursor();
+            cursor.setPosition(token + 1);
+            surface.setTextCursor(cursor);
+            QKeyEvent backspace(QEvent::KeyPress, Qt::Key_Backspace, Qt::NoModifier);
+            QApplication::sendEvent(&surface, &backspace);
+            check(surface.bytes() == valid, "Backspace removed a protected control");
+            surface.selectAll();
+            surface.copy();
+            check(
+                QApplication::clipboard()->text().contains("[Avatar name]") &&
+                    !QApplication::clipboard()->text().contains(QChar::ObjectReplacementCharacter),
+                "Text copy leaked document objects or executable tags");
+            cursor = surface.textCursor();
+            cursor.clearSelection();
+            cursor.movePosition(QTextCursor::End);
+            surface.setTextCursor(cursor);
+            QApplication::clipboard()->setText("<End Conversation>");
+            surface.paste();
+            int ends = 0;
+            for (const auto &block : Dialogue::blocks(surface.bytes()))
+                ends += block.opcode == 130;
+            check(ends == 0, "External pasted text became a conversation action");
+            surface.insertToken(129);
+            int avatars = 0;
+            for (const auto &block : Dialogue::blocks(surface.bytes()))
+                avatars += block.opcode == 129;
+            check(avatars == 2, "Explicit inline insertion did not add an Avatar control");
+            cursor = surface.textCursor();
+            cursor.insertText(QString::fromUtf8("é"));
+            rejects([&] { surface.bytes(); });
+            check(surface.toPlainText().contains(QString::fromUtf8("é")),
+                  "Invalid draft was silently discarded");
+        });
+        test("Game dialogue word layout matches extracted engine routines", [] {
+            QVector<QByteArray> inputs;
+            inputs.append(QByteArray());
+            inputs.append(QByteArray::fromHex("a0a0c1a0c2a0a08a"));
+            for (int length = 1; length <= 65; ++length) {
+                QByteArray bytes(length, char(0xc1));
+                bytes += char(0xa0);
+                bytes += QByteArray::fromHex("e2e38ae4a0");
+                inputs.append(bytes);
+            }
+            quint32 seed = 17;
+            for (int n = 0; n < 100; ++n) {
+                QByteArray bytes;
+                for (int i = 0; i < 250; ++i) {
+                    seed = seed * 1664525u + 1013904223u;
+                    bytes += char((seed & 7) == 0    ? 0xa0
+                                  : (seed & 15) == 1 ? 0x8a
+                                                     : ((seed & 127) | 128));
+                }
+                inputs.append(bytes);
+            }
+            for (const auto &bytes : inputs) {
+                QVector<int> expected(16384 * 4);
+                const int count = WorkshopEngineTalkWords(
+                    reinterpret_cast<const unsigned char *>(bytes.constData()), bytes.size(),
+                    expected.data());
+                auto actual = Dialogue::layoutTalkWords(bytes);
+                check(actual.size() == count, "Preview word buffering differs from engine");
+                for (int i = 0; i < count; ++i)
+                    check(actual[i].x == expected[i * 4] && actual[i].y == expected[i * 4 + 1] &&
+                              actual[i].character == expected[i * 4 + 2] &&
+                              actual[i].runic == bool(expected[i * 4 + 3]),
+                          "Preview glyph position or font differs from engine");
+            }
+            QByteArray normal(1024, 0), runes(1024, 0);
+            for (int row = 0; row < 8; ++row) {
+                normal['A' * 8 + row] = char(0x80);
+                runes['A' * 8 + row] = char(1);
+            }
+            auto preview =
+                Dialogue::previewResponse(U5::encodeText("A<Rune>A<Rune>A"), 3, normal, runes, {});
+            check(preview.glyphs.size() == 5 && preview.glyphs[2].runic &&
+                      !preview.glyphs[1].runic && !preview.glyphs[3].runic,
+                  "Rune toggles or automatic quotes were lost");
+            check(preview.image.pixel(2 * 8 + 7, 0) == qRgb(255, 255, 255) &&
+                      preview.image.pixel(1 * 8, 0) == qRgb(255, 255, 255),
+                  "Game preview used the wrong rune or normal glyph");
+            auto terminal = Dialogue::previewResponse(U5::encodeText("A<End Conversation>A"), 3,
+                                                      normal, runes, {});
+            check(terminal.glyphs.size() == 2 && !terminal.notes.isEmpty(),
+                  "Game preview displayed unreachable text after end conversation");
+        });
+        test("Conversation surface, unified questions and source-linked playtest", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            auto bytes =
+                U5::encodeText("Name<Entry>Description<Entry>Greeting<Entry>Work<Entry>Bye<Entry>"
+                               "help<Entry><Or><Entry>hint<Entry>Seek <Avatar><Label 1><Entry>"
+                               "<Any><Label 1>Password?<Entry>No.<End Conversation><Entry>"
+                               "dawn<Entry>Yes.<Key Wait><End Conversation><Entry>"
+                               "no<Entry>Try again.<Label 1><Entry><Any><Label 15>@");
+            file(dir.path() + "/TOWNE.TLK", U5::writeDialogue({{1, bytes}}));
+            p.openGame(dir.path());
+            auto baseline = p.data("TOWNE.TLK");
+            auto original = Dialogue::parse(bytes);
+            int commits = 0;
+            ConversationEditor editor(
+                &p, "TOWNE.TLK",
+                [&](const QByteArray &data, const QString &) {
+                    p.resources["TOWNE.TLK"].edited = data;
+                    ++commits;
+                },
+                [&](const QString &key, const QString &value) { p.dialogueNames[key] = value; }, 0,
+                3, [](int, int) {});
+            editor.resize(1050, 720);
+            editor.show();
+            app.processEvents();
+            auto tools = editor.findChild<QDialog *>("conversationTools");
+            auto authoring = editor.findChild<QTabWidget *>("conversationAuthoring");
+            check(tools && tools->isHidden() && authoring->tabBar()->isHidden(),
+                  "Preview or advanced navigation still competes with the authoring surface");
+            for (auto tabs : editor.findChildren<QTabWidget *>())
+                for (int i = 0; i < tabs->count(); ++i)
+                    check(tabs->tabText(i) != "Readable preview",
+                          "Duplicate readable preview remains");
+            for (auto button : editor.findChildren<QPushButton *>())
+                check(button->text() != "Apply", "Redundant ordinary Apply button remains");
+            auto outline = editor.findChild<QTreeWidget *>("conversationOutline");
+            outline->setCurrentItem(treeItem(outline, "help / hint"));
+            check(editor.findChild<DialogueTextSurface *>("conversationInlineText"),
+                  "Avatar substitution is not inline with speech");
+            check(p.data("TOWNE.TLK") == baseline && commits == 0,
+                  "Opening a conversation rewrote its encoded bytes");
+            const auto question = original.questions[0];
+            auto chooseEntry = [&](int entry) {
+                QTreeWidgetItemIterator it(outline);
+                while (*it) {
+                    if ((*it)->data(0, Qt::UserRole).toInt() == entry) {
+                        outline->setCurrentItem(*it);
+                        app.processEvents();
+                        return;
+                    }
+                    ++it;
+                }
+                throw std::runtime_error("Question entry missing");
+            };
+            chooseEntry(question.prompt);
+            int sections = 0;
+            for (auto group : editor.findChildren<QGroupBox *>())
+                sections += group->property("dialogueSectionEntry").isValid();
+            check(sections == 4, "Question prompt, ordered answers and fallback are not together");
+            auto paragraph = [&](int entry) -> QPlainTextEdit * {
+                for (auto field : editor.findChildren<QPlainTextEdit *>("conversationBlockText"))
+                    if (field->property("dialogueEntry").toInt() == entry)
+                        return field;
+                throw std::runtime_error("Question paragraph missing");
+            };
+            paragraph(question.prompt)->setPlainText("What is the password?");
+            paragraph(question.fallback)->setPlainText("I do not believe thee.");
+            check(editor.flush() && commits == 1,
+                  "Question edits were not one validated transaction");
+            auto modified = Dialogue::parse(U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes);
+            check(modified.entries[question.prompt].bytes.startsWith(QByteArray::fromHex("9091")) &&
+                      modified.entries[question.replies[0].response].bytes ==
+                          original.entries[question.replies[0].response].bytes &&
+                      modified.entries[original.tail].bytes ==
+                          original.entries[original.tail].bytes,
+                  "Question edit changed reply behavior, label or structural tail");
+            // Incomplete drafts remain visible and cannot partially apply other sections.
+            const auto valid = p.data("TOWNE.TLK");
+            paragraph(question.prompt)->setPlainText("Valid draft");
+            paragraph(question.fallback)->setPlainText(QString::fromUtf8("é"));
+            QTimer::singleShot(0, [] {
+                auto dialog = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+                check(dialog, "Invalid draft did not offer navigation cancellation");
+                dialog->done(QMessageBox::Cancel);
+            });
+            check(!editor.flush() && p.data("TOWNE.TLK") == valid &&
+                      paragraph(question.fallback)->toPlainText() == QString::fromUtf8("é"),
+                  "Invalid question draft was lost or partially committed");
+            paragraph(question.fallback)->setPlainText("Otherwise.");
+            check(editor.flush(), "Corrected question draft did not commit");
+            for (auto button : editor.findChildren<QPushButton *>())
+                if (button->text() == "Playtest") {
+                    button->click();
+                    break;
+                }
+            check(!tools->isHidden() &&
+                      editor.findChild<QWidget *>("conversationTestSetup")->isHidden(),
+                  "Playtest is not optional or its setup crowds the transcript");
+            auto input = editor.findChild<QLineEdit *>("conversationInput");
+            input->setText("help");
+            QMetaObject::invokeMethod(input, "returnPressed", Qt::DirectConnection);
+            input->setText("dawn");
+            QMetaObject::invokeMethod(input, "returnPressed", Qt::DirectConnection);
+            auto transcript = editor.findChild<QTreeWidget *>("conversationTranscript");
+            QTreeWidgetItem *wait = nullptr;
+            for (int i = 0; i < transcript->topLevelItemCount(); ++i) {
+                auto item = transcript->topLevelItem(i);
+                if (item->text(0).contains("Wait for key"))
+                    wait = item;
+            }
+            check(wait && wait->isHidden(), "Action traces clutter ordinary NPC speech");
+            editor.findChild<QCheckBox *>("conversationShowTrace")->setChecked(true);
+            check(!wait->isHidden() && wait->data(0, Qt::UserRole + 2).toInt() >= 0,
+                  "Execution trace lacks a source byte offset");
+            QMetaObject::invokeMethod(transcript, "itemClicked", Qt::DirectConnection,
+                                      Q_ARG(QTreeWidgetItem *, wait), Q_ARG(int, 0));
+            auto target = editor.findChild<QFrame *>("conversationAction");
+            check(target && target->property("dialogueOpcode").toInt() == 143 &&
+                      target->frameShape() == QFrame::Box,
+                  "Clicking trace did not identify its exact source action");
+            const auto tested = p.data("TOWNE.TLK");
+            tools->hide();
+            check(p.data("TOWNE.TLK") == tested, "Playtest altered the mod");
+            chooseEntry(question.replies[0].response);
+            app.processEvents();
+            app.processEvents();
+            for (auto field : editor.findChildren<QPlainTextEdit *>("conversationBlockText"))
+                if (field->isVisible())
+                    check(field->parentWidget()->rect().contains(field->geometry()),
+                          "Question paragraph was squeezed outside its card");
+            for (auto card : editor.findChildren<QFrame *>("conversationAction"))
+                if (card->isVisible())
+                    for (auto button : card->findChildren<QToolButton *>())
+                        if (button->isVisible())
+                            check(card->rect().contains(button->geometry()) &&
+                                      button->height() >= button->minimumSizeHint().height(),
+                                  "Question action controls were vertically clipped");
+            auto documentScroll = qobject_cast<QScrollArea *>(authoring->widget(0));
+            check(documentScroll && documentScroll->verticalScrollBar()->maximum() > 0,
+                  "Long question sections do not scroll as one document");
+            const QString screenshots = qEnvironmentVariable("IMPERA_WORKSHOP_SCREENSHOT_DIR");
+            if (!screenshots.isEmpty())
+                editor.grab().save(screenshots + "/dialogue-redesign.png");
+        });
+        test("Inline structure changes retain action identity and project undo", [&] {
+            QTemporaryDir dir;
+            fixture(dir.path());
+            auto original = U5::writeDialogue(
+                {{1,
+                  U5::encodeText(
+                      "Name<Entry>Description<Entry>Greeting<Entry>Speak to <Avatar> now.<Key Wait>"
+                      "Fare thee well.<End Conversation><Entry>Bye<Entry><Any><Label 15>@")}});
+            file(dir.path() + "/TOWNE.TLK", original);
+            WorkshopWindow window;
+            check(window.openGame(dir.path()), "Inline history fixture failed");
+            window.show();
+            window.selectResource("TOWNE.TLK");
+            auto activeEditor = [&] {
+                QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+                return dynamic_cast<ConversationEditor *>(
+                    window.findChild<QStackedWidget *>("workspaces")
+                        ->currentWidget()
+                        ->findChild<QWidget *>("conversationEditor"));
+            };
+            auto editor = activeEditor();
+            auto outline = editor->findChild<QTreeWidget *>("conversationOutline");
+            outline->setCurrentItem(treeItem(outline, "Job / Work"));
+            auto surface = editor->findChild<DialogueTextSurface *>("conversationInlineText");
+            check(surface, "Inline authoring surface missing");
+            surface->setFocus();
+            auto cursor = surface->textCursor();
+            cursor.movePosition(QTextCursor::End);
+            surface->setTextCursor(cursor);
+            surface->insertToken(129);
+            auto actionMenu = [&](int opcode) -> QMenu * {
+                for (auto card : editor->findChildren<QFrame *>("conversationAction")) {
+                    if (card->property("dialogueOpcode").toInt() != opcode)
+                        continue;
+                    for (auto button : card->findChildren<QToolButton *>())
+                        if (button->menu())
+                            return button->menu();
+                }
+                throw std::runtime_error("Action card menu missing");
+            };
+            auto trigger = [](QMenu *menu, const QString &text) {
+                for (auto action : menu->actions())
+                    if (action->text() == text) {
+                        action->trigger();
+                        return;
+                    }
+                throw std::runtime_error("Expected action menu item missing");
+            };
+            trigger(actionMenu(143), "Copy action");
+            const auto inserted = window.projectForTests().data("TOWNE.TLK");
+            check(inserted != original, "Copy action did not commit the pending inline insertion");
+            check(QApplication::clipboard()->mimeData()->data(
+                      "application/x-impera-dialogue-action") == QByteArray(1, char(143)),
+                  "Inline insertion shifted an action menu onto the wrong block");
+            trigger(actionMenu(143), "Remove action");
+            auto removed = window.projectForTests().data("TOWNE.TLK");
+            check(removed != inserted, "Explicit action removal did not commit");
+            auto undo = [&] {
+                for (auto action : window.findChildren<QAction *>())
+                    if (action->text().startsWith("Undo ")) {
+                        action->trigger();
+                        app.processEvents();
+                        return;
+                    }
+                throw std::runtime_error("Undo action missing");
+            };
+            undo();
+            check(window.projectForTests().data("TOWNE.TLK") == inserted,
+                  "Action removal undo did not restore exact bytes");
+            undo();
+            check(window.projectForTests().data("TOWNE.TLK") == original,
+                  "Inline insertion undo did not restore the original conversation");
         });
         test("Structured conversation widgets, aliases, undo and annotations", [&] {
             QTemporaryDir dir;

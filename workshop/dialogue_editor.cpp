@@ -1,5 +1,6 @@
-#include "text_preview.h"
 #include "dialogue_editor.h"
+#include "dialogue_preview.h"
+#include "dialogue_surface.h"
 #include <memory>
 using namespace Dialogue;
 static QPushButton *button(QBoxLayout *layout, const QString &text,
@@ -21,30 +22,92 @@ static QString caption(const QByteArray &bytes) {
     }
     return s.simplified().left(65);
 }
-static QPixmap dosFontPreview(const QByteArray &font, const QString &text) {
-    QStringList lines;
-    QString line;
-    for (auto paragraph : text.split('\n')) {
-        for (auto word : paragraph.split(' ', Qt::SkipEmptyParts)) {
-            while (word.size() > 18) {
-                if (!line.isEmpty()) { lines << line; line.clear(); }
-                lines << word.left(18);
-                word = word.mid(18);
-            }
-            if (line.size() + (!line.isEmpty() ? 1 : 0) + word.size() > 18) {
-                lines << line;
-                line.clear();
-            }
-            if (!line.isEmpty()) line += ' ';
-            line += word;
-        }
-        lines << line;
-        line.clear();
+// Keyword chips wrap without forcing the conversation column wider than the window.
+class KeywordFlowLayout : public QLayout {
+  public:
+    explicit KeywordFlowLayout(QWidget *parent) : QLayout(parent) {
+        setContentsMargins(0, 0, 0, 0);
     }
-    auto preview = Workshop::previewText(font, lines.join("\n"), Workshop::FontMode::Normal);
-    return QPixmap::fromImage(preview.image.scaled(preview.image.width()*3, preview.image.height()*3,
-        Qt::IgnoreAspectRatio, Qt::FastTransformation));
-}
+    ~KeywordFlowLayout() override {
+        while (auto item = takeAt(0))
+            delete item;
+    }
+    void addItem(QLayoutItem *item) override { items.append(item); }
+    int count() const override { return items.size(); }
+    QLayoutItem *itemAt(int index) const override { return items.value(index); }
+    QLayoutItem *takeAt(int index) override {
+        return index >= 0 && index < items.size() ? items.takeAt(index) : nullptr;
+    }
+    bool hasHeightForWidth() const override { return true; }
+    int heightForWidth(int width) const override { return place(QRect(0, 0, width, 0), false); }
+    QSize sizeHint() const override { return minimumSize(); }
+    QSize minimumSize() const override {
+        QSize size;
+        for (auto item : items) {
+            auto minimum = item->minimumSize();
+            if (item->widget())
+                minimum = minimum.boundedTo(item->widget()->maximumSize());
+            size = size.expandedTo(minimum);
+        }
+        return size;
+    }
+    void setGeometry(const QRect &rect) override {
+        QLayout::setGeometry(rect);
+        place(rect, true);
+    }
+
+  private:
+    QList<QLayoutItem *> items;
+    int place(const QRect &rect, bool install) const {
+        int x = rect.x(), y = rect.y(), height = 0;
+        for (auto item : items) {
+            auto size = item->sizeHint();
+            if (item->widget())
+                size = size.boundedTo(item->widget()->maximumSize());
+            size.setWidth(qMin(size.width(), qMax(1, rect.width())));
+            if (x > rect.x() && x + size.width() > rect.right() + 1) {
+                x = rect.x();
+                y += height + 4;
+                height = 0;
+            }
+            if (install)
+                item->setGeometry(QRect(QPoint(x, y), size));
+            x += size.width() + 6;
+            height = qMax(height, size.height());
+        }
+        return y - rect.y() + height;
+    }
+};
+// Text paragraphs share the outer document scroll area; no nested scrollbars.
+class DialogueParagraph : public QPlainTextEdit {
+  public:
+    std::function<void()> activated;
+    explicit DialogueParagraph(const QString &text, QWidget *parent)
+        : QPlainTextEdit(text, parent) {
+        setFrameShape(QFrame::NoFrame);
+        setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        setTabChangesFocus(true);
+        connect(document()->documentLayout(), &QAbstractTextDocumentLayout::documentSizeChanged,
+                this, [this] { fit(); });
+    }
+    void fit() {
+        const int lines = qMax(1, qRound(document()->documentLayout()->documentSize().height()));
+        setFixedHeight(qMin(16384, lines * fontMetrics().lineSpacing() +
+                                       int(document()->documentMargin() * 2) + 8));
+    }
+
+  protected:
+    void resizeEvent(QResizeEvent *event) override {
+        QPlainTextEdit::resizeEvent(event);
+        fit();
+    }
+    void focusInEvent(QFocusEvent *event) override {
+        QPlainTextEdit::focusInEvent(event);
+        if (activated)
+            activated();
+    }
+};
 ConversationEditor::ConversationEditor(
     Project *p, const QString &r, std::function<void(const QByteArray &, const QString &)> cb,
     std::function<void(const QString &, const QString &)> nameCallback, int npc, int entry,
@@ -114,6 +177,10 @@ ConversationEditor::ConversationEditor(
         item->setToolTip(0, QString("%1 · dialogue ID %2").arg(r).arg(conversations[i].id));
     }
     auto navigation = new QWidget;
+    navigation->setObjectName("conversationNavigation");
+    auto outlineToggle = button(heading, "Topics",
+                                [navigation] { navigation->setVisible(!navigation->isVisible()); });
+    outlineToggle->setToolTip("Show or hide the conversation outline to make more editing space.");
     auto nav = new QVBoxLayout(navigation);
     nav->setContentsMargins(0, 0, 0, 0);
     outline = new QTreeWidget;
@@ -128,15 +195,15 @@ ConversationEditor::ConversationEditor(
     });
     nav->addLayout(add);
     auto ops = new QHBoxLayout;
-    button(ops, "+ Reply", [this] { addTopic(true); });
-    button(ops, "Delete", [this] { deleteSelected(); });
+    replyButton = button(ops, "+ Answer", [this] { addTopic(true); });
+    deleteButton = button(ops, "Delete", [this] { deleteSelected(); });
     nav->addLayout(ops);
     auto move = new QHBoxLayout;
-    button(move, "↑ Topic", [this] { moveTopic(-1, false); });
-    button(move, "↓ Topic", [this] { moveTopic(1, false); });
-    button(move, "Duplicate", [this] { moveTopic(0, true); });
+    upButton = button(move, "Move up", [this] { moveTopic(-1, false); });
+    downButton = button(move, "Move down", [this] { moveTopic(1, false); });
+    duplicateButton = button(move, "Duplicate", [this] { moveTopic(0, true); });
     nav->addLayout(move);
-    button(nav, "Name question", [this] { renameQuestion(); });
+    nameButton = button(nav, "Name question", [this] { renameQuestion(); });
     split->addWidget(navigation);
     auto right = new QWidget;
     auto detail = new QVBoxLayout(right);
@@ -144,10 +211,13 @@ ConversationEditor::ConversationEditor(
     context = new QLabel;
     context->setWordWrap(true);
     detail->addWidget(context);
-    aliases = new QLineEdit;
+    aliases = new QLineEdit(this);
     aliases->setObjectName("conversationAliases");
     aliases->setPlaceholderText("Keywords, separated by commas");
-    detail->addWidget(aliases);
+    aliases->hide(); // Transactional backing field; keyword chips are the visible UI.
+    keywordChips = new QWidget;
+    keywordChips->setObjectName("conversationKeywords");
+    detail->addWidget(keywordChips);
     connect(aliases, &QLineEdit::textEdited, this, [this] {
         if (!loading) {
             aliasesDraft = true;
@@ -162,12 +232,17 @@ ConversationEditor::ConversationEditor(
     blocksWidget = new QWidget;
     blocksLayout = new QVBoxLayout(blocksWidget);
     blocksLayout->setAlignment(Qt::AlignTop);
+    blocksLayout->setSizeConstraint(QLayout::SetMinimumSize);
     scroll->setWidget(blocksWidget);
-    tabs->addTab(scroll, "Text & Actions");
+    tabs->setObjectName("conversationAuthoring");
+    tabs->addTab(scroll, "Conversation");
+    tabs->tabBar()->hide();
     auto advanced = new QWidget;
     auto advancedLayout = new QVBoxLayout(advanced);
     sourceScope = new QComboBox;
     sourceScope->setObjectName("conversationSourceScope");
+    sourceScope->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    sourceScope->setMinimumContentsLength(22);
     sourceScope->addItems(
         {"Selected entry (lossless tagged source)", "Whole conversation (advanced)"});
     advancedLayout->addWidget(sourceScope);
@@ -175,6 +250,7 @@ ConversationEditor::ConversationEditor(
     source->setObjectName("dialogueText");
     advancedLayout->addWidget(source, 1);
     tabs->addTab(advanced, "Advanced source");
+    button(advancedLayout, "Validate and apply source", [this] { applyDraft(); });
     connect(sourceScope, &QComboBox::currentIndexChanged, this, [this](int index) {
         if (loading)
             return;
@@ -193,33 +269,66 @@ ConversationEditor::ConversationEditor(
         }
     });
     auto actions = new QHBoxLayout;
-    button(actions, "+ Text", [this] { addBlock(true); });
-    button(actions, "+ Action", [this] { addBlock(false); });
-    button(actions, "Apply", [this] { applyDraft(); });
+    auto insert = new QToolButton;
+    insert->setText("Insert…");
+    insert->setObjectName("conversationInsert");
+    insert->setPopupMode(QToolButton::InstantPopup);
+    auto insertMenu = new QMenu(insert);
+    insertMenu->addAction("Text", this, [this] { addBlock(true); });
+    insertMenu->addAction("Action or variable…", this, [this] { addBlock(false); });
+    insert->setMenu(insertMenu);
+    actions->addWidget(insert);
+    button(actions, "Game preview", [this] { openAuxiliary(0); });
+    button(actions, "Playtest", [this] { openAuxiliary(2); });
+    auto advancedButton = button(actions, "Advanced…", [this] {
+        if (flush())
+            tabs->setCurrentIndex(tabs->currentIndex() == 0 ? 1 : 0);
+    });
+    advancedButton->setToolTip("Switch between visual editing and lossless tagged source.");
+    connect(tabs, &QTabWidget::currentChanged, advancedButton, [advancedButton](int index) {
+        advancedButton->setText(index == 0 ? "Advanced…" : "Back to conversation");
+    });
+    actions->addStretch();
     detail->addLayout(actions);
     budget = new QLabel;
+    budget->setTextInteractionFlags(Qt::LinksAccessibleByMouse | Qt::LinksAccessibleByKeyboard);
+    connect(budget, &QLabel::linkActivated, this, [this] { openAuxiliary(1); });
     detail->addWidget(budget);
     status = new QLabel;
     status->setWordWrap(true);
+    status->setObjectName("conversationStatus");
     detail->addWidget(status);
+    auxiliary = new QDialog(this, Qt::Window);
+    auxiliary->setObjectName("conversationTools");
+    auxiliary->setWindowTitle("Conversation tools");
+    auxiliary->resize(700, 560);
+    auto auxiliaryLayout = new QVBoxLayout(auxiliary);
     previewTabs = new QTabWidget;
-    readable = new QPlainTextEdit;
-    readable->setReadOnly(true);
-    previewTabs->addTab(readable, "Readable preview");
+    auxiliaryLayout->addWidget(previewTabs);
+    connect(previewTabs, &QTabWidget::currentChanged, this, [this] {
+        if (!loading && auxiliary->isVisible())
+            updateDiagnostics();
+    });
     auto dos = new QWidget;
     auto dosLayout = new QVBoxLayout(dos);
-    auto caveat = new QLabel("Original IBM.CH font, 18-column word wrap. "
-                             "Approximate text-only preview; automatic quotes, "
-                             "pagination and rune spans are not reproduced.");
+    auto caveat = new QLabel(
+        "Selected response, starting in normal font at column 0. "
+        "18-column wrapping, dictionary spacing and rune glyphs follow the engine. "
+        "Actual screen scrolling, timing and branch outcomes depend on the running game. "
+        "Avatar and conditions use Playtest Setup.");
     caveat->setWordWrap(true);
     dosLayout->addWidget(caveat);
+    previewNotes = new QLabel;
+    previewNotes->setWordWrap(true);
+    previewNotes->setObjectName("conversationPreviewNotes");
+    dosLayout->addWidget(previewNotes);
     dosImage = new QLabel;
     dosImage->setAlignment(Qt::AlignTop | Qt::AlignLeft);
     auto dosScroll = new QScrollArea;
     dosScroll->setWidgetResizable(true);
     dosScroll->setWidget(dosImage);
     dosLayout->addWidget(dosScroll, 1);
-    previewTabs->addTab(dos, "DOS font preview");
+    previewTabs->addTab(dos, "Game preview");
     diagnostics = new QListWidget;
     diagnostics->setObjectName("conversationDiagnostics");
     previewTabs->addTab(diagnostics, "Diagnostics");
@@ -230,6 +339,18 @@ ConversationEditor::ConversationEditor(
     });
     auto test = new QWidget;
     auto testLayout = new QVBoxLayout(test);
+    auto setup = new QWidget;
+    setup->setObjectName("conversationTestSetup");
+    auto setupLayout = new QVBoxLayout(setup);
+    auto testToolbar = new QHBoxLayout;
+    auto setupButton =
+        button(testToolbar, "Setup", [setup] { setup->setVisible(!setup->isVisible()); });
+    setupButton->setToolTip("Configure the sandbox's starting state, then Reset to restart.");
+    button(testToolbar, "Reset", [this] { resetSimulation(); });
+    showTrace = new QCheckBox("Show actions");
+    showTrace->setObjectName("conversationShowTrace");
+    testToolbar->addWidget(showTrace);
+    testLayout->addLayout(testToolbar);
     auto stateRow = new QHBoxLayout;
     avatar = new QLineEdit("Avatar");
     avatar->setPlaceholderText("Party names, comma-separated");
@@ -246,7 +367,7 @@ ConversationEditor::ConversationEditor(
     karma->setValue(50);
     karma->setPrefix("Karma ");
     stateRow->addWidget(karma);
-    testLayout->addLayout(stateRow);
+    setupLayout->addLayout(stateRow);
     auto stateRow2 = new QHBoxLayout;
     introduced = new QCheckBox("Introduced");
     announce = new QCheckBox("Announce name on first encounter");
@@ -258,21 +379,50 @@ ConversationEditor::ConversationEditor(
     partySize->setValue(3);
     partySize->setPrefix("Party ");
     stateRow2->addWidget(partySize);
-    button(stateRow2, "Reset", [this] { resetSimulation(); });
-    testLayout->addLayout(stateRow2);
+    setupLayout->addLayout(stateRow2);
+    testLayout->addWidget(setup);
+    setup->hide();
     auto disclaimer =
         new QLabel("Sandbox preview; guards, recruitment and inventory/world effects are "
                    "traced, not executed. DOS font/rune/quote rendering is not simulated.");
     disclaimer->setWordWrap(true);
     testLayout->addWidget(disclaimer);
     transcript = new QTreeWidget;
-    transcript->setHeaderLabels({"Conversation / execution trace"});
+    transcript->setHeaderLabels({"Conversation"});
     transcript->setObjectName("conversationTranscript");
     testLayout->addWidget(transcript, 1);
     connect(transcript, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem *i) {
         int e = i->data(0, Qt::UserRole).toInt();
-        if (e >= 0 && flush())
+        const int offset = i->data(0, Qt::UserRole + 2).toInt();
+        if (e >= 0 && flush()) {
             loadEntry(e);
+            const auto bs = blocks(doc.entries[e].bytes.mid(entryPrefix(e)));
+            int begin = entryPrefix(e), block = -1;
+            for (int n = 0; n < bs.size(); ++n) {
+                if (offset >= begin && offset < begin + bs[n].bytes.size())
+                    block = n;
+                begin += bs[n].bytes.size();
+            }
+            for (auto widget : blocksWidget->findChildren<QFrame *>())
+                if (widget->property("dialogueEntry").isValid() &&
+                    widget->property("dialogueEntry").toInt() == e &&
+                    (widget->property("dialogueBlock").toInt() == block ||
+                     (widget->property("dialogueBlockEnd").isValid() &&
+                      widget->property("dialogueBlock").toInt() <= block &&
+                      widget->property("dialogueBlockEnd").toInt() > block))) {
+                    widget->setFrameShape(QFrame::Box);
+                    widget->setFocusPolicy(Qt::StrongFocus);
+                    widget->setFocus();
+                    if (auto view = qobject_cast<QScrollArea *>(tabs->widget(0)))
+                        view->ensureWidgetVisible(widget);
+                }
+        }
+    });
+    connect(showTrace, &QCheckBox::toggled, this, [this](bool show) {
+        for (int i = 0; i < transcript->topLevelItemCount(); ++i) {
+            auto item = transcript->topLevelItem(i);
+            item->setHidden(!show && item->data(0, Qt::UserRole + 1).toBool());
+        }
     });
     auto answer = new QHBoxLayout;
     input = new QLineEdit;
@@ -292,7 +442,9 @@ ConversationEditor::ConversationEditor(
     connect(input, &QLineEdit::returnPressed, this, send);
     testLayout->addLayout(answer);
     previewTabs->addTab(test, "Test Conversation");
-    detail->addWidget(previewTabs, 2);
+    auto close = new QDialogButtonBox(QDialogButtonBox::Close);
+    auxiliaryLayout->addWidget(close);
+    connect(close, &QDialogButtonBox::rejected, auxiliary, &QDialog::hide);
     split->addWidget(right);
     split->setStretchFactor(0, 0);
     split->setStretchFactor(1, 0);
@@ -448,31 +600,42 @@ void ConversationEditor::loadEntry(int e) {
                 for (auto k : r.keywords)
                     keys << keyword(doc.entries[k].bytes);
                 aliases->setText(keys.join(", "));
-                aliases->show();
+                // Keywords are shown as chips; keep the backing field for transactional edits.
             }
     };
     show(doc.topics);
     for (auto q : doc.questions)
         show(q.replies);
-    QString message = QString("Dialogue ID %1 · entry %2 · byte offset 0x%3")
-                          .arg(conversations[npcIndex].id)
-                          .arg(e)
-                          .arg(doc.entries[e].offset, 0, 16);
-    if (e == 0)
-        message += "\nThe engine adds “My name is …”; this field may also contain "
-                   "actions.";
-    if (e == 1)
-        message += "\nThe engine adds “You see …”.";
-    if (e == 2)
-        message += "\nUsed when the NPC has already been introduced.";
-    if (prefix) {
-        int label = U5::byte(doc.entries[e].bytes, 1) - 144;
-        auto refs = references(doc, label);
-        message += QString("\nQuestion %1 · %2 incoming reference(s). Fallback is "
-                           "shown separately.")
-                       .arg(label)
-                       .arg(refs.size());
+    if (auto old = keywordChips->layout()) {
+        while (auto item = old->takeAt(0)) {
+            if (auto widget = item->widget()) {
+                widget->hide();
+                widget->deleteLater();
+            }
+            delete item;
+        }
+        delete old;
     }
+    auto keywordLayout = new QHBoxLayout(keywordChips);
+    keywordLayout->setContentsMargins(0, 0, 0, 0);
+    if (selectedQuestion() < 0)
+        buildKeywords(e, keywordLayout);
+    keywordChips->setVisible(selectedQuestion() < 0 && !aliases->text().isEmpty());
+    QStringList basics = {"Name", "Description", "Greeting", "Job / Work", "Farewell"};
+    QString message = e < basics.size() ? basics[e] : "Response";
+    const int question = selectedQuestion();
+    if (question >= 0)
+        message = questionName(doc.questions[question].label);
+    if (e == 0)
+        message += " — the game adds ‘My name is …’";
+    if (e == 1)
+        message += " — the game adds ‘You see …’";
+    if (e == 2)
+        message += " — used when this NPC is already introduced";
+    context->setToolTip(QString("Dialogue ID %1 · entry %2 · byte offset 0x%3")
+                            .arg(conversations[npcIndex].id)
+                            .arg(e)
+                            .arg(doc.entries[e].offset, 0, 16));
     QString npcFile = resource.left(resource.size() - 4) + ".NPC";
     if (project->resources.contains(npcFile)) {
         auto data = project->data(npcFile);
@@ -495,7 +658,7 @@ void ConversationEditor::loadEntry(int e) {
                     locations << QString("%1 · NPC %2").arg(location).arg(n);
                 }
         if (!locations.isEmpty())
-            message += "\nUsed by: " + locations.join("; ");
+            context->setToolTip(context->toolTip() + "\nUsed by: " + locations.join("; "));
     }
     context->setTextFormat(Qt::PlainText);
     context->setText(message);
@@ -505,40 +668,372 @@ void ConversationEditor::loadEntry(int e) {
     updateDiagnostics();
     loading = false;
 }
+int ConversationEditor::entryPrefix(int entry) const {
+    for (const auto &question : doc.questions)
+        if (question.prompt == entry)
+            return 2;
+    return 0;
+}
+int ConversationEditor::selectedQuestion() const {
+    for (int i = 0; i < doc.questions.size(); ++i) {
+        const auto &q = doc.questions[i];
+        if (selected == q.prompt || selected == q.fallback)
+            return i;
+        for (const auto &reply : q.replies)
+            if (reply.response == selected)
+                return i;
+    }
+    return -1;
+}
+void ConversationEditor::activateEntry(int entry) {
+    if (loading || entry == selected)
+        return;
+    // Question sections are one document. Changing focus must not flush or discard
+    // another paragraph's incomplete draft.
+    selected = entry;
+    prefix = entryPrefix(entry);
+    if (!sourceDraft)
+        refreshSource();
+    selection(npcIndex, entry);
+    QSignalBlocker blocked(outline);
+    QTreeWidgetItemIterator it(outline);
+    while (*it) {
+        if ((*it)->data(0, Qt::UserRole).toInt() == entry)
+            outline->setCurrentItem(*it);
+        ++it;
+    }
+    updateOutlineActions();
+}
+void ConversationEditor::openAuxiliary(int tab) {
+    if (!flush())
+        return;
+    previewTabs->setCurrentIndex(tab);
+    auxiliary->show();
+    updateDiagnostics();
+    auxiliary->raise();
+    auxiliary->activateWindow();
+    if (tab == 2 && !simulation)
+        resetSimulation();
+}
+void ConversationEditor::updateOutlineActions() {
+    bool rule = false;
+    QVector<Rule> rules = doc.topics;
+    for (const auto &q : doc.questions)
+        rules += q.replies;
+    int at = -1;
+    for (int i = 0; i < rules.size(); ++i)
+        if (rules[i].response == selected) {
+            rule = true;
+            at = i;
+        }
+    const int question = selectedQuestion();
+    replyButton->setEnabled(question >= 0);
+    nameButton->setEnabled(question >= 0);
+    duplicateButton->setEnabled(rule);
+    deleteButton->setEnabled(rule || (question >= 0 && doc.questions[question].prompt == selected));
+    // Keep reply ordering within its own question, never across question boundaries.
+    const auto local = question >= 0 ? doc.questions[question].replies : doc.topics;
+    at = -1;
+    for (int i = 0; i < local.size(); ++i)
+        if (local[i].response == selected)
+            at = i;
+    upButton->setEnabled(at > 0);
+    downButton->setEnabled(at >= 0 && at + 1 < local.size());
+}
+void ConversationEditor::replaceKeywords(int entry, const QStringList &keys) {
+    if (!flush())
+        return;
+    attempt([&] {
+        QVector<Rule> rules = doc.topics;
+        for (const auto &q : doc.questions)
+            rules += q.replies;
+        for (const auto &rule : rules)
+            if (rule.response == entry) {
+                install(replaceAliases(doc, rule, keys), "Edit response keywords",
+                        rule.keywords.first() + keys.size() * 2 - 1);
+                return;
+            }
+    });
+}
+void ConversationEditor::buildKeywords(int entry, QBoxLayout *layout) {
+    QVector<Rule> rules = doc.topics;
+    for (const auto &q : doc.questions)
+        rules += q.replies;
+    for (const auto &rule : rules)
+        if (rule.response == entry) {
+            QStringList keys;
+            for (int key : rule.keywords)
+                keys.append(keyword(doc.entries[key].bytes));
+            auto container = new QWidget;
+            auto chips = new KeywordFlowLayout(container);
+            layout->addWidget(container, 1);
+            chips->addWidget(new QLabel("When asked:"));
+            for (int i = 0; i < keys.size(); ++i) {
+                auto chip = new QToolButton;
+                chip->setText(keys[i]);
+                chip->setMaximumWidth(200);
+                chip->setProperty("dialogueKeyword", true);
+                chip->setToolTip(keys[i] +
+                                 " — edit this keyword or remove it from the shared response.");
+                chip->setPopupMode(QToolButton::InstantPopup);
+                auto menu = new QMenu(chip);
+                menu->addAction("Edit keyword…", this, [this, entry, keys, i] {
+                    bool ok;
+                    auto value =
+                        QInputDialog::getText(this, "Edit keyword", "What the player types",
+                                              QLineEdit::Normal, keys[i], &ok);
+                    if (ok) {
+                        auto next = keys;
+                        next[i] = value;
+                        replaceKeywords(entry, next);
+                    }
+                });
+                auto remove = menu->addAction("Remove keyword", this, [this, entry, keys, i] {
+                    auto next = keys;
+                    next.removeAt(i);
+                    replaceKeywords(entry, next);
+                });
+                remove->setEnabled(keys.size() > 1);
+                chip->setMenu(menu);
+                chips->addWidget(chip);
+            }
+            auto add = new QPushButton("+ Keyword");
+            chips->addWidget(add);
+            connect(add, &QPushButton::clicked, this, [this, entry, keys] {
+                bool ok;
+                auto value = QInputDialog::getText(this, "Add keyword", "What the player types",
+                                                   QLineEdit::Normal, {}, &ok);
+                if (ok) {
+                    auto next = keys;
+                    next.append(value);
+                    replaceKeywords(entry, next);
+                }
+            });
+            add->setToolTip("Keywords share this response and are checked in their stored order.");
+            break;
+        }
+}
 void ConversationEditor::buildBlocks() {
     while (auto i = blocksLayout->takeAt(0)) {
-        if (i->widget())
+        if (i->widget()) {
+            i->widget()->hide();
+            i->widget()->setParent(nullptr);
             i->widget()->deleteLater();
+        }
         delete i;
     }
     readers.clear();
+    entryShapes.clear();
+    readerRanges.clear();
+    entryErrors.clear();
     currentBlocks.clear();
-    bool raw =
-        !doc.structuralError.isEmpty() || selected == doc.tail || doc.rawEntries.contains(selected);
-    if (raw) {
+    if (!doc.structuralError.isEmpty() || selected == doc.tail ||
+        doc.rawEntries.contains(selected)) {
         blocksLayout->addWidget(new QLabel("This section is preserved byte-for-byte. Edit it "
                                            "explicitly in Advanced source."));
         tabs->setCurrentIndex(1);
         return;
     }
-    currentBlocks = blocks(doc.entries[selected].bytes.mid(prefix));
-    for (int index = 0; index < currentBlocks.size(); ++index) {
-        auto b = currentBlocks[index];
-        auto group = new QGroupBox(b.opcode < 0 ? "Text" : actionName(b.opcode));
+    const int question = selectedQuestion();
+    auto section = [this](int entry, const QString &title, bool collapsible) {
+        auto group = new QGroupBox(title.size() > 45 ? title.left(42) + "…" : title);
+        group->setToolTip(title);
+        group->setProperty("dialogueSectionEntry", entry);
         auto layout = new QVBoxLayout(group);
+        layout->setSizeConstraint(QLayout::SetMinimumSize);
+        if (collapsible) {
+            group->setCheckable(true);
+            group->setChecked(entry == selected);
+        }
+        auto body = new QWidget;
+        auto content = new QVBoxLayout(body);
+        content->setSizeConstraint(QLayout::SetMinimumSize);
+        content->setContentsMargins(0, 0, 0, 0);
+        auto keywords = new QHBoxLayout;
+        buildKeywords(entry, keywords);
+        content->addLayout(keywords);
+        buildEntryBlocks(entry, content);
+        auto insert = new QHBoxLayout;
+        button(insert, "+ Text", [this, entry] { addBlock(true, entry); });
+        button(insert, "+ Action / variable", [this, entry] { addBlock(false, entry); });
+        insert->addStretch();
+        if (collapsible) {
+            auto move = [this, entry](int delta, bool duplicate) {
+                if (flush()) {
+                    activateEntry(entry);
+                    moveTopic(delta, duplicate);
+                }
+            };
+            button(insert, "Move up", [move] { move(-1, false); });
+            button(insert, "Move down", [move] { move(1, false); });
+            button(insert, "Remove answer", [this, entry] {
+                if (flush()) {
+                    activateEntry(entry);
+                    deleteSelected();
+                }
+            });
+            body->setVisible(entry == selected);
+            connect(group, &QGroupBox::toggled, this, [this, entry, body](bool expanded) {
+                body->setVisible(expanded);
+                if (expanded)
+                    activateEntry(entry);
+            });
+        }
+        content->addLayout(insert);
+        layout->addWidget(body);
+        blocksLayout->addWidget(group);
+    };
+    if (question >= 0) {
+        const auto q = doc.questions[question];
+        section(q.prompt, "Prompt", false);
+        blocksLayout->addWidget(new QLabel("Answers — checked in order"));
+        for (const auto &reply : q.replies) {
+            QStringList keys;
+            for (int key : reply.keywords)
+                keys.append(keyword(doc.entries[key].bytes));
+            section(reply.response, keys.join(" / "), true);
+        }
+        auto add = button(blocksLayout, "+ Add answer", [this] { addTopic(true); });
+        add->setToolTip("Add an answer to this question, after its existing answers.");
+        if (q.fallback >= 0)
+            section(q.fallback, "Otherwise", false);
+        auto refs = new QVBoxLayout;
+        auto referencesBox = new QWidget;
+        referencesBox->setLayout(refs);
+        refs->addWidget(new QLabel("Used by"));
+        for (int entry : references(doc, q.label)) {
+            QString title = caption(doc.entries[entry].bytes);
+            if (title.isEmpty())
+                title = "Response with a branch";
+            button(refs, title, [this, entry] {
+                if (flush())
+                    loadEntry(entry);
+            });
+        }
+        if (references(doc, q.label).isEmpty())
+            refs->addWidget(new QLabel("No incoming references"));
+        blocksLayout->addWidget(referencesBox);
+    } else
+        buildEntryBlocks(selected, blocksLayout);
+    updateOutlineActions();
+}
+void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout) {
+    const auto entryBlocks = blocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
+    for (const auto &block : entryBlocks)
+        entryShapes[entry].append(block.opcode);
+    if (entry == selected)
+        currentBlocks = entryBlocks;
+    bool runic = false;
+    for (int index = 0; index < entryBlocks.size(); ++index) {
+        const auto b = entryBlocks[index];
+        // Interleaved text, variables and rune controls form a single editable
+        // paragraph with protected inline objects, not separate text panes.
+        int end = index;
+        bool inlineControls = false;
+        while (end < entryBlocks.size() &&
+               (entryBlocks[end].opcode < 0 || entryBlocks[end].opcode == 129 ||
+                entryBlocks[end].opcode == 142)) {
+            inlineControls |= entryBlocks[end].opcode >= 0;
+            ++end;
+        }
+        if (inlineControls) {
+            auto surface = new DialogueTextSurface(entryBlocks.mid(index, end - index));
+            surface->setProperty("dialogueEntry", entry);
+            surface->setProperty("dialogueBlock", index);
+            surface->setProperty("dialogueBlockEnd", end);
+            surface->activated = [this, entry] { activateEntry(entry); };
+            surface->edited = [this, entry] {
+                activateEntry(entry);
+                changed();
+            };
+            readers[entry].append([surface] { return surface->bytes(); });
+            readerRanges[entry].append({index, end});
+            sectionLayout->addWidget(surface);
+            index = end - 1;
+            continue;
+        }
+        auto group = new QFrame;
+        group->setObjectName(b.opcode < 0 ? "conversationParagraph" : "conversationAction");
+        group->setProperty("dialogueEntry", entry);
+        group->setProperty("dialogueBlock", index);
+        group->setProperty("dialogueOpcode", b.opcode);
+        auto layout = new QVBoxLayout(group);
+        layout->setSizeConstraint(QLayout::SetMinimumSize);
+        layout->setContentsMargins(4, 2, 4, 2);
         auto tools = new QHBoxLayout;
-        tools->addStretch();
-        button(tools, "↑", [this, index] { mutateBlocks(index, -1, false); });
-        button(tools, "↓", [this, index] { mutateBlocks(index, 1, false); });
-        button(tools, "Remove", [this, index] { mutateBlocks(index, 0, true); });
+        auto summary = new QToolButton;
+        summary->setText(actionName(b.opcode));
+        summary->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        summary->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        summary->setAccessibleName(actionName(b.opcode));
+        if (b.opcode >= 0)
+            tools->addWidget(summary, 1);
+        else
+            summary->setParent(group);
+        if (b.opcode < 0)
+            summary->hide();
+        if (b.opcode < 0)
+            tools->addStretch();
+        auto more = new QToolButton;
+        more->setText("⋯");
+        more->setAccessibleName("Paragraph or action menu");
+        more->setPopupMode(QToolButton::InstantPopup);
+        auto menu = new QMenu(more);
+        menu->addAction("Insert text before", this,
+                        [this, entry, index] { addBlock(true, entry, index); });
+        menu->addAction("Insert action before…", this,
+                        [this, entry, index] { addBlock(false, entry, index); });
+        auto up = menu->addAction("Move up", this,
+                                  [this, entry, index] { mutateBlocks(entry, index, -1, false); });
+        up->setEnabled(index > 0);
+        auto down = menu->addAction("Move down", this,
+                                    [this, entry, index] { mutateBlocks(entry, index, 1, false); });
+        down->setEnabled(index + 1 < entryBlocks.size());
+        if (b.opcode >= 0) {
+            menu->addAction("Copy action", this, [this, entry, index] {
+                int target = index;
+                if (!attempt([&] { target = resolveDisplayedBlock(entry, index); }) || !flush())
+                    return;
+                auto data = new QMimeData;
+                const auto bs = blocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
+                data->setData("application/x-impera-dialogue-action", bs[target].bytes);
+                data->setText(actionName(bs[target].opcode));
+                QApplication::clipboard()->setMimeData(data);
+            });
+        }
+        menu->addAction("Paste action before", this, [this, entry, index] {
+            const auto data =
+                QApplication::clipboard()->mimeData()->data("application/x-impera-dialogue-action");
+            if (!data.isEmpty())
+                attempt([&] {
+                    const auto copied = blocks(data);
+                    U5::require(
+                        copied.size() == 1 && copied[0].opcode > 0 && copied[0].opcode != 135 &&
+                            copied[0].opcode != 144,
+                        "Clipboard must contain one supported action, not conversation structure");
+                    insertBlock(entry, index, data);
+                });
+        });
+        menu->addAction(b.opcode < 0 ? "Remove paragraph" : "Remove action", this,
+                        [this, entry, index] { mutateBlocks(entry, index, 0, true); });
+        more->setMenu(menu);
+        tools->addWidget(more);
         layout->addLayout(tools);
         if (b.opcode < 0) {
-            auto edit = new QPlainTextEdit(plain(b.bytes));
+            auto edit = new DialogueParagraph(plain(b.bytes), group);
             edit->setObjectName("conversationBlockText");
-            edit->setMaximumHeight(110);
+            edit->setProperty("dialogueEntry", entry);
+            edit->setProperty("dialogueBlock", index);
+            edit->activated = [this, entry] { activateEntry(entry); };
+            if (runic) {
+                edit->setAccessibleName("Runic text");
+                auto runeLabel = new QLabel("Runic text");
+                layout->addWidget(runeLabel);
+            }
+            edit->fit();
             layout->addWidget(edit);
             auto original = edit->toPlainText();
-            readers.append([b, edit, original] {
+            readers[entry].append([b, edit, original] {
                 return edit->toPlainText() == original ? b.bytes : text(edit->toPlainText());
             });
             connect(edit, &QPlainTextEdit::textChanged, this, [this] { changed(); });
@@ -571,7 +1066,7 @@ void ConversationEditor::buildBlocks() {
             if (b.opcode == 134) {
                 auto options = inventoryOptions();
                 for (auto it = options.begin(); it != options.end(); ++it)
-                    itemChoice->addItem(it.value() + QString(" · %1").arg(it.key()), it.key());
+                    itemChoice->addItem(it.value(), it.key());
                 int item = itemChoice->findData(v);
                 if (item < 0) {
                     itemChoice->addItem(QString("Raw operand %1 (advanced)").arg(v), v);
@@ -603,17 +1098,57 @@ void ConversationEditor::buildBlocks() {
                 row->addWidget(dest, 1);
             else
                 dest->hide();
-            layout->addLayout(row);
-            readers.append([b, value, itemChoice, dest, v, target] {
+            auto form = new QWidget(group);
+            auto formLayout = new QVBoxLayout(form);
+            formLayout->setContentsMargins(0, 0, 0, 0);
+            formLayout->addLayout(row);
+            layout->addWidget(form);
+            form->hide();
+            connect(summary, &QToolButton::clicked, this, [this, entry, form] {
+                activateEntry(entry);
+                form->setVisible(!form->isVisible());
+            });
+            auto updateSummary = [this, summary, b, value, itemChoice, dest] {
+                QString label = actionName(b.opcode);
+                if (b.opcode == 133)
+                    label += QString(": %1 gold").arg(value->value());
+                else if (b.opcode == 134)
+                    label += ": " + itemChoice->currentText();
+                else if (b.opcode == 254)
+                    label =
+                        QString("If karma ≥ %1 → %2").arg(value->value()).arg(dest->currentText());
+                else if (b.opcode == 140)
+                    label = "If introduced → " + dest->currentText();
+                else
+                    label = "Enter question → " + dest->currentText();
+                summary->setText(label);
+                summary->setToolTip(label + " — click to edit the parameters.");
+            };
+            updateSummary();
+            connect(value, &QSpinBox::valueChanged, summary, [updateSummary] { updateSummary(); });
+            connect(itemChoice, &QComboBox::currentIndexChanged, summary,
+                    [updateSummary] { updateSummary(); });
+            connect(dest, &QComboBox::currentIndexChanged, summary,
+                    [updateSummary] { updateSummary(); });
+            readers[entry].append([b, value, itemChoice, dest, v, target] {
                 int t = dest->currentData().toInt(),
                     n = b.opcode == 134 ? itemChoice->currentData().toInt() : value->value();
                 if (n == v && t == target)
                     return b.bytes;
                 return action(b.opcode >= 145 && b.opcode <= 159 ? 144 + t : b.opcode, n, t);
             });
-            connect(itemChoice, &QComboBox::currentIndexChanged, this, [this] { changed(); });
-            connect(value, &QSpinBox::valueChanged, this, [this] { changed(); });
-            connect(dest, &QComboBox::currentIndexChanged, this, [this] { changed(); });
+            connect(itemChoice, &QComboBox::currentIndexChanged, this, [this, entry] {
+                activateEntry(entry);
+                changed();
+            });
+            connect(value, &QSpinBox::valueChanged, this, [this, entry] {
+                activateEntry(entry);
+                changed();
+            });
+            connect(dest, &QComboBox::currentIndexChanged, this, [this, entry] {
+                activateEntry(entry);
+                changed();
+            });
             auto note = new QLabel(
                 b.opcode == 133   ? "Insufficient gold returns to ordinary topics. This attempts "
                                     "payment, rather than checking gold without spending it."
@@ -625,22 +1160,40 @@ void ConversationEditor::buildBlocks() {
                                   : "Branching enters the question; it does not return to the "
                                     "remaining text.");
             note->setWordWrap(true);
-            layout->addWidget(note);
+            formLayout->addWidget(note);
         } else {
-            auto note = new QLabel(U5::decodeText(b.bytes));
-            note->setTextFormat(Qt::PlainText);
-            layout->addWidget(note);
-            readers.append([b] { return b.bytes; });
+            summary->setToolTip(
+                "Use the action menu to copy, move or explicitly remove this control.");
+            if (b.opcode == 142) {
+                runic = !runic;
+                summary->setText(runic ? "Begin runic text" : "End runic text");
+            }
+            connect(summary, &QToolButton::clicked, this, [this, entry] { activateEntry(entry); });
+            readers[entry].append([b] { return b.bytes; });
         }
-        blocksLayout->addWidget(group);
+        readerRanges[entry].append({index, index + 1});
+        sectionLayout->addWidget(group);
     }
+    auto error = new QLabel;
+    error->setWordWrap(true);
+    error->setObjectName("conversationEntryError");
+    error->setStyleSheet("color: #ec9696;");
+    error->hide();
+    entryErrors[entry] = error;
+    sectionLayout->addWidget(error);
 }
+
 void ConversationEditor::changed() {
     if (loading)
         return;
     pending = true;
-    status->setText("Draft pending — valid edits apply automatically after typing.");
-    timer.start();
+    if (sourceDraft) {
+        status->setText("Source draft — validate and apply, or leave this view to validate.");
+        timer.stop();
+    } else {
+        status->setText("Draft pending — valid edits apply automatically after typing.");
+        timer.start();
+    }
 }
 bool ConversationEditor::applyDraft() {
     timer.stop();
@@ -659,10 +1212,22 @@ bool ConversationEditor::applyDraft() {
             }
         } else {
             auto next = doc;
-            QByteArray b = next.entries[selected].bytes.left(prefix);
-            for (auto read : readers)
-                b += read();
-            next.entries[selected].bytes = b;
+            for (auto it = readers.cbegin(); it != readers.cend(); ++it) {
+                QByteArray bytes = next.entries[it.key()].bytes.left(entryPrefix(it.key()));
+                try {
+                    for (const auto &read : it.value())
+                        bytes += read();
+                    if (auto error = entryErrors.value(it.key()))
+                        error->hide();
+                } catch (const std::exception &exception) {
+                    if (auto error = entryErrors.value(it.key())) {
+                        error->setText(QString::fromUtf8(exception.what()));
+                        error->show();
+                    }
+                    throw;
+                }
+                next.entries[it.key()].bytes = bytes;
+            }
             bytes = next.bytes();
         }
         bool wasSource = sourceDraft || aliasesDraft;
@@ -683,8 +1248,35 @@ bool ConversationEditor::applyDraft() {
                     break;
                 }
         }
-        for (auto i : next.issues())
-            U5::require(!i.error, i.message);
+        for (auto issue : next.issues()) {
+            if (issue.error && entryErrors.contains(issue.entry)) {
+                entryErrors[issue.entry]->setText(issue.message);
+                entryErrors[issue.entry]->show();
+            }
+            U5::require(!issue.error, issue.message);
+        }
+        bool shapeChanged = false;
+        if (!wasSource)
+            for (auto it = entryShapes.cbegin(); it != entryShapes.cend(); ++it) {
+                int prefix = 0;
+                for (const auto &q : next.questions)
+                    if (q.prompt == it.key())
+                        prefix = 2;
+                QVector<int> shape;
+                for (const auto &block : blocks(next.entries[it.key()].bytes.mid(prefix)))
+                    shape.append(block.opcode);
+                shapeChanged |= shape != it.value();
+            }
+        auto focused = QApplication::focusWidget();
+        int focusEntry = -1, focusBlock = -1, focusPosition = 0;
+        if (focused && focused->property("dialogueEntry").isValid()) {
+            focusEntry = focused->property("dialogueEntry").toInt();
+            focusBlock = focused->property("dialogueBlock").toInt();
+            if (auto text = qobject_cast<QTextEdit *>(focused))
+                focusPosition = text->textCursor().position();
+            if (auto text = qobject_cast<QPlainTextEdit *>(focused))
+                focusPosition = text->textCursor().position();
+        }
         auto entries = conversations;
         entries[npcIndex].bytes = bytes;
         auto encoded = U5::writeDialogue(entries);
@@ -698,11 +1290,35 @@ bool ConversationEditor::applyDraft() {
         sourceBaseline = bytes;
         refreshSource();
         simulation.reset();
+        transcript->clear();
         status->setText("Applied to project; original game files unchanged.");
         buildOutline(selected);
-        if (wasSource)
+        if (wasSource || shapeChanged) {
             loadEntry(qBound(0, selected, int(doc.entries.size() - 1)));
-        else
+            if (shapeChanged && !wasSource) {
+                for (auto widget : blocksWidget->findChildren<QWidget *>()) {
+                    if (!widget->property("dialogueEntry").isValid() ||
+                        widget->property("dialogueEntry").toInt() != focusEntry ||
+                        widget->property("dialogueBlock").toInt() != focusBlock)
+                        continue;
+                    QTextDocument *document = nullptr;
+                    if (auto text = qobject_cast<QTextEdit *>(widget))
+                        document = text->document();
+                    if (auto text = qobject_cast<QPlainTextEdit *>(widget))
+                        document = text->document();
+                    if (!document)
+                        continue;
+                    QTextCursor cursor(document);
+                    cursor.setPosition(qMin(focusPosition, document->characterCount() - 1));
+                    if (auto text = qobject_cast<QTextEdit *>(widget))
+                        text->setTextCursor(cursor);
+                    if (auto text = qobject_cast<QPlainTextEdit *>(widget))
+                        text->setTextCursor(cursor);
+                    widget->setFocus();
+                    break;
+                }
+            }
+        } else
             updateDiagnostics();
     });
     return ok;
@@ -734,6 +1350,7 @@ void ConversationEditor::install(const QByteArray &bytes, const QString &descrip
     conversations = entries;
     doc = next;
     simulation.reset();
+    transcript->clear();
     pending = false;
     buildOutline(entry < 0 ? selected : entry);
     loadEntry(qBound(0, entry < 0 ? selected : entry, int(doc.entries.size() - 1)));
@@ -747,73 +1364,128 @@ void ConversationEditor::updateDiagnostics() {
         item->setData(Qt::UserRole, i.entry);
         item->setToolTip(QString("Entry %1").arg(i.entry));
     }
-    budget->setText(QString("%1 / 1024 encoded bytes · %2 / 15 question labels · %3 diagnostics")
-                        .arg(doc.bytes().size())
-                        .arg(doc.questions.size() + (doc.tail >= 0 ? 1 : 0))
-                        .arg(issues.size()));
-    if (selected >= 0 && selected < doc.entries.size()) {
-        QString s;
-        for (auto b : blocks(doc.entries[selected].bytes.mid(prefix))) {
-            if (b.opcode < 0)
-                s += plain(b.bytes);
-            else
-                s += "\n[" + actionName(b.opcode) + "]\n";
+    budget->setText(
+        QString("<a href=\"issues\">%3 issues</a> · %1 / 1024 bytes · %2 / 15 questions")
+            .arg(doc.bytes().size())
+            .arg(doc.questions.size() + (doc.tail >= 0 ? 1 : 0))
+            .arg(issues.size()));
+    if (selected >= 0 && selected < doc.entries.size() && auxiliary->isVisible() &&
+        previewTabs->currentIndex() == 0) {
+        try {
+            Sandbox state;
+            state.avatar = avatar->text().section(',', 0, 0).trimmed();
+            if (state.avatar.isEmpty())
+                state.avatar = "Avatar";
+            state.introduced = introduced->isChecked();
+            state.karma = karma->value();
+            state.gold = gold->value();
+            const auto preview = previewResponse(
+                doc.entries[selected].bytes, selected,
+                project->resources.contains("IBM.CH") ? project->data("IBM.CH") : QByteArray(),
+                project->resources.contains("RUNES.CH") ? project->data("RUNES.CH") : QByteArray(),
+                state);
+            dosImage->setPixmap(QPixmap::fromImage(
+                preview.image.scaled(preview.image.width() * 3, preview.image.height() * 3,
+                                     Qt::IgnoreAspectRatio, Qt::FastTransformation)));
+            previewNotes->setText(preview.notes.join("\n"));
+        } catch (const std::exception &error) {
+            dosImage->clear();
+            previewNotes->setText(QString::fromUtf8(error.what()));
         }
-        readable->setPlainText(s);
-        QString onlyText;
-        for (auto b : blocks(doc.entries[selected].bytes.mid(prefix)))
-            if (b.opcode < 0)
-                onlyText += plain(b.bytes);
-            else if (b.opcode == 129)
-                onlyText += avatar->text().section(',', 0, 0);
-        if (project->resources.contains("IBM.CH") && project->data("IBM.CH").size() == 1024)
-            dosImage->setPixmap(dosFontPreview(project->data("IBM.CH"), onlyText));
-        else
-            dosImage->setText("IBM.CH unavailable; DOS font preview requires the "
-                              "original 1024-byte font.");
     }
 }
-void ConversationEditor::mutateBlocks(int block, int delta, bool remove) {
-    if (!flush() || !doc.structuralError.isEmpty() ||
-        (selected == doc.tail || doc.rawEntries.contains(selected)))
+int ConversationEditor::resolveDisplayedBlock(int entry, int block) const {
+    if (block < 0 || !readerRanges.contains(entry))
+        return block;
+    const auto &ranges = readerRanges[entry];
+    const auto &fields = readers[entry];
+    int current = 0;
+    for (int i = 0; i < ranges.size(); ++i) {
+        if (block <= ranges[i].first)
+            return current;
+        const auto expanded = blocks(fields[i]());
+        if (block < ranges[i].second)
+            return current + qMin(block - ranges[i].first, int(expanded.size()));
+        current += expanded.size();
+    }
+    return current;
+}
+void ConversationEditor::mutateBlocks(int entry, int block, int delta, bool remove) {
+    if (!attempt([&] { block = resolveDisplayedBlock(entry, block); }))
+        return;
+    if (!flush() || !doc.structuralError.isEmpty() || entry == doc.tail ||
+        doc.rawEntries.contains(entry))
         return;
     attempt([&] {
-        auto bs = blocks(doc.entries[selected].bytes.mid(prefix));
+        auto bs = blocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
+        U5::require(block >= 0 && block < bs.size(), "This block no longer exists");
         if (remove)
             bs.removeAt(block);
         else {
-            int n = block + delta;
-            if (n < 0 || n >= bs.size())
+            const int next = block + delta;
+            if (next < 0 || next >= bs.size())
                 return;
-            bs.swapItemsAt(block, n);
+            bs.swapItemsAt(block, next);
         }
         auto next = doc;
-        QByteArray b = next.entries[selected].bytes.left(prefix);
-        for (auto x : bs)
-            b += x.bytes;
-        next.entries[selected].bytes = b;
-        install(next.bytes(), remove ? "Remove response block" : "Move response block");
+        QByteArray bytes = next.entries[entry].bytes.left(entryPrefix(entry));
+        for (const auto &b : bs)
+            bytes += b.bytes;
+        next.entries[entry].bytes = bytes;
+        install(next.bytes(), remove ? "Remove response block" : "Move response block", entry);
     });
 }
-void ConversationEditor::addBlock(bool isText) {
-    if (!flush() || !doc.structuralError.isEmpty() ||
-        (selected == doc.tail || doc.rawEntries.contains(selected)))
+void ConversationEditor::insertBlock(int entry, int before, const QByteArray &bytes,
+                                     bool resolved) {
+    if (!resolved && !attempt([&] { before = resolveDisplayedBlock(entry, before); }))
+        return;
+    if (!flush() || !doc.structuralError.isEmpty() || entry == doc.tail ||
+        doc.rawEntries.contains(entry))
         return;
     attempt([&] {
+        U5::require(!bytes.contains(char(0)), "Clipboard cannot contain structural separators");
+        auto addition = blocks(bytes);
+        U5::require(!addition.isEmpty(), "Empty clipboard block");
+        auto bs = blocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
+        const int at = before < 0 ? int(bs.size()) : before;
+        U5::require(at >= 0 && at <= bs.size(), "Insertion position no longer exists");
+        for (int i = 0; i < addition.size(); ++i)
+            bs.insert(at + i, addition[i]);
         auto next = doc;
-        QByteArray b;
+        QByteArray result = next.entries[entry].bytes.left(entryPrefix(entry));
+        for (const auto &b : bs)
+            result += b.bytes;
+        next.entries[entry].bytes = result;
+        install(next.bytes(), "Insert response block", entry);
+    });
+}
+void ConversationEditor::addBlock(bool isText, int entry, int before) {
+    if (entry < 0)
+        entry = selected;
+    if (!attempt([&] { before = resolveDisplayedBlock(entry, before); }))
+        return;
+    if (!flush() || !doc.structuralError.isEmpty() || entry == doc.tail ||
+        doc.rawEntries.contains(entry))
+        return;
+    attempt([&] {
+        QByteArray bytes;
         if (isText)
-            b = text("New text.");
+            bytes = text("New text.");
         else {
             QDialog dlg(this);
-            dlg.setWindowTitle("Add conversation action");
+            dlg.setWindowTitle("Insert action or variable");
             auto layout = new QVBoxLayout(&dlg);
             auto choice = new QComboBox;
-            for (int c :
-                 {129, 130, 131, 132, 133, 134, 136, 137, 138, 139, 140, 142, 143, 254, 255})
-                choice->addItem(actionName(c), c);
+            choice->setObjectName("conversationActionChoice");
+            for (int code :
+                 {129, 142, 130, 131, 132, 133, 134, 136, 137, 138, 139, 140, 143, 254, 255}) {
+                if ((code == 140 || code == 254) && doc.questions.isEmpty())
+                    continue;
+                choice->addItem(actionName(code), code);
+            }
+            choice->addItem("Explicit line break", 141);
             if (!doc.questions.isEmpty())
-                choice->addItem("Ask a question", 145);
+                choice->addItem("Enter question", 145);
             layout->addWidget(choice);
             auto buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
             layout->addWidget(buttons);
@@ -821,17 +1493,20 @@ void ConversationEditor::addBlock(bool isText) {
             connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
             if (dlg.exec() != QDialog::Accepted)
                 return;
-            int c = choice->currentData().toInt(),
-                l = doc.questions.isEmpty() ? 0 : doc.questions.first().label;
-            U5::require(c != 254 || l > 0, "Create a question before adding a karma branch");
-            b = action(c == 145 ? 144 + l : c, c == 134 ? 65 : c == 254 ? 50 : 0, l);
+            const int code = choice->currentData().toInt();
+            const int label = doc.questions.isEmpty() ? 0 : doc.questions.first().label;
+            bytes = code == 141 ? text("\n")
+                                : action(code == 145 ? 144 + label : code,
+                                         code == 134   ? 65
+                                         : code == 254 ? 50
+                                                       : 0,
+                                         label);
         }
-        next.entries[selected].bytes += b;
-        install(next.bytes(), "Add response block");
+        insertBlock(entry, before, bytes, true);
     });
 }
 void ConversationEditor::aliasesChanged() {
-    if (loading || !aliases->isVisible())
+    if (loading)
         return;
     QVector<Rule> rs = doc.topics;
     for (auto q : doc.questions)
@@ -873,7 +1548,7 @@ void ConversationEditor::addTopic(bool reply) {
         }
         bool ok;
         QString key = QInputDialog::getText(this, reply ? "Add reply" : "Add topic",
-                                            "Keyword prefix", QLineEdit::Normal, {}, &ok);
+                                            "What the player types", QLineEdit::Normal, {}, &ok);
         if (!ok)
             return;
         install(insertRule(doc, before, key), reply ? "Add question reply" : "Add topic",
@@ -953,8 +1628,17 @@ void ConversationEditor::resetSimulation() {
 }
 void ConversationEditor::appendTranscript(const QVector<Line> &lines) {
     for (auto l : lines) {
+        auto previous = transcript->topLevelItem(transcript->topLevelItemCount() - 1);
+        if (!l.trace && previous && !previous->data(0, Qt::UserRole + 1).toBool() &&
+            previous->data(0, Qt::UserRole).toInt() == l.entry) {
+            previous->setText(0, previous->text(0) + l.text);
+            continue;
+        }
         auto item = new QTreeWidgetItem(transcript, {(l.trace ? "↳ " : "") + l.text});
         item->setData(0, Qt::UserRole, l.entry);
+        item->setData(0, Qt::UserRole + 1, l.trace);
+        item->setData(0, Qt::UserRole + 2, l.offset);
+        item->setHidden(l.trace && !showTrace->isChecked());
         if (l.trace)
             item->setForeground(0, QBrush(QColor("#94b9e7")));
     }
@@ -976,7 +1660,7 @@ QString ConversationEditor::questionName(int label) const {
         if (i >= 0)
             name = caption(doc.entries[doc.questions[i].prompt].bytes.mid(2));
     }
-    return QString("Q%1 · %2").arg(label).arg(name);
+    return name.isEmpty() ? QString("Question %1").arg(label) : name;
 }
 void ConversationEditor::renameQuestion() {
     if (!flush())
@@ -995,9 +1679,9 @@ void ConversationEditor::renameQuestion() {
         return;
     }
     bool ok;
-    QString name = QInputDialog::getText(
-        this, "Name question", "Project-only name (does not change game dialogue)",
-        QLineEdit::Normal, questionName(label).section(" · ", 1), &ok);
+    QString name = QInputDialog::getText(this, "Name question",
+                                         "Project-only name (does not change game dialogue)",
+                                         QLineEdit::Normal, questionName(label), &ok);
     if (!ok)
         return;
     if (name.size() > 120) {
@@ -1057,6 +1741,12 @@ void ConversationEditor::refreshSource() {
 }
 
 void ConversationEditor::focusCharacter() {
-  findChild<QWidget *>("conversationBrowser")->hide();
-  search->hide();
+    findChild<QWidget *>("conversationBrowser")->hide();
+    search->hide();
+}
+
+void ConversationEditor::hideEvent(QHideEvent *event) {
+    if (auxiliary)
+        auxiliary->hide();
+    QWidget::hideEvent(event);
 }

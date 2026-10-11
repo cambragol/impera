@@ -61,6 +61,7 @@ struct Line {
     QString text;
     int entry = -1;
     bool trace = false;
+    int offset = -1; // Instruction byte offset within the entry, for source navigation.
 };
 class Simulator {
   public:

@@ -1,6 +1,6 @@
 # Workshop conversation editor design
 
-Proposed replacement for the single tagged-text editor. This is a design, not an implemented interface.
+Original conversation-model design and engine audit. The model and structured editor were implemented; the current interface follows the [conversation-first redesign](workshop-dialogue-redesign.md), including its implemented controls and verified preview limits.
 
 ## What the game actually stores
 

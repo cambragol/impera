@@ -65,6 +65,16 @@ search; there is no separate Content toolbar button. Map thumbnails appear only
 for Britannia and the Underworld. Map controls retain tooltips, but the canvas
 has no instructional hover popup or permanent instruction strip.
 
+Dialogue editing has one main surface. Use **Topics** to hide/show the outline,
+**Game preview** or **Playtest** for optional tools, and **Advanced…** for tagged
+source. A question’s prompt, answers and Otherwise response appear together.
+Avatar/rune chips are protected: their context menu explicitly inserts or removes
+controls; ordinary paste produces speech rather than instructions. Action menus
+support typed action copy/paste. Valid edits apply automatically and support
+Workshop Undo; invalid drafts remain visible until corrected or explicitly discarded.
+The [dialogue redesign notes](../docs/workshop-dialogue-redesign.md) explain preview
+verification and the remaining differences from running the game.
+
 Keyboard: **Ctrl+N** new project, **Ctrl+O** open project, **Ctrl+S** save,
 **Ctrl+Z** undo, **Ctrl+Shift+Z** redo, **Ctrl+E** export. Qt uses the usual Command
 shortcuts on macOS for standard editing/project actions. Dialogue edits apply after a brief typing pause; **Apply** commits immediately.
@@ -82,7 +92,7 @@ drafts rather than silently discarding them. Package imports become undoable edi
 | Settlement NPCs | NPC mode with actor selection, overlap chooser, drag previews and atomic moves; schedule inspector, signed floors, other-position ghosts, conversation links and advanced record editing |
 | Combat setup | Edit starting party positions for four directions, monster tiles/positions, triggers and changed-tile metadata; retain all padding/sentinel bytes |
 | Graphics | All DOS `.16` image containers and 512 tiles; thumbnail gallery, EGA pixel painting, PNG import/export, full tilesheet import/export, one-bit alpha masks |
-| Conversations | NPC location filtering across all floors, searchable NPCs, Basics/Topics/Questions outline, shared keyword aliases, ordered text/action forms, reference-safe question deletion, byte budgets, diagnostics, Advanced source, conversation sandbox and DOS font preview |
+| Conversations | Dialogue-only NPC lists; Basics/Topics/Questions outline; expanding speech with protected inline Avatar/rune controls; keyword chips and compact action cards; unified prompts/answers/fallbacks; reference-safe question deletion; optional game preview, source-linked playtest and diagnostics; lossless Advanced source and project Undo |
 | Narrative | 30 creation entries with virtue choices, six illustrated ending pages, karma context/sample values, 194 shop entries with token substitution; fixed-offset or versioned extended text, byte budgets, font previews and undo |
 | Story | Twenty fixed-offset text pages; original capacity, offsets, padding and terminators retained; normal, runic and proportional font previews |
 | Starting state | Party position, time, supplies, plot items, reagents, moonstones, shrine/dungeon flags, Shadowlord settings; sixteen character records, statistics/equipment, safe party joining/removal |

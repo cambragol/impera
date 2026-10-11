@@ -4,7 +4,24 @@
 
 Replace the permanent upper editor/lower preview split with one conversation authoring surface. Keep the NPC browser and conversation outline; open Playtest or Game preview only when requested. Use readable native text for authoring, compact action cards for behavior, and the DOS font for an optional game preview.
 
-This is a proposed redesign, not an implemented feature. It builds on the existing lossless dialogue model and simulator rather than introducing a new game format.
+All four implementation steps are now implemented on `feature/native-modding`, using the existing lossless dialogue model and simulator. The following sections retain the design rationale; the implementation notes below describe the actual controls and preview limits.
+
+## Implemented interface
+
+- One authoring surface replaces the permanent editor/preview split. **Topics** collapses the outline. **Advanced…** opens tagged source and changes to **Back to conversation**; ordinary editing has no Apply button.
+- Speech uses expanding paragraphs. Avatar-name and rune controls appear as protected inline chips inside speech. Rune spans are tinted and italicized for authoring. Typing, cut, accessibility edits and ordinary paste cannot silently remove those controls; their context menu supports explicit insertion/removal. External clipboard text is always literal speech. Action cards have a menu for typed copy/paste, insertion, movement and removal.
+- Keyword chips wrap within the column and provide edit/remove menus and **+ Keyword**. Shared responses and stored matching order remain intact. Topic/answer operations are enabled for the applicable selection.
+- Each question shows its prompt, ordered expandable answers, **Otherwise**, and links to its incoming references together. Its fields commit as one validated document transaction; an invalid field cannot partially commit other fields. Numeric labels/offsets remain in advanced details.
+- **Game preview**, **Playtest**, and the linked issue count open a separate closable tools window. Playtest’s **Setup** is hidden initially; **Show actions** reveals execution traces. Clicking a trace opens and highlights its source paragraph/action. Stale traces are cleared when the document changes.
+- Valid visual edits apply after typing or when navigating. Incomplete drafts remain visible with validation feedback. Source edits use **Validate and apply source** or validation when navigating. Workshop owns Undo/Redo; untouched tokens, operands, tails and unrelated spans retain their original bytes.
+
+### Verified rendering and remaining limits
+
+The game preview uses IBM.CH and RUNES.CH, eight-pixel glyph rows, automatic response wrappers/quote suppression, dictionary spacing, Avatar substitution and rune toggles. Its 18-column word buffering and glyph coordinates are checked against the actual `TALK_04e2_PrintWord` and `TALK_0574_BuildOrPrintWord` functions extracted into the test harness, including their full-buffer behavior and newline suppression.
+
+It is a selected-response snapshot starting at column zero in normal font, rather than a complete game-screen emulator. It shows the response across scrollable rows, not the running game's scrolling window or timing. Unconditional exits stop the snapshot; conditional branches use Setup state and direct the author to Playtest for continuation. Payment/world effects and waits have explanatory notes. A missing runic font is explicitly reported and tinted rather than silently treated as accurate. Guard/recruitment/world effects remain simulated traces, not engine execution. Existing engine-matching tests still verify keyword behavior.
+
+All these changes leave the game’s TLK and mod-package formats unchanged.
 
 ## What is confusing today
 

@@ -514,7 +514,7 @@ void Simulator::execute(int e, int offset) {
     int pos = offset;
     for (auto b : bs) {
         if (++steps > 512) {
-            output.append({"Stopped after 512 instructions (possible loop)", e, true});
+            output.append({"Stopped after 512 instructions (possible loop)", e, true, pos});
             ended = true;
             return;
         }
@@ -523,24 +523,26 @@ void Simulator::execute(int e, int offset) {
         if (c < 0) {
             QString s = plain(b.bytes);
             if (!s.isEmpty())
-                output.append({s, e, false});
+                output.append({s, e, false, pos - int(b.bytes.size())});
             continue;
         }
         if (c == 129)
-            output.append({state.avatar, e, false});
+            output.append({state.avatar, e, false, pos - int(b.bytes.size())});
         else if (c == 130) {
             ended = true;
-            output.append({"Conversation ended", e, true});
+            output.append({"Conversation ended", e, true, pos - int(b.bytes.size())});
             return;
         } else if (c >= 145 && c <= 159) {
+            output.append({actionName(c), e, true, pos - int(b.bytes.size())});
             enter(c - 144);
             return;
         } else if (c == 255) {
             redirected = true;
             currentQuestion = -1;
-            output.append({"Return to ordinary topics", e, true});
+            output.append({"Return to ordinary topics", e, true, pos - int(b.bytes.size())});
             return;
         } else if (c == 140 && state.introduced) {
+            output.append({"Introduced condition taken", e, true, pos - int(b.bytes.size())});
             int dest = U5::byte(b.bytes, 1);
             if (dest == 255) {
                 redirected = true;
@@ -550,12 +552,13 @@ void Simulator::execute(int e, int offset) {
             enter(dest - 144);
             return;
         } else if (c == 254 && state.karma >= int(U5::byte(b.bytes, 1))) {
+            output.append({"Karma condition taken", e, true, pos - int(b.bytes.size())});
             enter(U5::byte(b.bytes, 2) - 144);
             return;
         } else if (c == 136) {
             askEntry = e;
             askOffset = pos;
-            output.append({"What is thy name?", e, false});
+            output.append({"What is thy name?", e, false, pos - int(b.bytes.size())});
             return;
         } else if (c == 133) {
             int value = 0;
@@ -566,31 +569,34 @@ void Simulator::execute(int e, int offset) {
                 return;
             }
             if (state.gold < value) {
-                output.append({"Thou hast not enough gold!", e, false});
+                output.append({"Thou hast not enough gold!", e, false, pos - int(b.bytes.size())});
                 currentQuestion = -1;
                 return;
             }
             state.gold -= value;
-            output.append({QString("Paid %1 gold (sandbox only)").arg(value), e, true});
-        } else if (c == 137)
+            output.append({QString("Paid %1 gold (sandbox only)").arg(value), e, true, pos - int(b.bytes.size())});
+        } else if (c == 137) {
             state.karma = qMin(99, state.karma + 1);
-        else if (c == 138)
+            output.append({"Karma +1", e, true, pos - int(b.bytes.size())});
+        } else if (c == 138) {
             state.karma = qMax(0, state.karma - 1);
+            output.append({"Karma -1", e, true, pos - int(b.bytes.size())});
+        }
         else if (c == 132) {
             output.append(
-                {"Party joining depends on actual recruit records; not simulated", e, true});
+                {"Party joining depends on actual recruit records; not simulated", e, true, pos - int(b.bytes.size())});
             ended = true;
             return;
         } else if (c == 139)
-            output.append({"Call guards: world effect not simulated", e, true});
+            output.append({"Call guards: world effect not simulated", e, true, pos - int(b.bytes.size())});
         else if (c == 134)
             output.append({QString("Give inventory operand %1: not persisted")
                                .arg(U5::byte(b.bytes, 1) & 127),
-                           e, true});
+                           e, true, pos - int(b.bytes.size())});
         else if (c == 131 || c == 143 || c == 142)
-            output.append({actionName(c), e, true});
+            output.append({actionName(c), e, true, pos - int(b.bytes.size())});
         else if (c != 140 && c != 254) {
-            output.append({"Unsupported instruction; simulation stopped", e, true});
+            output.append({"Unsupported instruction; simulation stopped", e, true, pos - int(b.bytes.size())});
             ended = true;
             return;
         }
