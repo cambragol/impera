@@ -1,4 +1,5 @@
 #include "content_navigation.h"
+#include "mod/tileset_resources.h"
 #include "contents_editor.h"
 #include "dialogue.h"
 #include "map_editor.h"
@@ -10,14 +11,15 @@
 #include <algorithm>
 namespace Workshop {
 QString artworkTitle(const QString &name) {
-    static const QMap<QString, QString> titles = {
-        {"TILES.16", "Terrain, objects and characters"},
-        {"ITEMS.16", "Dungeon item illustrations"},
-        {"CREATE.16", "Character creation artwork"},
-        {"TEXT.16", "Story text framing"},
-        {"ULTIMA.16", "Title artwork"},
-        {"STARTSC.16", "Title scene artwork"},
-        {"ENDSC.16", "Final rescue artwork"}};
+    if (auto sheet = MOD_TilesetSheet(name.toLatin1().constData()))
+        return QString::fromUtf8(sheet->title);
+    static const QMap<QString, QString> titles = {{"TILES.16", "DOS"},
+                                                  {"ITEMS.16", "Dungeon item illustrations"},
+                                                  {"CREATE.16", "Character creation artwork"},
+                                                  {"TEXT.16", "Story text framing"},
+                                                  {"ULTIMA.16", "Title artwork"},
+                                                  {"STARTSC.16", "Title scene artwork"},
+                                                  {"ENDSC.16", "Final rescue artwork"}};
     if (titles.contains(name)) return titles[name];
     const auto stem = name.section('.', 0, 0);
     for (const auto prefix : {QString("STORY"), QString("END"), QString("DNG"), QString("MON")}) {
@@ -208,7 +210,9 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
         case EditorKind::Artwork:
             workspace = "Graphics";
             title = artworkTitle(name);
-            group = name == "TILES.16" ? "Game tiles" : "Illustrations";
+            group = name == "TILES.16" || MOD_TilesetSheet(name.toLatin1().constData())
+                        ? "Tilesets"
+                        : "Illustrations";
             break;
         case EditorKind::Fonts:
             workspace = "Graphics";

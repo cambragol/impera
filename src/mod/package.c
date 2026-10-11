@@ -1,4 +1,5 @@
 #include "package.h"
+#include "tileset_resources.h"
 #include "contents.h"
 #include "creation_scene.h"
 #include "engine_tables.h"
@@ -47,6 +48,8 @@ int MOD_AllowedResource(const char *name) {
             return 0;
     if (strstr(name, ".."))
         return 0;
+    if (MOD_TilesetSheet(name))
+        return 1;
     if (!strcmp(name, "TEXT.OVR") || !strcmp(name, "RULES.TBL") || !strcmp(name, "CONTENTS.OVR"))
         return 1;
     if (!strcmp(name, "DATA.OVL") || !strcmp(name, "INIT.GAM") || !strcmp(name, "INIT.OOL") ||
@@ -106,8 +109,18 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
                 reason = "Duplicate resource in mod package";
                 goto fail;
             }
-        if (!strcmp(entry->name, "TEXT.OVR") || !strcmp(entry->name, "RULES.TBL") ||
-            !strcmp(entry->name, "CONTENTS.OVR")) {
+        if (MOD_TilesetSheet(entry->name)) {
+            if (baseSize || baseCrc) {
+                reason = "Tileset PNG overrides require an empty base";
+                goto fail;
+            }
+            base = calloc(1, 1);
+            if (!base) {
+                reason = "Out of memory loading tileset override";
+                goto fail;
+            }
+        } else if (!strcmp(entry->name, "TEXT.OVR") || !strcmp(entry->name, "RULES.TBL") ||
+                   !strcmp(entry->name, "CONTENTS.OVR")) {
             if ((memcmp(magic, "IMOD0002", 8) && memcmp(magic, "IMOD0003", 8) &&
                  memcmp(magic, "IMOD0004", 8)) ||
                 (!strcmp(entry->name, "RULES.TBL") && memcmp(magic, "IMOD0003", 8) &&
@@ -150,6 +163,11 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
                 offset > outSize || length > outSize - offset || !take(&c, entry->data + offset, length))
                 goto fail;
             end = offset + length;
+        }
+        const ModTilesetSheet *sheet = MOD_TilesetSheet(entry->name);
+        if (sheet && !MOD_TilesetPngHeader(sheet, entry->data, outSize)) {
+            reason = "Tileset PNG has an invalid header or source dimensions";
+            goto fail;
         }
         if (MOD_Crc32(entry->data, outSize) != outCrc) {
             reason = "Mod output checksum mismatch";

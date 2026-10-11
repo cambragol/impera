@@ -1,4 +1,6 @@
 #include "window.h"
+#include "map_entities.h"
+#include "mod/tileset_resources.h"
 #include "contents_editor.h"
 #include "dialogue_editor.h"
 #include "dungeon_editor.h"
@@ -677,7 +679,8 @@ void WorkshopWindow::rebuildTree() {
         }
     }
     if (workspaceSelector->currentText() == "Graphics") {
-        for (const QString &label : {QString("Game tiles"), QString("Illustrations"), QString("Fonts")}) {
+        for (const QString &label :
+             {QString("Tilesets"), QString("Illustrations"), QString("Fonts")}) {
             const bool present = std::any_of(destinations.cbegin(), destinations.cend(),
                                             [&](const auto &d) {
                                                 return d.workspace == "Graphics" && d.group == label;
@@ -1366,12 +1369,24 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
     layout->addWidget(heading);
     auto row = new QHBoxLayout;
     auto slot = new QComboBox;
+    auto tileLabel = [graphics](int i) {
+        const int tile = i + graphics->tileOffset;
+        if (tile < 256)
+            return MapDocument::tileName(tile);
+        const int actor = tile - 256;
+        return actor < 64
+                   ? QString("Item / actor frame %1").arg(actor)
+                   : Workshop::actorName(actor & ~3) + QString(" · Frame %1").arg(actor % 4 + 1);
+    };
     for (int i = 0; i < graphics->images.size(); i++)
-        slot->addItem(QString("%1 — %2").arg(graphics->tiles ? QString("Tile %1 · %2").arg(i).arg(MapDocument::tileName(i)) : QString("Image %1").arg(i + 1)).arg(graphics->images[i].isNull()
-                                                        ? "Empty"
-                                                        : QString("%1 × %2")
-                                                              .arg(graphics->images[i].width())
-                                                              .arg(graphics->images[i].height())));
+        slot->addItem(QString("%1 — %2")
+                          .arg(graphics->tiles ? QString("Tile %1 · %2").arg(i).arg(tileLabel(i))
+                                               : QString("Image %1").arg(i + 1))
+                          .arg(graphics->images[i].isNull()
+                                   ? "Empty"
+                                   : QString("%1 × %2")
+                                         .arg(graphics->images[i].width())
+                                         .arg(graphics->images[i].height())));
     slot->setObjectName("imageSlot");
     slot->setCurrentIndex(
         qBound(0, editorState.value(name + "/image"), int(graphics->images.size()) - 1));
@@ -1419,7 +1434,18 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
         gallery->setCurrentRow(i);
     });
     auto paletteRow = new QHBoxLayout;
-    for (QRgb color : U5::palette()) {
+    QVector<QRgb> brushColors = U5::palette();
+    if (!graphics->pngResource.isEmpty()) {
+        QSet<QRgb> unique;
+        brushColors.clear();
+        for (const auto &image : graphics->images)
+            for (int y = 0; y < image.height(); y++)
+                for (int x = 0; x < image.width(); x++)
+                    unique.insert(image.pixel(x, y));
+        brushColors = unique.values().toVector();
+        std::sort(brushColors.begin(), brushColors.end());
+    }
+    for (QRgb color : brushColors.mid(0, 24)) {
         auto b = new QPushButton;
         b->setFixedSize(30, 30);
         b->setStyleSheet(
@@ -1427,6 +1453,12 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
         paletteRow->addWidget(b);
         connect(b, &QPushButton::clicked, w, [=] { canvas->brush = color; });
     }
+    if (!graphics->pngResource.isEmpty())
+        button(paletteRow, "Choose color…", [=] {
+            auto color = QColorDialog::getColor(QColor(canvas->brush), w, "Brush color");
+            if (color.isValid())
+                canvas->brush = color.rgba();
+        });
     if (!graphics->tiles)
         button(paletteRow, "Transparent", [=] { canvas->brush = qRgba(0, 0, 0, 0); });
     paletteRow->addStretch();
@@ -1460,7 +1492,9 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
     canvas->commit = change;
     auto actions = new QHBoxLayout;
     button(actions, "Import PNG into slot", [=] {
-        QString path = QFileDialog::getOpenFileName(this, "Import EGA PNG", {}, "PNG (*.png)");
+        QString path = QFileDialog::getOpenFileName(
+            this, graphics->pngResource.isEmpty() ? "Import EGA PNG" : "Import PNG", {},
+            "PNG (*.png)");
         if (path.isEmpty())
             return;
         guard([&] {
@@ -1483,39 +1517,47 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
     if (graphics->tiles) {
         button(actions, "Export tilesheet", [=] {
             guard([&] {
-                QString path = QFileDialog::getSaveFileName(this, "Export 512 × 256 tilesheet", {},
-                                                            "PNG (*.png)");
+                QString path =
+                    QFileDialog::getSaveFileName(this, "Export tilesheet", {}, "PNG (*.png)");
                 if (path.isEmpty())
                     return;
                 require(QFileInfo(path).absolutePath() != project.sourceDirectory,
                         "Export outside original game folder");
-                QImage sheet(512, 256, QImage::Format_ARGB32);
+                QImage sheet(graphics->columns * graphics->images[0].width(),
+                             16 * graphics->images[0].height(), QImage::Format_ARGB32);
                 sheet.fill(Qt::black);
                 QPainter p(&sheet);
-                for (int i = 0; i < 512; i++)
-                    p.drawImage((i % 32) * 16, (i / 32) * 16, graphics->images[i]);
+                for (int i = 0; i < graphics->images.size(); i++)
+                    p.drawImage((i % graphics->columns) * graphics->images[0].width(),
+                                (i / graphics->columns) * graphics->images[0].height(),
+                                graphics->images[i]);
                 p.end();
                 require(sheet.save(path, "PNG"), "Cannot export PNG");
             });
         });
         button(actions, "Import tilesheet", [=] {
-            QString path = QFileDialog::getOpenFileName(this, "Import 512 × 256 EGA tilesheet", {},
-                                                        "PNG (*.png)");
+            QString path =
+                QFileDialog::getOpenFileName(this, "Import tilesheet", {}, "PNG (*.png)");
             if (path.isEmpty())
                 return;
             guard([&] {
                 QImage sheet(path);
-                require(sheet.size() == QSize(512, 256), "Tilesheet must be exactly 512 × 256");
+                const QSize cell = graphics->images[0].size();
+                require(sheet.size() == QSize(graphics->columns * cell.width(), 16 * cell.height()),
+                        "Tilesheet dimensions must match the current source sheet");
                 auto next = *graphics;
-                for (int i = 0; i < 512; i++)
-                    next.images[i] = sheet.copy((i % 32) * 16, (i / 32) * 16, 16, 16)
+                for (int i = 0; i < graphics->images.size(); i++)
+                    next.images[i] = sheet
+                                         .copy((i % graphics->columns) * cell.width(),
+                                               (i / graphics->columns) * cell.height(),
+                                               cell.width(), cell.height())
                                          .convertToFormat(QImage::Format_ARGB32);
                 auto bytes = U5::writeGraphics(next);
                 edit({{name, bytes}}, "Import tilesheet");
                 *graphics = next;
                 canvas->image = graphics->images[slot->currentIndex()];
                 canvas->size();
-                for (int i = 0; i < 512; i++)
+                for (int i = 0; i < graphics->images.size(); i++)
                     gallery->item(i)->setIcon(artworkPreview(graphics->images[i]));
             });
         });

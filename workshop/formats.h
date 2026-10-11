@@ -8,6 +8,8 @@ QByteArray decompress(const QByteArray &bytes);
 QByteArray compress(const QByteArray &raw);
 struct Graphics {
     bool tiles = false;
+    QString pngResource;
+    int columns = 32, tileOffset = 0;
     QByteArray original;
     QVector<QImage> images, originals;
 };

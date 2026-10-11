@@ -41,7 +41,7 @@ Valid conversation drafts commit before switching view or navigating; invalid dr
 
 ## Artwork, stories, rules and new games (phase 5)
 
-Graphics lists Game tiles first, followed by Illustrations and Fonts. Artwork collections use verified purpose names: title artwork, introduction/ending illustration sets, dungeon scenery and creatures, creation artwork and story framing. Unidentified collections and individual illustrations retain neutral numbered labels; no guessed scene assignments are presented. The gallery preserves every original slot, including empty slots. Thumbnails use nearest-neighbor previews with a checkerboard for transparency. Tile tooltips reuse the map editor’s tile names. Slot and magnification selections survive navigation and Undo; magnification does not change exported dimensions. Story and creation editors link to related artwork collections where their engine use is verified. Damaged collections show recoverable errors.
+Graphics lists Tilesets first, followed by Illustrations and Fonts. Artwork collections use verified purpose names: title artwork, introduction/ending illustration sets, dungeon scenery and creatures, creation artwork and story framing. Unidentified collections and individual illustrations retain neutral numbered labels; no guessed scene assignments are presented. The gallery preserves every original slot, including empty slots. Thumbnails use nearest-neighbor previews with a checkerboard for transparency. Tile tooltips reuse the map editor’s tile names. Slot and magnification selections survive navigation and Undo; magnification does not change exported dimensions. Story and creation editors link to related artwork collections where their engine use is verified. Damaged collections show recoverable errors.
 
 Cutscenes lists the Blackthorn, Shrine, Codex and Final rescue scenes separately. Each route opens its matching scene and includes its message source in the tooltip. Character creation lives in Game Rules, with its backgrounds, questions and sequence in one editor. When scene data is absent, standalone message/creation-text routes remain available. Introduction, ending and virtue text remain dedicated destinations.
 
@@ -62,3 +62,24 @@ Location markers aggregate terrain on every floor, assigned conversations, sched
 The toolbar keeps navigation, Save Project, Undo/Redo, Export, Validate and Test. **Project** contains New/Open/Save, naming and package import/export; **Tools** contains game-folder, validation and test configuration. Moved commands retain their shortcuts and draft guards. No file format, serializer or engine loading behavior changes.
 
 Workshop opens new and reopened projects on Britannia, centered on Lord British’s Castle using the engine’s entrance defaults or the project’s location-entrance override. Thumbnails are limited to Britannia and Underworld. Canvas instructional popups and the permanent interaction-hint row have been removed; tool controls retain their help. NPC inspector widths use native Qt control and scrollbar measurements to fit platform fonts.
+
+## Alternate tilesets
+
+Tilesets contains DOS, Amiga, Apple II, Grayscale, and the Sharp X68000 terrain
+and actor sheets. Edit individual tiles with the pixel canvas, import/export a
+tile, or import/export a whole sheet. Choose color supports the native RGB palette;
+Undo, project saving and package export include the edits. Built-in alternate
+sheets are embedded in Workshop, so locating extra artwork files is unnecessary.
+
+Source layouts remain unchanged: DOS/Amiga/Grayscale use 16×16 cells, Apple II
+uses 14×16, and each Sharp sheet uses 32×32 cells. Tile positions retain their
+original engine identities. Alternate sheets require opaque PNG pixels and use
+the renderer's existing background colors: black, or gray for Sharp actors.
+They support up to 240 colors; Sharp terrain and actors share that limit.
+
+Exported mods carry complete edited PNG sheets independently of external artwork
+files. Impera gives mounted mod sheets priority over bundled sheets. Select the
+corresponding tileset in Engine Options to use the edited artwork; the package
+does not change the player's tileset preference. Older Impera builds without
+alternate-PNG package support reject these packages. Original game files and
+bundled artwork remain untouched.

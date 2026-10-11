@@ -1,5 +1,7 @@
 #undef NDEBUG
 #include "common/engine_settings.h"
+#include "common/file.h"
+#include "mod/runtime.h"
 #include "common/file_picker.h"
 #include "graphics/grap.h"
 #include "graphics/grap_buf.h"
@@ -405,6 +407,43 @@ static void customTileset(void)
     assert(TILESET_Selected() == TILESET_DOS);
     assert(TILESET_SetCustomPath(""));
 }
+static void workshopPackage(void) {
+    const char *fixture = SDL_getenv("IMPERA_TILESET_TEST_PACKAGE");
+    if (!fixture)
+        return;
+    size_t size = 0;
+    void *bytes = SDL_LoadFile(fixture, &size);
+    assert(bytes && size);
+    const char *directory = "workshop-tileset-package";
+    assert(SDL_CreateDirectory(directory));
+    char mods[4096], path[4096];
+    SDL_snprintf(mods, sizeof(mods), "%s/Mods", directory);
+    assert(SDL_CreateDirectory(mods));
+    SDL_snprintf(path, sizeof(path), "%s/tilesets.imperamod", mods);
+    FILE *f = fopen(path, "wb");
+    assert(f && fwrite(bytes, 1, size, f) == size && fclose(f) == 0);
+    SDL_free(bytes);
+    FILE_SetDataDirectory(directory);
+    assert(MOD_LoadedCount() == 1);
+    for (int choice = TILESET_AMIGA; choice <= TILESET_SHARP; choice++) {
+        assert(TILESET_Select(choice));
+        int color = TILESET_Pixel(0, 0, 0);
+        assert(TILESET_Color(color, ega) == 0xff0c2238u);
+        if (choice == TILESET_SHARP) {
+            color = TILESET_Pixel(256, 0, 0);
+            assert(TILESET_Color(color, ega) == 0xff0c2238u);
+        }
+    }
+    FILE_SetDataDirectory("");
+    assert(SDL_RemovePath(path));
+    assert(SDL_RemovePath(mods));
+    assert(SDL_RemovePath(directory));
+    // Selecting the same tileset after unmount must reload its bundled artwork.
+    assert(TILESET_Select(TILESET_SHARP));
+    SDL_Surface *original = sheet("Ultima_5_Tiles_SharpX68000_World.png");
+    verifySheet(original, TILESET_SHARP, 0);
+    SDL_DestroySurface(original);
+}
 int main(void)
 {
     assert(SDL_Init(SDL_INIT_VIDEO));
@@ -595,6 +634,7 @@ int main(void)
 #ifdef TEST_TILESET_PRESENT
     rendering();
 #endif
+    workshopPackage();
     GRAP_Cleanup();
     SDL_Quit();
     puts("Alternate tileset mappings, palettes, native detail, transparency, "

@@ -1,4 +1,5 @@
 #include "resource_document.h"
+#include "mod/tileset_resources.h"
 #include "contents_editor.h"
 #include "dialogue.h"
 #include "dungeon_editor.h"
@@ -23,6 +24,8 @@ Capability capability(const QString &resource) {
                 "Engine tables",
                 "Verified concepts use RULES.TBL; raw overlay coverage is explicitly classified",
                 EditorKind::Tables};
+    if (MOD_TilesetSheet(n.toLatin1().constData()))
+        return {n, "Tilesets", "Editable alternate tileset", EditorKind::Artwork};
     if (n.endsWith(".16"))
         return {n, "Artwork", "Editable palette artwork", EditorKind::Artwork};
     if (n.endsWith(".TLK"))

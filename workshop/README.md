@@ -516,3 +516,12 @@ item. Placement, attached data and deletion support Undo.
 
 See [adding map items](../docs/workshop-add-map-items.md) for map-specific behavior,
 capacity limits, save compatibility, and the audit of other behavior-bearing tiles.
+
+### Alternate tileset editing
+
+**Graphics → Tilesets** includes DOS, Apple II, Grayscale, Amiga, and Sharp
+X68000 terrain/actors. The pixel editor preserves each source's native dimensions,
+layout and colors, with tile/sheet PNG import/export and Undo. Alternate sheets
+are bundled into Workshop and exported as mod resources. In Impera, choose the
+matching tileset in Engine Options to see those changes. See the
+[tileset documentation](../docs/workshop-content-navigation.md#alternate-tilesets).

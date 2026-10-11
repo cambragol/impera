@@ -19,6 +19,7 @@
 #include "text_preview.h"
 #include "ui_theme.h"
 #include "window.h"
+#include "mod/tileset_resources.h"
 #include "world_objects.h"
 #include <QTemporaryDir>
 #include <QtWidgets>
@@ -434,6 +435,78 @@ int main(int argc, char **argv) {
 
             w.findChild<QAction *>("showResourceLibrary")->trigger();
         });
+        test("Alternate tilesets preserve native pixels, package loading and editor undo", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            for (const auto &sheet : modTilesetSheets) {
+                const QString name = QString::fromLatin1(sheet.resource);
+                auto g = U5::readGraphics(name, p.data(name));
+                check(g.images.size() == sheet.columns * 16 &&
+                          g.images[0].size() == QSize(sheet.width, sheet.height),
+                      "Native tileset layout was normalized or lost");
+                check(U5::writeGraphics(g) == p.data(name), "Unedited PNG changed bytes");
+                g.images[0].setPixel(0, 0, qRgb(12, 34, 56));
+                auto edited = U5::writeGraphics(g);
+                check(U5::readGraphics(name, edited).images[0].pixel(0, 0) == qRgb(12, 34, 56),
+                      "RGB artwork edit lost its native color");
+                p.resources[name].edited = edited;
+            }
+            p.validate();
+            auto package = p.package();
+            auto base = fixture(dir.path());
+            base.importPackage(package);
+            for (const auto &sheet : modTilesetSheets)
+                check(base.data(sheet.resource) == p.data(sheet.resource),
+                      "Alternate tileset package did not roundtrip");
+            p.save(dir.path() + "/tilesets.imperaproject");
+            Project reopened;
+            reopened.load(p.projectPath);
+            check(reopened.changed() == p.changed(), "Tileset project edits disappeared");
+            const auto diagnostics = validateMod(p);
+            check(std::none_of(diagnostics.cbegin(), diagnostics.cend(),
+                               [](const auto &d) { return d.severity == ModDiagnostic::Error; }),
+                  "Tileset package validation failed");
+            auto g = U5::readGraphics("TILE_APP.PNG", p.data("TILE_APP.PNG"));
+            g.images[0].setPixel(0, 0, qRgba(0, 0, 0, 0));
+            rejects([&] { U5::writeGraphics(g); });
+            g = U5::readGraphics("TILE_APP.PNG", p.data("TILE_APP.PNG"));
+            g.images[0] = QImage(16, 16, QImage::Format_ARGB32);
+            rejects([&] { U5::writeGraphics(g); });
+            g = U5::readGraphics("TILE_APP.PNG", p.data("TILE_APP.PNG"));
+            for (int i = 0; i < 241; i++)
+                g.images[i / 224].setPixel(i % 14, (i % 224) / 14, qRgb(i, 17, 23));
+            rejects([&] { U5::writeGraphics(g); });
+            if (qEnvironmentVariableIsSet("IMPERA_TILESET_TEST_PACKAGE"))
+                file(qEnvironmentVariable("IMPERA_TILESET_TEST_PACKAGE"), package);
+            WorkshopWindow w;
+            check(w.openGame(dir.path()), "Tileset editor fixture open");
+            for (const auto &sheet : modTilesetSheets) {
+                w.selectResource(sheet.resource);
+                QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+                auto gallery = w.findChild<QListWidget *>("artworkGallery");
+                check(gallery && gallery->count() == sheet.columns * 16,
+                      "Alternate artwork slots missing");
+            }
+            w.selectResource("TILE_APP.PNG");
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            auto canvas = w.findChild<QWidget *>("pixelCanvas");
+            auto original = w.projectForTests().data("TILE_APP.PNG");
+            QMouseEvent press(QEvent::MouseButtonPress, {1, 1}, {1, 1}, Qt::LeftButton,
+                              Qt::LeftButton, Qt::NoModifier);
+            QMouseEvent release(QEvent::MouseButtonRelease, {1, 1}, {1, 1}, Qt::LeftButton,
+                                Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(canvas, &press);
+            QApplication::sendEvent(canvas, &release);
+            check(w.projectForTests().data("TILE_APP.PNG") != original,
+                  "Painting alternate artwork did not commit");
+            for (auto action : w.findChildren<QAction *>())
+                if (action->text().startsWith("Undo ")) {
+                    action->trigger();
+                    break;
+                }
+            check(w.projectForTests().data("TILE_APP.PNG") == original,
+                  "Alternate artwork undo lost original pixels");
+        });
         test("Content routes consolidate companions and artwork preserves slot identity", [&] {
             QTemporaryDir dir;
             auto p = fixture(dir.path());
@@ -488,8 +561,8 @@ int main(int argc, char **argv) {
             check(graphicsWorkspace->currentText() == "Graphics" &&
                       graphicsWorkspace->count() == 6 &&
                       graphicsWorkspace->findText("New Game") < 0 &&
-                      graphicsTree->topLevelItem(0)->text(0) == "Game tiles" &&
-                      graphicsTree->topLevelItem(0)->child(0)->text(0) == "Terrain, objects and characters",
+                      graphicsTree->topLevelItem(0)->text(0) == "Tilesets" &&
+                      graphicsTree->topLevelItem(0)->child(0)->text(0) == "DOS",
                   "Graphics should put Tiles first and New Game should be consolidated");
             QByteArray scenesData(1216, 0);
             scenesData += QByteArray::fromHex("06000c030109");

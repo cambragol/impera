@@ -81,6 +81,13 @@ endforeach()
 string(APPEND actor_header "};\n")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/actor_names.h" "${actor_header}")
 add_library(impera_workshop_core STATIC map_entities.cpp contents_editor.cpp ../src/mod/contents.c content_navigation.cpp engine_tables.cpp world_objects.cpp font_editor.cpp scene_editor.cpp narrative_editor.cpp location_text.cpp dungeon_editor.cpp resource_document.cpp text_preview.cpp formats.cpp dialogue.cpp dialogue_preview.cpp dialogue_surface.cpp map_editor.cpp project.cpp ../src/mod/package.c)
+qt_add_resources(impera_workshop_core alternate_tilesets PREFIX "/tilesets"
+    BASE ../textures/tilesets FILES
+    ../textures/tilesets/Ultima_5_Tiles_Amiga.png
+    ../textures/tilesets/Ultima_5_Tiles_AppleII.png
+    ../textures/tilesets/Ultima_5_Tiles_Grayscale.png
+    ../textures/tilesets/Ultima_5_Tiles_SharpX68000_World.png
+    ../textures/tilesets/Ultima_5_Tiles_SharpX68000_NPC.png)
 target_include_directories(impera_workshop_core PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(impera_workshop_core PUBLIC Qt6::Widgets)
 target_include_directories(impera_workshop_core PUBLIC . ../src)

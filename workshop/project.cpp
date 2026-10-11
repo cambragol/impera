@@ -1,4 +1,5 @@
 #include "project.h"
+#include "mod/tileset_resources.h"
 #include "contents_editor.h"
 #include "dialogue.h"
 #include "dungeon_editor.h"
@@ -26,6 +27,11 @@ static QByteArray readLimited(const QString &path, qint64 cap) {
     return bytes;
 }
 void Project::openGame(const QString &directory) {
+    static const bool embedded = [] {
+        Q_INIT_RESOURCE(alternate_tilesets);
+        return true;
+    }();
+    Q_UNUSED(embedded);
     Project next;
     next.sourceDirectory = QDir(directory).absolutePath();
     QDir dir(next.sourceDirectory);
@@ -44,6 +50,11 @@ void Project::openGame(const QString &directory) {
             "Select a DOS Ultima 5 folder containing TILES.16 and INIT.GAM");
     U5::readGraphics("TILES.16", next.data("TILES.16"));
     require(next.data("INIT.GAM").size() == 4192, "INIT.GAM must use the 4192-byte DOS layout");
+    for (const auto &sheet : modTilesetSheets) {
+        auto bytes =
+            readLimited(":/tilesets/" + QString::fromUtf8(sheet.filename), MOD_MAX_RESOURCE);
+        next.resources.insert(QString::fromLatin1(sheet.resource), {bytes, bytes});
+    }
     next.resources.insert("TEXT.OVR", {{}, {}});
     next.resources.insert("RULES.TBL", {{}, {}});
     next.resources.insert("CONTENTS.OVR", {{}, {}});
@@ -64,6 +75,15 @@ QStringList Project::changed() const {
 void Project::validate() const {
     require(!title.trimmed().isEmpty() && title.toUtf8().size() <= 256 && !title.contains(QChar(0)),
             "Mod name must contain 1–256 UTF-8 bytes");
+    if (changed().contains("TILE_SHW.PNG") || changed().contains("TILE_SHN.PNG")) {
+        QSet<QRgb> colors;
+        for (const QString &name : {QString("TILE_SHW.PNG"), QString("TILE_SHN.PNG")})
+            for (const auto &image : U5::readGraphics(name, data(name)).images)
+                for (int y = 0; y < image.height(); y++)
+                    for (int x = 0; x < image.width(); x++)
+                        colors.insert(image.pixel(x, y));
+        require(colors.size() <= 240, "Sharp terrain and actors share a 240-color palette");
+    }
     for (const auto &name : changed()) {
         const auto &b = data(name);
         require(!b.isEmpty() && b.size() <= MOD_MAX_RESOURCE, "Invalid resource size: " + name);
@@ -93,15 +113,17 @@ QByteArray Project::package() const {
         totalOutput += resources[name].edited.size();
         require(totalOutput <= MOD_MAX_PACKAGE, "Decoded package exceeds 32 MiB");
         const auto &r = resources[name];
+        const QByteArray base =
+            MOD_TilesetSheet(name.toLatin1().constData()) ? QByteArray() : r.original;
         QByteArray spans;
         unsigned count = 0;
         for (int i = 0; i < r.edited.size();) {
-            if (i < r.original.size() && r.edited[i] == r.original[i]) {
+            if (i < base.size() && r.edited[i] == base[i]) {
                 ++i;
                 continue;
             }
             int begin = i++;
-            while (i < r.edited.size() && (i >= r.original.size() || r.edited[i] != r.original[i]))
+            while (i < r.edited.size() && (i >= base.size() || r.edited[i] != base[i]))
                 ++i;
             append32(spans, begin);
             append32(spans, i - begin);
@@ -111,9 +133,9 @@ QByteArray Project::package() const {
         QByteArray n = name.toLatin1();
         append32(out, n.size());
         out += n;
-        append32(out, r.original.size());
+        append32(out, base.size());
         append32(out, r.edited.size());
-        append32(out, MOD_Crc32(r.original.constData(), r.original.size()));
+        append32(out, MOD_Crc32(base.constData(), base.size()));
         append32(out, MOD_Crc32(r.edited.constData(), r.edited.size()));
         append32(out, count);
         out += spans;
@@ -161,12 +183,13 @@ void Project::save(const QString &path) {
     QJsonArray edits;
     for (auto name : changed()) {
         const auto &r = resources[name];
-        edits.append(
-            QJsonObject{{"name", name},
-                        {"included", r.included},
-                        {"baseSize", r.original.size()},
-                        {"baseCrc", double(MOD_Crc32(r.original.constData(), r.original.size()))},
-                        {"bytes", QString::fromLatin1(r.edited.toBase64())}});
+        const QByteArray base =
+            MOD_TilesetSheet(name.toLatin1().constData()) ? QByteArray() : r.original;
+        edits.append(QJsonObject{{"name", name},
+                                 {"included", r.included},
+                                 {"baseSize", base.size()},
+                                 {"baseCrc", double(MOD_Crc32(base.constData(), base.size()))},
+                                 {"bytes", QString::fromLatin1(r.edited.toBase64())}});
     }
     root["edits"] = edits;
     QJsonObject requirements;
@@ -227,9 +250,10 @@ void Project::load(const QString &path) {
                 "Missing or duplicate resource in project");
         names.insert(name);
         auto &r = next.resources[name];
-        require(edit["baseSize"].toInt(-1) == r.original.size() &&
-                    edit["baseCrc"].toDouble(-1) ==
-                        MOD_Crc32(r.original.constData(), r.original.size()),
+        const QByteArray base =
+            MOD_TilesetSheet(name.toLatin1().constData()) ? QByteArray() : r.original;
+        require(edit["baseSize"].toInt(-1) == base.size() &&
+                    edit["baseCrc"].toDouble(-1) == MOD_Crc32(base.constData(), base.size()),
                 "Original files changed since project creation: " + name);
         auto decoded = QByteArray::fromBase64Encoding(edit["bytes"].toString().toLatin1(),
                                                       QByteArray::AbortOnBase64DecodingErrors);
@@ -261,7 +285,7 @@ QVector<ModDiagnostic> validateMod(const Project &project) {
             if (name == "TEXT.OVR" || name == "RULES.TBL" || name == "CONTENTS.OVR") {
                 require(project.resources[name].original.isEmpty(),
                         "Companion resource must have an empty original base");
-            } else {
+            } else if (!MOD_TilesetSheet(name.toLatin1().constData())) {
                 QString actual;
                 QDir source(project.sourceDirectory);
                 for (const auto &file : source.entryList(QDir::Files))
@@ -567,7 +591,8 @@ QString prepareModTest(const Project &project, const QString &sessionsDirectory)
                 "Cannot make test file writable");
     }
     for (const auto &name : project.resources.keys()) {
-        if (name == "TEXT.OVR" || name == "RULES.TBL" || name == "CONTENTS.OVR")
+        if (name == "TEXT.OVR" || name == "RULES.TBL" || name == "CONTENTS.OVR" ||
+            MOD_TilesetSheet(name.toLatin1().constData()))
             continue; // Virtual companion exists only inside the package.
         auto bytes = readLimited(destination.filePath(name), MOD_MAX_RESOURCE);
         require(bytes == project.resources[name].original,

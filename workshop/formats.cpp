@@ -1,4 +1,8 @@
 #include "formats.h"
+#include "mod/tileset_resources.h"
+#include <QBuffer>
+#include <QImageReader>
+#include <QPainter>
 #include "mod/package.h"
 #include <QHash>
 #include <QMap>
@@ -145,6 +149,38 @@ Graphics readGraphics(const QString &name, const QByteArray &b) {
     Graphics g;
     g.tiles = name == "TILES.16";
     g.original = b;
+    if (auto sheet = MOD_TilesetSheet(name.toLatin1().constData())) {
+        QBuffer input;
+        input.setData(b);
+        input.open(QIODevice::ReadOnly);
+        QImageReader reader(&input, "PNG");
+        const QSize size(sheet->columns * sheet->width, 16 * sheet->height);
+        require(reader.size() == size, "Tilesheet dimensions must remain " +
+                                           QString::number(size.width()) + " × " +
+                                           QString::number(size.height()));
+        auto image = reader.read().convertToFormat(QImage::Format_ARGB32);
+        require(!image.isNull(), "Invalid tilesheet PNG");
+        QSet<QRgb> colors;
+        for (int y = 0; y < image.height(); y++)
+            for (int x = 0; x < image.width(); x++) {
+                auto color = image.pixel(x, y);
+                require(qAlpha(color) == 255,
+                        "Alternate tilesets require opaque PNG pixels; "
+                        "black (or Sharp actor gray) supplies sprite transparency");
+                colors.insert(color);
+            }
+        require(colors.size() <= 240, "Alternate tilesets support at most 240 colors");
+        g.tiles = true;
+        g.pngResource = name;
+        g.columns = sheet->columns;
+        g.tileOffset = sheet->offset;
+        for (int i = 0; i < sheet->columns * 16; i++)
+            g.images.append(image.copy((i % sheet->columns) * sheet->width,
+                                       (i / sheet->columns) * sheet->height, sheet->width,
+                                       sheet->height));
+        g.originals = g.images;
+        return g;
+    }
     QByteArray raw = g.tiles && b.size() == 65536 ? b : decompress(b);
     auto colors = palette();
     unsigned count = g.tiles ? 512 : word(raw, 0);
@@ -196,6 +232,26 @@ QByteArray writeGraphics(const Graphics &g) {
     require(g.images.size() == g.originals.size(), "Changing image count is unsupported");
     if (g.images == g.originals)
         return g.original;
+    if (!g.pngResource.isEmpty()) {
+        const auto sheet = MOD_TilesetSheet(g.pngResource.toLatin1().constData());
+        require(sheet && g.images.size() == sheet->columns * 16, "Invalid tilesheet layout");
+        QImage image(sheet->columns * sheet->width, 16 * sheet->height, QImage::Format_ARGB32);
+        QPainter painter(&image);
+        painter.setCompositionMode(QPainter::CompositionMode_Source);
+        for (int i = 0; i < g.images.size(); i++) {
+            require(g.images[i].size() == QSize(sheet->width, sheet->height),
+                    "Tiles must retain their source dimensions");
+            painter.drawImage((i % sheet->columns) * sheet->width,
+                              (i / sheet->columns) * sheet->height, g.images[i]);
+        }
+        painter.end();
+        QByteArray out;
+        QBuffer buffer(&out);
+        buffer.open(QIODevice::WriteOnly);
+        require(image.save(&buffer, "PNG"), "Cannot encode tilesheet PNG");
+        readGraphics(g.pngResource, out);
+        return out;
+    }
     QByteArray raw = g.tiles ? QByteArray() : QByteArray(2 + g.images.size() * 4, 0);
     if (!g.tiles)
         setWord(raw, 0, g.images.size());
