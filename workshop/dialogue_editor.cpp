@@ -531,6 +531,7 @@ void ConversationEditor::loadNpc(int i, int entry) {
     loadEntry(qBound(0, entry, int(doc.entries.size() - 1)));
 }
 void ConversationEditor::buildOutline(int selectEntry) {
+    if (selectEntry == doc.tail) selectEntry = 0;
     loading = true;
     outline->clear();
     auto root = [&](QString s) {
@@ -575,14 +576,10 @@ void ConversationEditor::buildOutline(int selectEntry) {
     }
     for (int e : doc.rawEntries)
         row(root("Unrecognized bytes"), QString("Raw entry %1 (Advanced)").arg(e), e);
-    if (doc.tail >= 0) {
-        auto t = row(root("Format"), "Structural tail (preserved)", doc.tail);
-        t->setToolTip(0, "Not an editable question. Advanced source retains this "
-                         "ending exactly.");
-    }
     loading = false;
 }
 void ConversationEditor::loadEntry(int e) {
+    if (e == doc.tail) e = 0;
     if (e < 0 || e >= doc.entries.size())
         return;
     loading = true;

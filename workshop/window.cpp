@@ -160,6 +160,10 @@ void writeFile(const QString &path, const QByteArray &bytes) {
 } // namespace
 WorkshopWindow::WorkshopWindow() {
     setWindowTitle("Impera Workshop");
+    auto messages = statusBar();
+    messages->hide();
+    connect(messages, &QStatusBar::messageChanged, messages,
+            [messages](const QString &message) { messages->setVisible(!message.isEmpty()); });
     resize(1320, 860);
     setWindowIcon(QIcon(":/impera.png"));
     auto toolbar = addToolBar("Project");

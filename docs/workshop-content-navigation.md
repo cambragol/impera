@@ -12,7 +12,7 @@ The existing standalone map navigation remains available to standalone map works
 
 ## Location modes (phase 3)
 
-Location editing uses one map canvas, floor selector, zoom and camera across these modes:
+Location editing uses one map canvas, floor selector, zoom and camera. There is no location-tab row. **Select / Move** opens the appropriate right-hand inspector when clicking an NPC or a sign; dragging moves its destination or sign record. The editors support:
 
 - **Terrain:** paint, select, copy and paste terrain.
 - **NPCs / Schedules:** inspect settlement NPCs, move their destinations, set schedule-change hours and open their conversations. The schedule selector appears in this mode.
@@ -21,7 +21,7 @@ Location editing uses one map canvas, floor selector, zoom and camera across the
 - **Encounter:** place party starts, monsters and triggers on combat maps, with read-only trigger-result previews.
 - **Encounter Details:** the existing advanced metadata controls, fixed to the selected combat map. Unverified/padding values remain explicitly identified.
 
-Modes appear only when applicable data is available. Settlement floors remain in the shared selector; signs have no second location/floor picker, and starting objects have no second world picker. Painting controls are hidden in non-terrain modes. Terrain shortcuts from NPCs or Encounter return to Terrain; external text/object modes cannot accidentally paint.
+Inspectors appear only when applicable data is available. Settlement floors remain in the shared selector; signs have no second location/floor picker, and starting objects have no second world picker. Painting tools remain visible and restore the terrain palette when selected. **Map items** provides sign creation, starting objects and advanced encounter details. Switching inspectors cannot paint terrain. The bottom coordinate controls remain; the application status bar is hidden when empty.
 
 Switching modes or floors commits valid pending sign text first. Invalid text keeps the current mode and floor open. Undo, navigation history and map-to-conversation return retain the active location mode. Selecting a sign or object does not move the camera automatically; use Show selected sign/object to center on it. Damaged companion data shows a recoverable layer error rather than closing the application.
 

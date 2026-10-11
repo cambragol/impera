@@ -84,6 +84,8 @@ class MapCanvas : public QWidget {
     QVector<Actor> actors, ghosts;
     int selectedNpc = -1;
     QPoint keyboardCell = {0, 0};
+    std::function<bool(QPoint)> prepareSelection;
+    QVector<Actor> contextActors;
     std::function<int(const QList<int> &)> chooseActor;
     std::function<bool(int, QPoint)> moveNpc;
     std::function<bool(const QByteArray &)> commit;
@@ -171,7 +173,10 @@ class MapWorkspace : public QWidget {
                  QWidget *parent = nullptr);
     ~MapWorkspace() override { clearLocationLayer(); }
     void cancelGesture();
-    void prepareNavigation() { cancelGesture(); saveView(); }
+    void prepareNavigation() {
+        cancelGesture();
+        saveView();
+    }
     void useSharedNavigation() { maps->parentWidget()->hide(); }
     void openPage(int index) { selectPage(index); }
     using LocationLayerFactory =
@@ -193,6 +198,8 @@ class MapWorkspace : public QWidget {
     std::function<bool(const QByteArray &)> nativeCommit;
     void clearLocationLayer();
     void applyLocationMode();
+    bool selectMapItem(QPoint cell);
+    void refreshContextActors();
     bool externalMode() const;
     Project *project;
     QString resource, key;

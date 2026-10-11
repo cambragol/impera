@@ -1079,6 +1079,58 @@ int main(int argc, char **argv) {
             imported.resources["SIGNS.DAT"].edited = bad;
             rejects([&] { imported.validate(); });
         });
+        test("Map selection opens NPC and sign inspectors without location tabs", [&] {
+            QTemporaryDir dir;
+            fixture(dir.path());
+            const QByteArray terrain(16384, char(8));
+            file(dir.path() + "/TOWNE.DAT", terrain);
+            QByteArray npcs(4608, 0);
+            npcs[3] = 2; npcs[6] = 3; npcs[512] = 25;
+            file(dir.path() + "/TOWNE.NPC", npcs);
+            QByteArray seed(66, 0); seed += QByteArray::fromHex("ffff");
+            file(dir.path() + "/SIGNS.DAT", Workshop::writeSigns(seed,
+                 {{1, 0, 5, 6, Workshop::encodeSign("A sign")}}));
+            WorkshopWindow w;
+            check(w.openGame(dir.path()), "Selection fixture failed");
+            w.show(); w.selectResource("TOWNE.DAT"); app.processEvents();
+            auto root = w.findChild<QStackedWidget *>("workspaces")->currentWidget();
+            auto canvas = dynamic_cast<MapCanvas *>(root->findChild<QWidget *>("mapCanvas"));
+            auto modes = root->findChild<QTabBar *>("locationModes");
+            check(modes->isHidden() && !w.statusBar()->isVisible(), "Unused tab or status rows remain visible");
+            root->findChild<QButtonGroup *>("mapTools")->button(MapCanvas::InspectNpc)->click();
+            auto press = [&](QPoint cell) {
+                QPointF pixel((cell.x() + .5) * 16 * canvas->zoom, (cell.y() + .5) * 16 * canvas->zoom);
+                QMouseEvent event(QEvent::MouseButtonPress, pixel, pixel, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(canvas, &event);
+            };
+            auto release = [&](QPoint cell) {
+                QPointF pixel((cell.x() + .5) * 16 * canvas->zoom, (cell.y() + .5) * 16 * canvas->zoom);
+                QMouseEvent move(QEvent::MouseMove, pixel, pixel, Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(canvas, &move);
+                QMouseEvent event(QEvent::MouseButtonRelease, pixel, pixel, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                QApplication::sendEvent(canvas, &event);
+                app.processEvents();
+            };
+            press({2, 3}); release({3, 4});
+            check(canvas->selectedNpc == 0 && U5::byte(w.projectForTests().data("TOWNE.NPC"), 3) == 3,
+                  "Unified selector did not select and move an NPC");
+            press({5, 6}); release({7, 8});
+            auto signs = Workshop::readSigns(w.projectForTests().data("SIGNS.DAT"));
+            check(modes->tabText(modes->currentIndex()) == "Signs" && signs[0].x == 7 && signs[0].y == 8,
+                  "Clicking and dragging a sign did not open its inspector and move its record");
+            check(!canvas->contextActors.isEmpty(), "NPCs disappeared while inspecting a sign");
+            auto draft = root->findChild<QPlainTextEdit *>("locationTextDraft");
+            draft->selectAll(); draft->insertPlainText("Edited sign");
+            press({3, 4}); release({3, 4});
+            check(modes->tabText(modes->currentIndex()) == "NPCs / Schedules" && canvas->selectedNpc == 0,
+                  "Selecting an NPC from the sign inspector did not switch inspectors");
+            check(Workshop::signSource(Workshop::readSigns(w.projectForTests().data("SIGNS.DAT"))[0].text) == "Edited sign",
+                  "Selecting an NPC discarded a pending sign draft");
+            root->findChild<QButtonGroup *>("mapTools")->button(MapCanvas::Pencil)->click();
+            check(canvas->terrainEditingEnabled && modes->currentIndex() == 0 &&
+                      w.projectForTests().data("TOWNE.DAT") == terrain,
+                  "Selection changed terrain or painting did not restore its palette");
+        });
         test("Location modes share canvas, floors, drafts and history", [&] {
             QTemporaryDir dir;
             fixture(dir.path());
@@ -3036,6 +3088,13 @@ int main(int argc, char **argv) {
                 }
                 throw std::runtime_error("Question entry missing");
             };
+            QTreeWidgetItemIterator outlineItems(outline);
+            while (*outlineItems) {
+                check((*outlineItems)->text(0) != "Format" &&
+                          (*outlineItems)->data(0, Qt::UserRole).toInt() != original.tail,
+                      "File-format housekeeping remains in the dialogue outline");
+                ++outlineItems;
+            }
             check(editor.findChild<QWidget *>("conversationActionPane") &&
                       editor.findChild<QListWidget *>("conversationAvailableActions") &&
                       !editor.findChild<QToolButton *>("conversationInsert"),

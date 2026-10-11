@@ -9,6 +9,7 @@ All four implementation steps are now implemented on `feature/native-modding`, u
 ## Implemented interface
 
 - Speech cards keep their natural height at the top of the document, even in tall windows. Available actions occupy a persistent right-hand pane, with preview/playtest controls below them.
+- The conversation outline omits file-format housekeeping such as the structural tail; saving still preserves those bytes.
 - One authoring surface replaces the permanent editor/preview split. **Topics** collapses the outline. **Advanced…** opens tagged source and changes to **Back to conversation**; ordinary editing has no Apply button.
 - Speech uses expanding paragraphs. Avatar-name and rune controls appear as protected inline chips inside speech. Rune spans are tinted and italicized for authoring. Typing, cut, accessibility edits and ordinary paste cannot silently remove those controls; their context menu supports explicit insertion/removal. External clipboard text is always literal speech. Action cards have a menu for typed copy/paste, insertion, movement and removal.
 - Keyword chips wrap within the column and provide edit/remove menus and **+ Keyword**. Shared responses and stored matching order remain intact. Topic/answer operations are enabled for the applicable selection.

@@ -1,7 +1,8 @@
-#include "resource_document.h"
 #include "map_editor.h"
 #include "../src/tiles.h"
 #include "dialogue.h"
+#include "location_text.h"
+#include "resource_document.h"
 #include <cmath>
 using U5::require;
 
@@ -115,9 +116,9 @@ QIcon MapCanvas::toolIcon(int i) {
         painter.drawPolyline(QPolygon{{6, 8}, {2, 12}, {6, 16}});
         painter.drawPolyline(QPolygon{{18, 8}, {22, 12}, {18, 16}});
     } else if (i == MapCanvas::InspectNpc) {
-        painter.drawEllipse(8, 2, 8, 8);
-        painter.drawArc(4, 11, 16, 16, 0, 180 * 16);
-        painter.drawLine(4, 19, 20, 19);
+        painter.setBrush(QColor("#a5d8ff"));
+        painter.drawPolygon(
+            QPolygon{{3, 2}, {3, 20}, {8, 15}, {12, 22}, {16, 20}, {12, 14}, {21, 14}});
     } else if (i == MapCanvas::Select) {
         painter.setPen(QPen(QColor("#e0e8f0"), 2, Qt::DashLine));
         painter.drawRect(3, 3, 18, 18);
@@ -181,6 +182,9 @@ void MapCanvas::paintEvent(QPaintEvent *e) {
             a.tile < tiles.size() && a.label.isEmpty())
             p.drawImage(QRectF(a.x * cell, a.y * cell, cell, cell), tiles[a.tile]);
     if (tool == InspectNpc) {
+        for (auto actor : contextActors)
+            if (actor.tile >= 0 && actor.tile < tiles.size())
+                p.drawImage(QRectF(actor.x * cell, actor.y * cell, cell, cell), tiles[actor.tile]);
         for (auto actor : actors)
             if (!actor.label.isEmpty()) {
                 QRectF r(actor.x * cell, actor.y * cell, cell, cell);
@@ -206,12 +210,17 @@ void MapCanvas::paintEvent(QPaintEvent *e) {
                 p.setPen(QPen(QColor("#72caff"), 2));
                 p.drawRect(
                     QRectF(actor.x * cell, actor.y * cell, cell, cell).adjusted(1, 1, -1, -1));
-                if (npcDrag && npcDestination.x() >= 0 && actor.tile < tiles.size()) {
-                    p.setOpacity(0.65);
-                    p.drawImage(
-                        QRectF(npcDestination.x() * cell, npcDestination.y() * cell, cell, cell),
-                        tiles[actor.tile]);
-                    p.setOpacity(1);
+                if (npcDrag && npcDestination.x() >= 0) {
+                    if (actor.tile >= 0 && actor.tile < tiles.size()) {
+                        p.setOpacity(0.65);
+                        p.drawImage(QRectF(npcDestination.x() * cell, npcDestination.y() * cell,
+                                           cell, cell),
+                                    tiles[actor.tile]);
+                        p.setOpacity(1);
+                    }
+                    p.drawRect(
+                        QRectF(npcDestination.x() * cell, npcDestination.y() * cell, cell, cell)
+                            .adjusted(1, 1, -1, -1));
                     if (!actor.label.isEmpty()) {
                         p.setPen(QColor("#72caff"));
                         p.drawText(QRectF(npcDestination.x() * cell, npcDestination.y() * cell,
@@ -341,6 +350,8 @@ void MapCanvas::mousePressEvent(QMouseEvent *e) {
         return;
     }
     if (tool == InspectNpc) {
+        if (prepareSelection && !prepareSelection(cell))
+            return;
         QList<int> candidates;
         for (auto a : actors)
             if (a.x == cell.x() && a.y == cell.y())
@@ -386,10 +397,8 @@ void MapCanvas::mouseMoveEvent(QMouseEvent *e) {
     if (npcDrag) {
         npcDestination = cellAt(e->position());
         say(npcDestination.x() >= 0
-                ? QString("NPC move preview: X %1 · Y %2 · release to place · Esc cancels")
-                      .arg(npcDestination.x())
-                      .arg(npcDestination.y())
-                : "NPC destination outside map; release cancels");
+                ? QString("Move to X %1 · Y %2").arg(npcDestination.x()).arg(npcDestination.y())
+                : "Destination outside map");
         update();
         return;
     }
@@ -963,12 +972,12 @@ MapWorkspace::MapWorkspace(
     row->addWidget(exportButton);
     centerLayout->addLayout(row);
     auto tools = new QHBoxLayout;
+    tools->setObjectName("mapToolRow");
     tool = new QButtonGroup(this);
     tool->setObjectName("mapTools");
     QString companion = resource.left(resource.size() - 4) + ".NPC";
-    const QStringList names{
-        "Pencil", "Eyedropper", "Pan", resource.endsWith(".CBT") ? "Encounter" : "NPCs",
-        "Select", "Rectangle",  "Fill"};
+    const QStringList names{"Pencil", "Eyedropper", "Pan", "Select / Move",
+                            "Select", "Rectangle",  "Fill"};
     const QStringList descriptions{
         "Pencil (B): paint tiles with the current brush.",
         "Eyedropper (I): pick a tile from the map as your brush.",
@@ -1273,10 +1282,24 @@ MapWorkspace::MapWorkspace(
             selectPage(currentPage());
     });
     connect(tool, &QButtonGroup::idClicked, this, [=](int i) {
-        if (locationModes && !externalMode() && i != MapCanvas::Pan) {
-            const int target = i == MapCanvas::InspectNpc ? 1 : 0;
-            if (locationModes->currentIndex() != target)
+        if (locationModes && i != MapCanvas::Pan) {
+            int target = activeMode;
+            if (i != MapCanvas::InspectNpc)
+                target = 0;
+            else if (activeMode == 0) {
+                for (int index = 1; index < locationModes->count(); ++index)
+                    if (locationModes->tabText(index) == "NPCs / Schedules" ||
+                        locationModes->tabText(index) == "Encounter" ||
+                        locationModes->tabText(index) == "Signs") {
+                        target = index;
+                        break;
+                    }
+            }
+            if (target != activeMode) {
                 locationModes->setCurrentIndex(target);
+                if (activeMode != target)
+                    return;
+            }
             if (i != MapCanvas::InspectNpc)
                 terrainTool = i;
         }
@@ -1420,7 +1443,26 @@ void MapWorkspace::enableLocationModes(const QStringList &names, LocationLayerFa
         0, navigation->value(resource + "/mode", canvas->tool == MapCanvas::InspectNpc ? 1 : 0),
         int(names.size()) - 1);
     locationModes->setCurrentIndex(activeMode);
-    static_cast<QVBoxLayout *>(layout())->insertWidget(0, locationModes);
+    locationModes->setParent(this);
+    locationModes->hide();
+    canvas->prepareSelection = [this](QPoint cell) { return selectMapItem(cell); };
+    auto extras = new QToolButton;
+    extras->setText("Map items");
+    extras->setObjectName("mapItemsMenu");
+    extras->setPopupMode(QToolButton::InstantPopup);
+    auto menu = new QMenu(extras);
+    for (int index = 1; index < names.size(); ++index) {
+        const auto name = names[index];
+        if (name == "Signs" || name == "Starting Objects" || name == "Encounter Details")
+            menu->addAction(name == "Signs" ? "Add / edit signs" : name, this,
+                            [this, index] { locationModes->setCurrentIndex(index); });
+    }
+    if (auto row = findChild<QHBoxLayout *>("mapToolRow"))
+        row->insertWidget(7, extras);
+    extras->setVisible(!menu->isEmpty());
+    tool->button(MapCanvas::InspectNpc)
+        ->setToolTip("Select / Move — select an NPC, sign or map item and drag to move it.");
+    tool->button(MapCanvas::InspectNpc)->setAccessibleName("Select / Move");
     connect(locationModes, &QTabBar::currentChanged, this, [this](int mode) {
         if (!flushLocationMode()) {
             QSignalBlocker block(locationModes);
@@ -1443,9 +1485,9 @@ void MapWorkspace::applyLocationMode() {
     if (mode == "NPCs / Schedules" || mode == "Encounter") {
         auto panel = findChild<QScrollArea *>("mapCharacterInspector");
         panel->widget()->layout()->activate();
-        minimum = qMax(minimum, panel->widget()->minimumSizeHint().width() +
-                       panel->frameWidth() * 2 +
-                       panel->style()->pixelMetric(QStyle::PM_ScrollBarExtent));
+        minimum =
+            qMax(minimum, panel->widget()->minimumSizeHint().width() + panel->frameWidth() * 2 +
+                              panel->style()->pixelMetric(QStyle::PM_ScrollBarExtent));
     }
     inspector->parentWidget()->setMinimumWidth(minimum);
     canvas->actors.clear();
@@ -1454,13 +1496,10 @@ void MapWorkspace::applyLocationMode() {
     canvas->selectedNpc = states->value(key).npc;
     for (auto button : tool->buttons()) {
         const int id = tool->id(button);
-        button->setEnabled(!externalMode() || id == MapCanvas::Pan || id == MapCanvas::InspectNpc);
-        button->setVisible(activeMode == 0 || id == MapCanvas::Pan || id == MapCanvas::InspectNpc);
+        button->setEnabled(true);
+        button->setVisible(true);
     }
-    // The character tool remains a shortcut into the dedicated mode when it exists.
-    tool->button(MapCanvas::InspectNpc)
-        ->setEnabled(activeMode > 0 || locationModes->tabText(1) == "NPCs / Schedules" ||
-                     locationModes->tabText(1) == "Encounter");
+    tool->button(MapCanvas::InspectNpc)->setEnabled(locationModes->count() > 1);
     schedule->setEnabled(!externalMode() && activeMode == 1 && !resource.endsWith(".CBT"));
     const bool showSchedule =
         activeMode == 1 && !externalMode() && project->resources.contains(npcResource);
@@ -1516,8 +1555,88 @@ void MapWorkspace::applyLocationMode() {
         inspector->addWidget(locationLayer);
         inspector->setCurrentWidget(locationLayer);
     }
+    refreshContextActors();
     tool->button(canvas->tool)->setChecked(true);
     canvas->update();
+}
+bool MapWorkspace::selectMapItem(QPoint cell) {
+    const auto &page = document.pages[currentPage()];
+    int npcMode = -1, signMode = -1;
+    for (int i = 0; i < locationModes->count(); ++i) {
+        if (locationModes->tabText(i) == "NPCs / Schedules")
+            npcMode = i;
+        if (locationModes->tabText(i) == "Signs")
+            signMode = i;
+    }
+    bool npcHit = false, signHit = false, signRecordHit = false;
+    const int signMap =
+        resource == "BRIT.DAT"
+            ? 0
+            : QStringList{"TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT", "KEEP.DAT"}.indexOf(resource) *
+                      8 +
+                  page.settlement + 1;
+    if (npcMode >= 0 && page.settlement >= 0 && project->data(npcResource).size() == 4608) {
+        MapNpcDocument npcs(project, npcResource);
+        for (int id = 0; id < 32; ++id) {
+            auto position = npcs.location(page.settlement, id, schedule->currentIndex());
+            npcHit |= U5::byte(project->data(npcResource), page.settlement * 576 + 512 + id) != 0 &&
+                      position.floor == page.floor && position.x == cell.x() &&
+                      position.y == cell.y();
+        }
+    }
+    if (signMode >= 0) {
+        try {
+            for (const auto &sign : Workshop::readSigns(project->data("SIGNS.DAT")))
+                signRecordHit |= sign.map == signMap && sign.floor == page.floor &&
+                                 sign.x == cell.x() && sign.y == cell.y();
+        } catch (const std::exception &) {
+        }
+        const int tile = U5::byte(document.terrain(currentPage()), cell.y() * page.side + cell.x());
+        signHit = signRecordHit || tile == 0x89 || tile == 0x8a || tile == 0xa0 || tile == 0xa4 ||
+                  tile == 0xf8;
+    }
+    int target = npcHit ? npcMode : signHit ? signMode : activeMode;
+    if (npcHit && signHit) {
+        bool ok = false;
+        const auto choice =
+            QInputDialog::getItem(this, "Select map item", "Item", {"NPC", "Sign"}, 0, false, &ok);
+        if (!ok)
+            return false;
+        target = choice == "NPC" ? npcMode : signMode;
+    }
+    if (target != activeMode) {
+        locationModes->setCurrentIndex(target);
+        if (activeMode != target)
+            return false;
+    }
+    canvas->keyboardCell = cell;
+    if (target == signMode && signHit && !signRecordHit && locationLayer) {
+        if (!flushLocationMode()) return false;
+        if (auto entries = locationLayer->findChild<QListWidget *>("locationTextEntries")) {
+            entries->setCurrentRow(-1);
+            entries->clearSelection();
+        }
+        if (auto draft = locationLayer->findChild<QPlainTextEdit *>("locationTextDraft")) {
+            draft->clear();
+            draft->document()->setModified(false);
+        }
+        canvas->selectedNpc = -1;
+    }
+    return true;
+}
+void MapWorkspace::refreshContextActors() {
+    canvas->contextActors.clear();
+    const auto &page = document.pages[currentPage()];
+    if (!externalMode() || page.settlement < 0 || project->data(npcResource).size() != 4608)
+        return;
+    MapNpcDocument npcs(project, npcResource);
+    for (int id = 0; id < 32; ++id) {
+        auto position = npcs.location(page.settlement, id, schedule->currentIndex());
+        if (U5::byte(project->data(npcResource), page.settlement * 576 + 512 + id) != 0 &&
+            position.floor == page.floor && position.x < 32 && position.y < 32)
+            canvas->contextActors.append(
+                {position.x, position.y, npcs.sprite(page.settlement, id), id, {}});
+    }
 }
 int MapWorkspace::currentPage() const { return page->currentData().toInt(); }
 void MapWorkspace::populateFloors(int index) {
@@ -1560,7 +1679,8 @@ void MapWorkspace::selectPage(int index) {
     loadPage();
     findChild<QSpinBox *>("mapGoX")->setRange(0, canvas->side - 1);
     findChild<QSpinBox *>("mapGoY")->setRange(0, canvas->side - 1);
-    if (locationChanged) locationChanged();
+    if (locationChanged)
+        locationChanged();
 }
 void MapWorkspace::cancelGesture() { canvas->cancelStroke(); }
 void MapWorkspace::setBrush(int id) {

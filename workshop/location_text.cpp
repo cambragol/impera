@@ -652,6 +652,20 @@ QWidget *locationTextEditor(Project *project, const QString &resource, TextCommi
                 QMessageBox::warning(root, "Cannot add sign", e.what());
             }
         });
+        canvas->moveNpc = [=](int id, QPoint destination) {
+            if (id < 0 || id >= records->size()) return false;
+            if (text->document()->isModified()) {
+                apply->click();
+                if (text->document()->isModified()) return false;
+            }
+            for (int row = 0; row < list->count(); ++row)
+                if (list->item(row)->data(Qt::UserRole).toInt() == id)
+                    list->setCurrentRow(row);
+            x->setValue(destination.x());
+            y->setValue(destination.y());
+            apply->click();
+            return !text->document()->isModified();
+        };
         if (context.canvas && context.locate) {
             auto locate = new QPushButton("Show selected sign");
             locate->setToolTip(
