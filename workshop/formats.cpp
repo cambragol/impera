@@ -460,7 +460,7 @@ QVector<MapPage> mapPages(const QString &name, const QByteArray &b) {
         levels = {2, 2, 1, 1, 1, 3, 3, 3};
         floors[7] = -1;
     } else
-        require(false, "No visual map layout for this resource; use the resource inspector");
+        require(false, "No supported map layout for this resource");
     int offset = 0;
     for (int i = 0; i < 8; i++)
         for (int l = 0; l < levels[i]; l++) {

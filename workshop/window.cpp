@@ -312,9 +312,6 @@ WorkshopWindow::WorkshopWindow() {
     });
     auto central = new QWidget;
     auto layout = new QVBoxLayout(central);
-    summary = new QLabel;
-    summary->setStyleSheet("font-size:18px;font-weight:600;padding:14px;");
-    layout->addWidget(summary);
     auto split = new QSplitter;
     auto library = new QWidget;
     auto lv = new QVBoxLayout(library);
@@ -326,10 +323,17 @@ WorkshopWindow::WorkshopWindow() {
     assets->setMinimumWidth(230);
     lv->addWidget(assets);
     split->addWidget(library);
-    auto showResources = menuBar()->addAction("Resource Library");
-    showResources->setCheckable(true);
-    showResources->setChecked(true);
-    connect(showResources, &QAction::toggled, library, &QWidget::setVisible);
+    auto showResources = new QAction("Resources", this);
+    showResources->setObjectName("showResourceLibrary");
+    showResources->setShortcut(QKeySequence("Ctrl+L"));
+    showResources->setToolTip(
+        "Return to the resource library from any editor (Ctrl+L). Your current edit remains open.");
+    toolbar->insertAction(toolbar->actions().first(), showResources);
+    connect(showResources, &QAction::triggered, this, [library, search] {
+        library->show();
+        search->setFocus();
+        search->selectAll();
+    });
     library->setObjectName("resourceLibrary");
     content = new QStackedWidget;
     content->setObjectName("workspaces");
@@ -384,11 +388,6 @@ bool WorkshopWindow::guard(const std::function<void()> &operation) {
     }
 }
 void WorkshopWindow::updateSummary() {
-    summary->setText(
-        project.resources.isEmpty()
-            ? "Impera Workshop"
-            : project.title +
-                  QString("   ·   %1 modified resources").arg(project.changed().size()));
     setWindowModified(!history.isClean() || project.title != savedTitle);
     setWindowTitle("Impera Workshop — " + project.title + "[*]");
 }
@@ -488,8 +487,10 @@ void WorkshopWindow::rebuildTree() {
             groups[group] = new QTreeWidgetItem(assets, {group});
             groups[group]->setExpanded(true);
         }
-        auto item =
-            new QTreeWidgetItem(groups[group], {Workshop::capability(name).title + (it->edited != it->original ? "  •" : "")});
+        QString label = name + ((it->edited != it->original || it->included) ? " *" : "");
+        if (Workshop::capability(name).title != name)
+            label += " — " + Workshop::capability(name).title;
+        auto item = new QTreeWidgetItem(groups[group], {label});
         item->setData(0, Qt::UserRole, name);
         item->setToolTip(0, name + "\n" + Workshop::capability(name).status);
         if (name == current)
@@ -554,7 +555,9 @@ void WorkshopWindow::rebuildEditor() {
         QVBoxLayout *l;
         w = panel(&l);
         l->addWidget(hint(QString::fromUtf8(e.what())));
-        l->addWidget(bytesEditor(current));
+        l->addWidget(hint("This resource cannot be opened by its supported editor. Use Resources "
+                          "to choose another file; original game data has not been changed."));
+        l->addStretch();
     }
     while (content->count()) {
         auto old = content->widget(0);
@@ -573,24 +576,34 @@ void WorkshopWindow::rebuildEditor() {
         });
 }
 QWidget *WorkshopWindow::resourceEditor(const QString &name) {
+    auto root = new QWidget;
+    root->setObjectName("resourceWorkspace");
+    auto layout = new QVBoxLayout(root);
+    layout->setContentsMargins(0, 0, 0, 0);
     auto tabs = new QTabWidget;
+    auto navigation = new QHBoxLayout;
     if (!MapDocument::supported(name) && !lastMap.isEmpty()) {
         auto back = new QPushButton("Back to map");
         back->setObjectName("backToMap");
-        tabs->setCornerWidget(back);
+        back->setToolTip("Return to the map you were editing.");
+        navigation->addWidget(back);
         connect(back, &QPushButton::clicked, this, [this] { selectResource(lastMap); });
     }
     if (name == "DUNGEON.CBT" && dungeonRoomNavigation) {
         auto back = new QPushButton("Back to dungeon");
         back->setObjectName("backToDungeon");
         back->setToolTip("Return to the dungeon level and cell that opened this room.");
-        tabs->setCornerWidget(back);
+        navigation->addWidget(back);
         connect(back, &QPushButton::clicked, this, [this] { selectResource("DUNGEON.DAT"); });
     }
+    if (navigation->count()) {
+        navigation->addStretch();
+        layout->addLayout(navigation);
+    } else
+        delete navigation;
     QWidget *editor = nullptr;
-    for (auto action : menuBar()->actions())
-        if (action->text() == "Resource Library")
-            action->setChecked(!name.endsWith(".TLK") && !MapDocument::supported(name));
+    if (auto library = findChild<QWidget *>("resourceLibrary"))
+        library->setVisible(!name.endsWith(".TLK") && !MapDocument::supported(name));
     const auto kind = Workshop::capability(name).editor;
     auto objectCommit = [this](const QString &name, const QByteArray &bytes, bool included) {
         return guard([&] {
@@ -678,7 +691,8 @@ QWidget *WorkshopWindow::resourceEditor(const QString &name) {
         layout->addWidget(hint(info.title + "\n" + info.status));
         auto entries = new QListWidget;
         entries->setObjectName("resourceEntries");
-        entries->setToolTip("Stable entries in this resource. Raw edits are available in Resource inspector.");
+        entries->setToolTip(
+            "Read-only overview. This resource has no supported authoring controls yet.");
         Workshop::ResourceDocument document(project, name);
         for (const auto &entry : document.entries()) {
             auto item = new QListWidgetItem(entry.title, entries);
@@ -687,18 +701,18 @@ QWidget *WorkshopWindow::resourceEditor(const QString &name) {
             item->setToolTip(QString("Offset %1; %2 bytes").arg(entry.offset).arg(entry.length));
         }
         layout->addWidget(entries);
-        connect(entries, &QListWidget::itemDoubleClicked, tabs, [tabs](QListWidgetItem *item) {
-            tabs->setCurrentIndex(tabs->count()-1);
-            if (auto offset = tabs->findChild<QSpinBox *>("resourceByteOffset"))
-                offset->setValue(item->data(Qt::UserRole + 1).toInt());
-        });
     }
-    if (editor)
-        tabs->insertTab(0, editor, kind == Workshop::EditorKind::Inspector ? "Resource overview" : "Visual editor");
-    tabs->addTab(bytesEditor(name), "Resource inspector");
-    tabs->setCurrentIndex(0);
-    return tabs;
+    if (tabs->count()) {
+        tabs->insertTab(0, editor, "Map");
+        tabs->setCurrentIndex(0);
+        layout->addWidget(tabs);
+    } else {
+        delete tabs;
+        layout->addWidget(editor);
+    }
+    return root;
 }
+
 QWidget *WorkshopWindow::mapEditor(const QString &name) {
     auto workspace = new MapWorkspace(
         &project, name, &mapViewStates, &editorState,
@@ -917,6 +931,12 @@ QWidget *WorkshopWindow::dialogueEditor(const QString &name) {
             editorState[name + "/conversation"] = npc;
             editorState[name + "/entry"] = entry;
         });
+    auto location = editor->findChild<QComboBox *>("conversationLocationFilter");
+    location->setCurrentIndex(
+        qMax(0, location->findData(editorState.value(name + "/locationFilter", -1))));
+    connect(location, &QComboBox::currentIndexChanged, this, [this, name, location] {
+        editorState[name + "/locationFilter"] = location->currentData().toInt();
+    });
     flushDraft = [editor] { return editor->flush(); };
     return editor;
 }
@@ -1017,6 +1037,7 @@ QWidget *WorkshopWindow::stateEditor() {
     auto numeric = [this](QFormLayout *form, QWidget *owner, const QString &label, int off,
                           int width, const QString &help) {
         auto sp = new QSpinBox;
+        sp->setObjectName(QString("startingField_%1").arg(off, 0, 16));
         sp->setRange(0, width == 1 ? 255 : 65535);
         sp->setValue(width == 1 ? U5::byte(project.data("INIT.GAM"), off)
                                 : U5::word(project.data("INIT.GAM"), off));
@@ -1343,97 +1364,6 @@ QWidget *WorkshopWindow::combatEditor(const QString &name) {
                            "eight X then eight Y. Remaining cells are unknown/padding."));
     return w;
 }
-QWidget *WorkshopWindow::bytesEditor(const QString &name) {
-    QVBoxLayout *layout;
-    auto w = panel(&layout);
-    auto row = new QHBoxLayout;
-    auto offset = new QSpinBox;
-    offset->setObjectName("resourceByteOffset");
-    offset->setRange(0, qMax(0, int(project.data(name).size()) - 1));
-    offset->setDisplayIntegerBase(16);
-    offset->setPrefix("0x");
-    row->addWidget(new QLabel("Start offset"));
-    row->addWidget(offset);
-    row->addStretch();
-    layout->addLayout(row);
-    auto table = new QTableWidget(256, 16);
-    table->setObjectName("byteInspector");
-    table->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
-    QStringList headers;
-    for (int i = 0; i < 16; i++)
-        headers << QString::number(i, 16).toUpper();
-    table->setHorizontalHeaderLabels(headers);
-    table->horizontalHeader()->setDefaultSectionSize(42);
-    layout->addWidget(table, 1);
-    auto load = [=] {
-        QSignalBlocker blocked(table);
-        const auto &b = project.data(name);
-        QStringList rows;
-        for (int y = 0; y < 256; y++) {
-            rows << QString("%1").arg(offset->value() + y * 16, 6, 16, QChar('0'));
-            for (int x = 0; x < 16; x++) {
-                int pos = offset->value() + y * 16 + x;
-                auto item = new QTableWidgetItem(
-                    pos < b.size()
-                        ? QString("%1").arg(U5::byte(b, pos), 2, 16, QChar('0')).toUpper()
-                        : "");
-                item->setData(Qt::UserRole, pos);
-                if (pos >= b.size())
-                    item->setFlags(Qt::NoItemFlags);
-                table->setItem(y, x, item);
-            }
-        }
-        table->setVerticalHeaderLabels(rows);
-    };
-    load();
-    connect(offset, &QSpinBox::valueChanged, w, [=] { load(); });
-    connect(table, &QTableWidget::itemChanged, w, [=](QTableWidgetItem *item) {
-        if (!guard([&] {
-                bool ok;
-                int value = item->text().toInt(&ok, 16);
-                require(ok && value >= 0 && value <= 255 && item->text().size() <= 2,
-                        "Enter one hexadecimal byte (00–FF)");
-                auto b = project.data(name);
-                int pos = item->data(Qt::UserRole).toInt();
-                require(pos >= 0 && pos < b.size(), "Byte offset out of range");
-                b[pos] = char(value);
-                edit({{name, b}}, "Edit " + name + " byte");
-            }))
-            load();
-    });
-    auto actions = new QHBoxLayout;
-    button(actions, "Import edited resource…", [=] {
-        QString path = QFileDialog::getOpenFileName(
-            this, "Import an existing editor's output as a project override");
-        if (path.isEmpty())
-            return;
-        guard([&] {
-            Project next = project;
-            auto b = readFile(path);
-            next.resources[name].edited = b;
-            next.validate();
-            edit({{name, b}}, "Import " + name);
-            rebuildEditor();
-        });
-    });
-    button(actions, "Revert resource", [=] {
-        if (QMessageBox::question(this, "Revert resource", "Discard edits to " + name + "?",
-                                  QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
-            return;
-        edit({{name, project.resources[name].original}}, "Revert " + name, {{name, false}});
-        rebuildEditor();
-    });
-    actions->addStretch();
-    layout->addLayout(actions);
-    layout->addWidget(hint("Advanced hexadecimal inspector. Each edit is "
-                           "undoable. Import can bring existing editor "
-                           "outputs into a mod without changing the original "
-                           "files. Resource checks run on project save "
-                           "and package export; unknown fields still require "
-                           "knowledge of the DOS format."));
-    return w;
-}
-
 bool WorkshopWindow::reviewPackage(bool launch) {
     if (flushDraft && !flushDraft())
         return false;

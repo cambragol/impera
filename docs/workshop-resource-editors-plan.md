@@ -89,7 +89,7 @@ A no-op decode/encode must reproduce the original bytes, including opaque data.
 For a changed document, write only understood sections, unless the schema permits
 rebuilding offsets. Unknown regions must never be silently zeroed or discarded.
 Apply import, edit and export validation through the same codecs. A malformed
-resource should produce diagnostics and retain access to the raw inspector,
+resource should produce diagnostics and retain a read-only overview,
 not crash Workshop or silently replace the file with defaults.
 
 ## Phase 1 — Establish reliable runtime compatibility
@@ -172,8 +172,8 @@ never keep a second authoritative buffer. Known font glyphs and world-object
 records have stable entry IDs and checked byte spans. Other layouts remain whole
 resource entries until their format-specific codecs are implemented.
 
-The resource shell explains editor availability and exposes entries that open the
-byte inspector at their offsets. Navigation retains resource/entry IDs separately
+The resource shell explains editor availability and lists unsupported entries
+read-only. Navigation retains resource/entry IDs separately
 from display names; diagnostics retain the same document identity. Unknown and
 malformed files remain inspectable. Search accepts both friendly names and filenames.
 
@@ -186,7 +186,7 @@ format-specific responsibilities for subsequent phases. Missing fonts show an
 explanation rather than substituted artwork. Existing encoders remain authoritative.
 
 Synthetic tests cover preserved surrounding bytes, unchanged round trips, truncated
-fonts/records, offset overflow, stable inspector navigation, undo, project reopen
+fonts/records, offset overflow, stable resource navigation, undo, project reopen
 and package import/export. Dedicated semantic editors for the audited resources
 remain in Phases 3–9; this phase does not claim those layouts are fully validated.
 
@@ -489,8 +489,8 @@ inventory of the overlay against `vars.c` and every runtime consumer:
 
 Acceptance is per table: change it in Workshop and demonstrate the effect in
 Impera. Report unused or unresolved spans explicitly. No “everything supported”
-badge until coverage is proven. Raw editing remains possible but unsupported
-runtime effects are explained before export.
+badge until coverage is proven. Unsupported resources remain read-only; the Workshop does not expose raw
+hexadecimal editing.
 
 ## Delivery, tests and completion gates
 

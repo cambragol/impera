@@ -198,8 +198,7 @@ Sources: [Workshop world codec](../workshop/formats.cpp),
 5. Add Fonts and Starting world objects. Defer Hercules font editing and general
    DOS overlay editing.
 
-Reorganize the tree into those user-facing groups as editors arrive. Keep a
-Resource inspector for advanced import/export, rather than implying that all
+Reorganize the tree into those user-facing groups as editors arrive. Keep unsupported resources read-only, rather than implying that all
 remaining files are ordinary editable text.
 
 ## Validation and scope
@@ -221,4 +220,4 @@ they are not hidden members of Other Resources. In particular `PROPORT.PCS`,
 used for proportional text, would need explicit support for font authoring.
 
 Sources: [project loading/validation](../workshop/project.cpp),
-[tree and inspector](../workshop/window.cpp), [package rules](../src/mod/package.c).
+[resource navigation](../workshop/window.cpp), [package rules](../src/mod/package.c).

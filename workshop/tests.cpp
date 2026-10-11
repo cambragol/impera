@@ -870,31 +870,134 @@ int main(int argc, char **argv) {
             check(Workshop::capability("UNKNOWN.DAT").editor == Workshop::EditorKind::Inspector,
                   "Unknown file lost inspection");
         });
-        test("Resource registry and inspector navigation", [] {
+        test("Direct workspaces, resource markers and universal resource navigation", [&] {
             QTemporaryDir dir;
-            auto p = fixture(dir.path());
-            file(dir.path() + "/INIT.OOL", QByteArray(256, 3));
+            fixture(dir.path());
+            QByteArray initialObjects(256, 0);
+            initialObjects[8] = initialObjects[9] = char(25);
+            initialObjects[10] = initialObjects[11] = char(3);
+            initialObjects[12] = char(255);
+            file(dir.path() + "/INIT.OOL", initialObjects);
             file(dir.path() + "/BRIT.OOL", QByteArray(256, 0));
             file(dir.path() + "/UNDER.OOL", QByteArray(256, 0));
+            file(dir.path() + "/TOWNE.DAT", QByteArray(16384, 0));
+            file(
+                dir.path() + "/TOWNE.TLK",
+                U5::writeDialogue({{1, U5::encodeText("Name<Entry>Description<Entry>Greeting<Entry>"
+                                                      "Job<Entry>Bye<Entry><Any><Label 15>@")}}));
             WorkshopWindow window;
-            window.openGame(dir.path());
+            check(window.openGame(dir.path()), "Open navigation fixture");
             window.selectResource("INIT.OOL");
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             check(window.findChild<QListWidget *>("worldObjectList"), "Starting objects workspace missing");
-            auto offset = window.findChild<QSpinBox *>("resourceByteOffset");
-            check(offset, "Advanced byte navigation absent");
-            offset->setValue(16);
-            auto table = window.findChild<QTableWidget *>("byteInspector");
-            check(table, "Inspector absent");
-            table->item(0, 0)->setText("09");
-            check(window.projectForTests().data("INIT.OOL")[16] == 9, "Raw edit not committed");
+            check(!window.findChild<QSpinBox *>("resourceByteOffset") &&
+                      !window.findChild<QTableWidget *>("byteInspector"),
+                  "Hex editor is still exposed");
+            window.findChild<QSpinBox *>("worldObjectX")->setValue(4);
+            auto marker = [&] {
+                auto library = window.findChild<QWidget *>("resourceLibrary");
+                QTreeWidgetItemIterator it(library->findChild<QTreeWidget *>());
+                while (*it) {
+                    if ((*it)->data(0, Qt::UserRole).toString() == "UNDER.OOL")
+                        return (*it)->text(0).startsWith("UNDER.OOL *");
+                    ++it;
+                }
+                return false;
+            };
+            check(marker(), "Modified resource has no asterisk");
             for (auto action : window.findChildren<QAction *>())
                 if (action->text().startsWith("Undo ")) {
                     action->trigger();
                     break;
                 }
-            QApplication::processEvents();
-            check(window.projectForTests().data("INIT.OOL")[16] == 3, "Document undo failed");
+            app.processEvents();
+            check(!marker(), "Undo left a modified resource marker");
+            auto resources = window.findChild<QAction *>("showResourceLibrary");
+            auto library = window.findChild<QWidget *>("resourceLibrary");
+            check(resources && resources->shortcut() == QKeySequence("Ctrl+L"),
+                  "Universal resource navigation missing");
+            for (auto resource : {"TOWNE.DAT", "TOWNE.TLK"}) {
+                window.selectResource(resource);
+                check(library->isHidden(), "Focused editor did not hide library");
+                auto workspace = window.findChild<QStackedWidget *>("workspaces")->currentWidget();
+                auto draft = resource == QString("TOWNE.TLK")
+                                 ? workspace->findChild<QPlainTextEdit *>("dialogueText")
+                                 : nullptr;
+                QString text;
+                if (draft) {
+                    text = draft->toPlainText() + "draft";
+                    draft->setPlainText(text);
+                }
+                resources->trigger();
+                check(!library->isHidden(), "Cannot return to resources from focused editor");
+                check(window.findChild<QStackedWidget *>("workspaces")->currentWidget() ==
+                              workspace &&
+                          (!draft || draft->toPlainText() == text),
+                      "Resource navigation replaced workspace or discarded draft");
+            }
+            auto workspace = window.findChild<QStackedWidget *>("workspaces")->currentWidget();
+            for (auto tabs : workspace->findChildren<QTabWidget *>())
+                for (int i = 0; i < tabs->count(); ++i)
+                    check(tabs->tabText(i) != "Visual editor" &&
+                              tabs->tabText(i) != "Resource inspector",
+                          "Redundant workspace tabs remain");
+        });
+        test("Conversation filters use top-level locations and combine with search", [] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            auto conversation = [](QString name) {
+                return U5::encodeText(
+                    name +
+                    "<Entry>Description<Entry>Greeting<Entry>Job<Entry>Bye<Entry><Any><Label 15>@");
+            };
+            file(dir.path() + "/TOWNE.DAT", QByteArray(16384, 0));
+            file(dir.path() + "/TOWNE.TLK", U5::writeDialogue({{1, conversation("Alice")},
+                                                               {2, conversation("Bob")},
+                                                               {3, conversation("Unused")}}));
+            QByteArray schedules(4608, 0);
+            auto assign = [&](int town, int slot, int id) {
+                schedules[town * 576 + 512 + slot] = char(0x40);
+                schedules[town * 576 + 544 + slot] = char(id);
+            };
+            assign(0, 0, 1);
+            assign(3, 1, 1);
+            assign(3, 2, 2);
+            file(dir.path() + "/TOWNE.NPC", schedules);
+            p.openGame(dir.path());
+            ConversationEditor editor(
+                &p, "TOWNE.TLK", [](auto &, auto &) {}, [](auto &, auto &) {}, 0, 0,
+                [](int, int) {});
+            auto filter = editor.findChild<QComboBox *>("conversationLocationFilter");
+            auto npcs = editor.findChild<QTreeWidget *>("conversationNpcs");
+            auto search = editor.findChild<QLineEdit *>("conversationSearch");
+            check(filter->count() == 10 && filter->findText("Yew") >= 0,
+                  "Filter does not use eight top-level locations");
+            for (int i = 0; i < filter->count(); ++i)
+                check(!filter->itemText(i).contains("Floor") &&
+                          !filter->itemText(i).contains("Basement"),
+                      "Filter exposes floors");
+            auto visible = [&] {
+                QStringList names;
+                for (int i = 0; i < npcs->topLevelItemCount(); ++i)
+                    if (!npcs->topLevelItem(i)->isHidden())
+                        names.append(npcs->topLevelItem(i)->text(0));
+                return names.join(',');
+            };
+            filter->setCurrentIndex(filter->findText("Moonglow"));
+            check(visible().contains("Alice") && !visible().contains("Bob"),
+                  "Location filter uses wrong assignments");
+            filter->setCurrentIndex(filter->findText("Yew"));
+            check(visible().contains("Alice") && visible().contains("Bob"),
+                  "Shared dialogue was omitted from a location");
+            search->setText("Bob");
+            check(!visible().contains("Alice") && visible().contains("Bob"),
+                  "Search bypassed location filter");
+            filter->setCurrentIndex(filter->findText("Moonglow"));
+            check(visible().isEmpty(), "Combined filters did not produce empty result");
+            search->clear();
+            filter->setCurrentIndex(filter->findData(-2));
+            check(visible().contains("Unused") && !visible().contains("Alice"),
+                  "Unassigned filter is incorrect");
         });
         test("Original proportional font compatibility (optional)", [] {
             auto directory = qEnvironmentVariable("U5_GAME_DIR");
@@ -1534,6 +1637,15 @@ int main(int argc, char **argv) {
             pan(QEvent::MouseButtonRelease, {140, 100}, Qt::MiddleButton, Qt::NoButton);
             check(view.horizontalScrollBar()->value() == old - 40 && canvas->ids == original,
                   "Pan painted or failed to move view");
+            auto centered = view.mapCenter();
+            for (int i = 0; i < 10; ++i) {
+                view.resize(461, 397);
+                app.processEvents();
+                view.resize(460, 380);
+                app.processEvents();
+            }
+            check(QLineF(centered, view.mapCenter()).length() < 0.01,
+                  "Resizing the resource layout drifts the map view");
             view.fitMap();
             app.processEvents();
             check(view.fitting && canvas->width() <= view.viewport()->width() &&
@@ -1985,12 +2097,13 @@ int main(int argc, char **argv) {
             }
             check(w.projectForTests().changed().isEmpty(), "GUI load mutated resources");
             w.selectResource("INIT.GAM");
-            auto table = w.findChild<QStackedWidget *>("workspaces")
+            auto field = w.findChild<QStackedWidget *>("workspaces")
                              ->currentWidget()
-                             ->findChild<QTableWidget *>("byteInspector");
-            check(table, "Native byte inspector missing");
-            table->item(0, 0)->setText("01");
-            check(w.projectForTests().data("INIT.GAM")[0] == 1, "Byte edit did not persist");
+                             ->findChild<QSpinBox *>("startingField_206");
+            check(field, "Typed starting supplies control missing");
+            field->setValue(1);
+            check(U5::byte(w.projectForTests().data("INIT.GAM"), 0x206) == 1,
+                  "Typed edit did not persist");
             app.processEvents();
         });
         test("Native painting, undo and unapplied dialogue safety", [&] {

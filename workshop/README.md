@@ -70,11 +70,11 @@ drafts rather than silently discarding them. Package imports become undoable edi
 | Settlement NPCs | NPC mode with actor selection, overlap chooser, drag previews and atomic moves; schedule inspector, signed floors, other-position ghosts, conversation links and advanced record editing |
 | Combat setup | Edit starting party positions for four directions, monster tiles/positions, triggers and changed-tile metadata; retain all padding/sentinel bytes |
 | Graphics | All DOS `.16` image containers and 512 tiles; thumbnail gallery, EGA pixel painting, PNG import/export, full tilesheet import/export, one-bit alpha masks |
-| Conversations | Searchable NPCs, Basics/Topics/Questions outline, shared keyword aliases, ordered text/action forms, reference-safe question deletion, byte budgets, diagnostics, Advanced source, conversation sandbox and DOS font preview |
+| Conversations | NPC location filtering across all floors, searchable NPCs, Basics/Topics/Questions outline, shared keyword aliases, ordered text/action forms, reference-safe question deletion, byte budgets, diagnostics, Advanced source, conversation sandbox and DOS font preview |
 | Narrative | 30 creation entries with virtue choices, six illustrated ending pages, karma context/sample values, 194 shop entries with token substitution; fixed-offset or versioned extended text, byte budgets, font previews and undo |
 | Story | Twenty fixed-offset text pages; original capacity, offsets, padding and terminators retained; normal, runic and proportional font previews |
 | Starting state | Party position, time, supplies, plot items, reagents, moonstones, shrine/dungeon flags, Shadowlord settings; sixteen character records, statistics/equipment, safe party joining/removal |
-| Resource inspector | Paged hex editing, per-edit undo, importing outputs from the Python editors, reverting a resource; other resource types remain available here |
+| Resource overview | Read-only information for resources without supported authoring controls; no hexadecimal editing |
 
 ### Signs and Look descriptions
 
@@ -224,7 +224,7 @@ the audited formats and supports bringing existing editor outputs into packages.
 An optional graphical dialogue flow diagram and interactive combat-entity
 placement tools remain future work; the conversation outline and combat tables
 provide structured access now. There is no flood fill, multi-tile selection, plugin scripting,
-package dependency system, runtime hot reload, or mod manager yet. Unknown resources and fields use the byte inspector.
+package dependency system, runtime hot reload, or mod manager yet. Unsupported resources have a read-only overview; unknown fields are preserved.
 Windows/macOS CI is configured; local interactive validation was on Linux only.
 
 ## Validation
@@ -457,3 +457,18 @@ Britannia and Underworld templates, placement and explicit inheritance. Existing
 saves retain their objects. [Shops and location tables](../docs/workshop-engine-tables.md)
 provide named, bounded controls with runtime-supported companion overrides and
 a searchable inventory of remaining unsupported overlay data.
+
+### Resource navigation
+
+The **Resources** toolbar button (**Ctrl+L**) reopens the resource library from
+every editor without discarding the current draft. Resource filenames carry an
+asterisk when they differ from the original data or have an explicit override;
+saving the project does not clear this original-data comparison. Undo or reverting
+the resource removes the marker when it becomes inherited again. The mod title
+and unsaved-project marker appear in the window title. Editors open directly;
+there is no raw hexadecimal editor or separate Visual Editor tab.
+
+In Conversations, **Location** filters NPCs using their schedule assignments across
+all floors and times. It combines with text search. Shared conversations appear
+in each relevant location, and **Unassigned conversations** keeps unused dialogue
+accessible. Filtering leaves the current conversation draft open.

@@ -692,9 +692,9 @@ QPointF MapView::mapCenter() const {
 }
 void MapView::centerMap(QPointF cell) {
     horizontalScrollBar()->setValue(
-        qRound(cell.x() * 16 * canvas->zoom - viewport()->width() / 2.0));
+        qRound(cell.x() * 16 * canvas->zoom - viewport()->rect().center().x()));
     verticalScrollBar()->setValue(
-        qRound(cell.y() * 16 * canvas->zoom - viewport()->height() / 2.0));
+        qRound(cell.y() * 16 * canvas->zoom - viewport()->rect().center().y()));
 }
 void MapView::setZoom(double scale, QPoint anchor, bool fit) {
     canvas->cancelStroke();
@@ -716,9 +716,19 @@ void MapView::fitMap() {
         {-1, -1}, true);
 }
 void MapView::resizeEvent(QResizeEvent *e) {
+    // Qt has already resized the viewport when it forwards this event. Recover
+    // its previous center so opening the library or rebuilding an editor does
+    // not move the map when scrollbars/layout change the available space.
+    auto center = mapCenter();
+    if (e->oldSize().isValid())
+        center -=
+            QPointF(QRect(QPoint(), e->size()).center() - QRect(QPoint(), e->oldSize()).center()) /
+            (16 * canvas->zoom);
     QScrollArea::resizeEvent(e);
     if (fitting)
         fitMap();
+    else if (e->oldSize().isValid())
+        centerMap(center);
 }
 bool MapView::eventFilter(QObject *watched, QEvent *event) {
     if (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) {

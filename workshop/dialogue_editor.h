@@ -28,7 +28,8 @@ class ConversationEditor : public QWidget {
     QLabel *budget, *context, *status;
     QTabWidget *tabs, *previewTabs;
     QPlainTextEdit *source, *readable;
-    QComboBox *sourceScope;
+    QComboBox *sourceScope, *locationFilter;
+    void filterNpcs();
     bool wholeSource = false;
     void refreshSource();
     QLabel *dosImage;

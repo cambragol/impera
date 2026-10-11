@@ -64,11 +64,36 @@ ConversationEditor::ConversationEditor(
     layout->addLayout(heading);
     auto split = new QSplitter;
     layout->addWidget(split, 1);
+    auto npcPane = new QWidget;
+    auto npcLayout = new QVBoxLayout(npcPane);
+    npcLayout->setContentsMargins(0, 0, 0, 0);
+    npcLayout->addWidget(new QLabel("Location:"));
+    locationFilter = new QComboBox;
+    locationFilter->setObjectName("conversationLocationFilter");
+    locationFilter->addItem("All locations", -1);
+    locationFilter->setToolTip(
+        "Filter NPCs by their top-level location, across all floors and schedule times. Combines "
+        "with search; your current conversation draft stays open.");
+    QString stem = r.left(r.size() - 4);
+    QByteArray schedules =
+        p->resources.contains(stem + ".NPC") ? p->data(stem + ".NPC") : QByteArray();
+    QMap<int, QString> locationNames;
+    if (!schedules.isEmpty()) {
+        auto map =
+            p->resources.contains(stem + ".DAT") ? p->data(stem + ".DAT") : QByteArray(32768, 0);
+        for (auto page : U5::mapPages(stem + ".DAT", map))
+            locationNames[page.settlement] = page.name.section(" — ", 0, 0);
+        for (auto it = locationNames.cbegin(); it != locationNames.cend(); ++it)
+            locationFilter->addItem(it.value(), it.key());
+    }
+    locationFilter->addItem("Unassigned conversations", -2);
+    npcLayout->addWidget(locationFilter);
     npcs = new QTreeWidget;
     npcs->setObjectName("conversationNpcs");
     npcs->setHeaderLabels({"NPC / dialogue ID"});
     npcs->setMinimumWidth(140);
-    split->addWidget(npcs);
+    npcLayout->addWidget(npcs, 1);
+    split->addWidget(npcPane);
     for (int i = 0; i < conversations.size(); ++i) {
         auto d = parse(conversations[i].bytes);
         QString name = d.entries.isEmpty() ? "Unnamed" : caption(d.entries[0].bytes);
@@ -76,6 +101,15 @@ ConversationEditor::ConversationEditor(
             name = "Unnamed";
         auto item = new QTreeWidgetItem(npcs, {name + QString(" · %1").arg(conversations[i].id)});
         item->setData(0, Qt::UserRole, i);
+        QVariantList usedLocations;
+        for (auto town : locationNames.keys())
+            for (int slot = 0; slot < 32; ++slot)
+                if (town * 576 + 544 + slot < schedules.size() &&
+                    U5::byte(schedules, town * 576 + 512 + slot) != 0 &&
+                    U5::byte(schedules, town * 576 + 544 + slot) == conversations[i].id &&
+                    !usedLocations.contains(town))
+                    usedLocations.append(town);
+        item->setData(0, Qt::UserRole + 1, usedLocations);
         item->setToolTip(0, QString("%1 · dialogue ID %2").arg(r).arg(conversations[i].id));
     }
     auto navigation = new QWidget;
@@ -291,21 +325,29 @@ ConversationEditor::ConversationEditor(
                 }
                 loadNpc(item->data(0, Qt::UserRole).toInt());
             });
-    connect(search, &QLineEdit::textChanged, this, [this](const QString &s) {
-        for (int i = 0; i < npcs->topLevelItemCount(); ++i) {
-            auto item = npcs->topLevelItem(i);
-            auto e = conversations[item->data(0, Qt::UserRole).toInt()];
-            bool found = item->text(0).contains(s, Qt::CaseInsensitive) ||
-                         U5::decodeText(e.bytes).contains(s, Qt::CaseInsensitive) ||
-                         caption(e.bytes).contains(s, Qt::CaseInsensitive);
-            item->setHidden(!found);
-        }
-    });
+    connect(search, &QLineEdit::textChanged, this, [this] { filterNpcs(); });
+    connect(locationFilter, &QComboBox::currentIndexChanged, this, [this] { filterNpcs(); });
     if (!conversations.isEmpty()) {
         loading = true;
         npcs->setCurrentItem(npcs->topLevelItem(qBound(0, npc, int(conversations.size() - 1))));
         loading = false;
         loadNpc(qBound(0, npc, int(conversations.size() - 1)), entry);
+    }
+}
+void ConversationEditor::filterNpcs() {
+    const auto query = search->text();
+    const int location = locationFilter->currentData().toInt();
+    for (int i = 0; i < npcs->topLevelItemCount(); ++i) {
+        auto item = npcs->topLevelItem(i);
+        auto conversation = conversations[item->data(0, Qt::UserRole).toInt()];
+        auto assigned = item->data(0, Qt::UserRole + 1).toList();
+        bool matchesLocation =
+            location == -1 || (location == -2 ? assigned.isEmpty() : assigned.contains(location));
+        bool matchesText =
+            item->text(0).contains(query, Qt::CaseInsensitive) ||
+            U5::decodeText(conversation.bytes).contains(query, Qt::CaseInsensitive) ||
+            caption(conversation.bytes).contains(query, Qt::CaseInsensitive);
+        item->setHidden(!matchesLocation || !matchesText);
     }
 }
 bool ConversationEditor::attempt(const std::function<void()> &fn) {
@@ -441,11 +483,12 @@ void ConversationEditor::loadEntry(int e) {
         for (int town = 0; town < 8; ++town)
             for (int n = 0; n < 32; ++n)
                 if (town * 576 + 544 + n < data.size() &&
+                    U5::byte(data, town * 576 + 512 + n) != 0 &&
                     U5::byte(data, town * 576 + 544 + n) == conversations[npcIndex].id) {
                     QString location = QString("Settlement %1").arg(town + 1);
                     for (auto page : pages)
                         if (page.settlement == town) {
-                            location = page.name;
+                            location = page.name.section(" — ", 0, 0);
                             break;
                         }
                     locations << QString("%1 · NPC %2").arg(location).arg(n);

@@ -24,7 +24,6 @@ class WorkshopWindow : public QMainWindow {
     QUndoStack history;
     QTreeWidget *assets;
     QStackedWidget *content;
-    QLabel *summary;
     QString current, savedTitle, lastMap;
     bool rebuildPending = false;
     bool dungeonRoomNavigation = false;
@@ -48,6 +47,5 @@ class WorkshopWindow : public QMainWindow {
     QWidget *stateEditor();
     QWidget *npcEditor(const QString &name);
     QWidget *combatEditor(const QString &name);
-    QWidget *bytesEditor(const QString &name);
     void rebuildEditor();
 };
