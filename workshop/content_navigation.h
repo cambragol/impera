@@ -14,5 +14,6 @@ QVector<ContentDestination> characterDestinations(const Project &project);
 QVector<ContentDestination> contentDestinations(const Project &project);
 QStringList contentWorkspaces();
 QString artworkTitle(const QString &resource);
+QMap<QString, QStringList> contentChanges(const Project &, const QVector<ContentDestination> &);
 bool matchesSelection(const ContentDestination &, const QMap<QString, int> &state);
 } // namespace Workshop

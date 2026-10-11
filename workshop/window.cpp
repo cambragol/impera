@@ -181,8 +181,13 @@ WorkshopWindow::WorkshopWindow() {
         {"Stop Mod Tests", "Terminate Impera test processes launched by Workshop."},
         {"Set Impera Executable",
          "Choose the Impera executable or AppImage used for mod testing."}};
+    auto projectMenu = menuBar()->addMenu("Project");
+    projectMenu->setToolTipsVisible(true);
     auto action = [&](const QString &label, const QKeySequence &key, std::function<void()> fn) {
-        auto a = toolbar->addAction(label);
+        auto a = new QAction(label, this);
+        addAction(a); // Preserve shortcuts for commands moved out of the toolbar.
+        projectMenu->addAction(a);
+        if (label == "Save Project" || label == "Export Package") toolbar->addAction(a);
         a->setShortcut(key);
         a->setToolTip(help.value(label));
         connect(a, &QAction::triggered, this, fn);
@@ -197,15 +202,8 @@ WorkshopWindow::WorkshopWindow() {
         if (!p.isEmpty())
             openGame(p);
     });
-    auto toolsMenu = new QMenu(this);
+    auto toolsMenu = menuBar()->addMenu("Tools");
     toolsMenu->setToolTipsVisible(true);
-    auto toolsButton = new QToolButton;
-    toolsButton->setText("Mod Tools");
-    toolsButton->setToolTip(
-        "Validate packages, manage the game folder, and test your mod in Impera.");
-    toolsButton->setMenu(toolsMenu);
-    toolsButton->setPopupMode(QToolButton::InstantPopup);
-    toolbar->addWidget(toolsButton);
     auto extra = [this, toolsMenu, help](const QString &label, std::function<void()> fn) {
         auto item = toolsMenu->addAction(label);
         item->setToolTip(help.value(label));
@@ -343,7 +341,22 @@ WorkshopWindow::WorkshopWindow() {
         "including every floor and schedule time.");
     lv->addWidget(characterLocation);
     connect(characterLocation, &QComboBox::currentIndexChanged, this, [this] { rebuildTree(); });
-    connect(workspaceSelector, &QComboBox::currentTextChanged, this, [this] { rebuildTree(); });
+    connect(workspaceSelector, &QComboBox::currentTextChanged, this, [this](const QString &workspace) {
+        rebuildTree();
+        if (workspace == "Mod Overview" && current != "@overview") {
+            navigateContent("overview");
+            if (current != "@overview") {
+                // Invalid drafts retain both editor and navigation context.
+                for (const auto &d : destinations)
+                    if (d.resource == current && Workshop::matchesSelection(d, editorState)) {
+                        QSignalBlocker block(workspaceSelector);
+                        workspaceSelector->setCurrentText(d.workspace);
+                        break;
+                    }
+                rebuildTree();
+            }
+        }
+    });
     lv->addWidget(search);
     assets = new QTreeWidget;
     assets->setHeaderHidden(true);
@@ -397,6 +410,12 @@ WorkshopWindow::WorkshopWindow() {
     };
     connect(backAction, &QAction::triggered, this, [travel] { travel(-1); });
     connect(forwardAction, &QAction::triggered, this, [travel] { travel(1); });
+    auto validate = toolbar->addAction("Validate");
+    validate->setToolTip("Check package compatibility and navigate to reported problems.");
+    connect(validate, &QAction::triggered, this, [this] { reviewPackage(false); });
+    auto test = toolbar->addAction("Test Mod");
+    test->setToolTip(help.value("Test Mod"));
+    connect(test, &QAction::triggered, this, [this] { reviewPackage(true); });
     syncNavigation();
     connect(&history, &QUndoStack::cleanChanged, this, [this] { updateSummary(); });
     QVBoxLayout *welcome;
@@ -429,6 +448,13 @@ bool WorkshopWindow::guard(const std::function<void()> &operation) {
 void WorkshopWindow::updateSummary() {
     setWindowModified(!history.isClean() || project.title != savedTitle);
     setWindowTitle("Impera Workshop — " + project.title + "[*]");
+    if (current == "@overview" && !rebuildPending) {
+        rebuildPending = true;
+        QTimer::singleShot(0, this, [this] {
+            rebuildPending = false;
+            if (current == "@overview") rebuildEditor();
+        });
+    }
 }
 bool WorkshopWindow::canLeave() {
     if (flushDraft && !flushDraft())
@@ -610,6 +636,7 @@ void WorkshopWindow::rebuildTree() {
             groups[label]->setExpanded(QString(label) != "Combat maps");
         }
     }
+    const auto changes = Workshop::contentChanges(project, destinations);
     for (const auto &d : destinations) {
         if (d.workspace != workspaceSelector->currentText())
             continue;
@@ -623,24 +650,13 @@ void WorkshopWindow::rebuildTree() {
             groups[d.group] = new QTreeWidgetItem(assets, {d.group});
             groups[d.group]->setExpanded(true);
         }
-        const auto &r = project.resources[d.resource];
-        bool companionChanged = false;
-        for (const auto &source : d.sources) {
-            if (!project.resources.contains(source)) continue;
-            const auto &companion = project.resources[source];
-            companionChanged |= companion.edited != companion.original || companion.included;
-        }
-        const bool scheduleChanged =
-            !d.scheduleResource.isEmpty() && (project.resources[d.scheduleResource].edited !=
-                                                  project.resources[d.scheduleResource].original ||
-                                              project.resources[d.scheduleResource].included);
-        auto item = new QTreeWidgetItem(
-            groups[d.group],
-            {d.title + ((r.edited != r.original || r.included || scheduleChanged || companionChanged) ? " *" : "")});
+        const auto details = changes.value(d.id);
+        auto item = new QTreeWidgetItem(groups[d.group],
+            {d.title + (details.isEmpty() ? "" : " *")});
         item->setData(0, Qt::UserRole, d.resource);
         item->setData(0, Qt::UserRole + 2, d.id);
         item->setToolTip(
-            0, d.provenance + "\n" + Workshop::capability(d.resource).status +
+            0, d.provenance + (details.isEmpty() ? QString() : "\nChanged: " + details.join(", ")) + "\n" + Workshop::capability(d.resource).status +
                    "\nSource: " + (d.sources.isEmpty() ? d.resource : d.sources.join(" / ")) +
                    (d.scheduleResource.isEmpty() ? QString() : " / " + d.scheduleResource));
         if (d.resource == current) {
@@ -664,8 +680,13 @@ void WorkshopWindow::rebuildTree() {
             }
         }
     }
-    for (auto group : groups)
+    for (auto group : groups) {
+        int changedCount = 0;
+        for (int i = 0; i < group->childCount(); ++i)
+            changedCount += !changes.value(group->child(i)->data(0, Qt::UserRole + 2).toString()).isEmpty();
+        if (changedCount) group->setText(0, group->text(0) + QString(" * (%1)").arg(changedCount));
         group->setHidden(group->childCount() == 0);
+    }
     if (assets->currentItem())
         assets->scrollToItem(assets->currentItem());
 }
@@ -824,7 +845,149 @@ void WorkshopWindow::rebuildEditor() {
             }
         });
 }
+QWidget *WorkshopWindow::overviewEditor() {
+    auto root = new QWidget;
+    root->setObjectName("modOverview");
+    auto layout = new QVBoxLayout(root);
+    auto title = new QLabel("Mod Overview — " + project.title);
+    title->setObjectName("overviewTitle");
+    title->setStyleSheet("font-size:22px;font-weight:600;");
+    layout->addWidget(title);
+    const auto routes = Workshop::contentDestinations(project);
+    const auto changes = Workshop::contentChanges(project, routes);
+    int changedCount = 0;
+    for (auto it = changes.begin(); it != changes.end(); ++it)
+        changedCount += !it.value().isEmpty();
+    auto summary = new QLabel(
+        QString("%1 changed content destinations · %2 package resources\n%3")
+            .arg(changedCount)
+            .arg(project.changed().size())
+            .arg(
+                isWindowModified()
+                    ? "Project has unsaved changes."
+                    : project.projectPath.isEmpty()
+                        ? "Project has not been saved yet."
+                        : "No unsaved project edits; content changes are measured against the original game."));
+    summary->setObjectName("overviewSummary");
+    summary->setWordWrap(true);
+    summary->setToolTip("Destinations can share data. The package replaces whole changed "
+                        "resources, not just the listed locations or characters.");
+    layout->addWidget(summary);
+    auto guidance = new QLabel(
+        "Save Project keeps your editable work. Export Package creates an .imperamod file for the "
+        "game's Mods folder. Test Mod uses an isolated runtime. Starting-state changes apply to "
+        "new games; original game files are never edited.");
+    guidance->setWordWrap(true);
+    layout->addWidget(guidance);
+    auto row = new QHBoxLayout;
+    auto command = [&](const QString &label, const QString &actionText) {
+        auto b = new QPushButton(label);
+        row->addWidget(b);
+        b->setToolTip("Run " + actionText +
+                      " using the normal project validation and draft guards.");
+        connect(b, &QPushButton::clicked, root, [this, actionText] {
+            for (auto action : findChildren<QAction *>())
+                if (action->text() == actionText) {
+                    action->trigger();
+                    break;
+                }
+        });
+    };
+    command("Save Project", "Save Project");
+    command("Name Mod", "Name Mod");
+    command("Export Package", "Export Package");
+    command("Test Mod", "Test Mod");
+    layout->addLayout(row);
+    auto tabs = new QTabWidget;
+    auto changed = new QTreeWidget;
+    changed->setObjectName("overviewChanges");
+    changed->setHeaderLabels({"Content", "Workspace", "Changes"});
+    changed->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    changed->header()->setSectionResizeMode(2, QHeaderView::Stretch);
+    for (const auto &d : routes) {
+        if (changes.value(d.id).isEmpty())
+            continue;
+        auto item = new QTreeWidgetItem(changed, {d.title, d.workspace, changes[d.id].join(", ")});
+        item->setData(0, Qt::UserRole, d.id);
+        item->setToolTip(
+            0,
+            "Open this content editor. Shared conversations may affect more than one character.");
+    }
+    changed->setToolTip("Double-click changed content to open its editor. Empty means no "
+                        "identifiable content changes.");
+    connect(changed, &QTreeWidget::itemDoubleClicked, root, [this](QTreeWidgetItem *item) {
+        navigateContent(item->data(0, Qt::UserRole).toString());
+    });
+    tabs->addTab(changed, "Changed content");
+    auto resources = new QTreeWidget;
+    resources->setObjectName("overviewPackageResources");
+    resources->setHeaderLabels({"Package resource", "Size", "Reason"});
+    resources->header()->setSectionResizeMode(2, QHeaderView::Stretch);
+    for (const auto &name : project.changed()) {
+        const auto &r = project.resources[name];
+        auto item =
+            new QTreeWidgetItem(resources, {name, QString::number(r.edited.size()) + " bytes",
+                                            r.included && r.edited == r.original
+                                                ? "Explicit override of inherited defaults"
+                                                : "Changed content; entire resource is replaced"});
+        item->setData(0, Qt::UserRole, name);
+        item->setToolTip(0,
+                         Workshop::capability(name).title +
+                             " — double-click to open the source editor or compatibility details.");
+    }
+    connect(resources, &QTreeWidget::itemDoubleClicked, root, [this](QTreeWidgetItem *item) {
+        selectResource(item->data(0, Qt::UserRole).toString());
+    });
+    tabs->addTab(resources, "Package contents");
+    auto validation = new QWidget;
+    auto vl = new QVBoxLayout(validation);
+    auto status = new QLabel("Not checked. Run validation before exporting or testing.");
+    status->setObjectName("overviewValidationStatus");
+    vl->addWidget(status);
+    auto report = new QTreeWidget;
+    report->setObjectName("overviewDiagnostics");
+    report->setHeaderLabels({"Result", "Source", "Details"});
+    report->header()->setSectionResizeMode(2, QHeaderView::Stretch);
+    report->setWordWrap(true);
+    auto validate = new QPushButton("Run validation");
+    validate->setObjectName("overviewValidate");
+    validate->setToolTip("Check live project formats, engine compatibility, package round trip and "
+                         "installed mod conflicts. Does not export or launch anything.");
+    vl->addWidget(validate);
+    vl->addWidget(report, 1);
+    connect(validate, &QPushButton::clicked, root, [this, report, status] {
+        if (flushDraft && !flushDraft())
+            return;
+        guard([&] {
+            report->clear();
+            int errors = 0, warnings = 0;
+            for (const auto &d : validateMod(project)) {
+                errors += d.severity == ModDiagnostic::Error;
+                warnings += d.severity == ModDiagnostic::Warning;
+                auto item =
+                    new QTreeWidgetItem(report, {d.severity == ModDiagnostic::Error     ? "Error"
+                                                 : d.severity == ModDiagnostic::Warning ? "Warning"
+                                                                                        : "Info",
+                                                 d.resource, d.message});
+                item->setData(0, Qt::UserRole, d.resource);
+                item->setToolTip(2, d.message);
+            }
+            status->setText(QString("%1 errors · %2 warnings. Errors block export and testing.")
+                                .arg(errors)
+                                .arg(warnings));
+        });
+    });
+    connect(report, &QTreeWidget::itemDoubleClicked, root, [this](QTreeWidgetItem *item) {
+        const auto name = item->data(0, Qt::UserRole).toString();
+        if (project.resources.contains(name))
+            selectResource(name);
+    });
+    tabs->addTab(validation, "Validation & compatibility");
+    layout->addWidget(tabs, 1);
+    return root;
+}
 QWidget *WorkshopWindow::resourceEditor(const QString &name) {
+    if (name == "@overview") return overviewEditor();
     auto root = new QWidget;
     root->setObjectName("resourceWorkspace");
     auto layout = new QVBoxLayout(root);

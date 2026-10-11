@@ -3,6 +3,8 @@
 #include "map_editor.h"
 #include "resource_document.h"
 #include "scene_editor.h"
+#include "narrative_editor.h"
+#include "world_objects.h"
 #include <algorithm>
 namespace Workshop {
 QString artworkTitle(const QString &name) {
@@ -133,6 +135,7 @@ QVector<ContentDestination> characterDestinations(const Project &project) {
 }
 QVector<ContentDestination> contentDestinations(const Project &project) {
     QVector<ContentDestination> result = characterDestinations(project);
+    result.append({"overview", "Mod Overview", "Project", "Mod overview", "@overview"});
     bool usableScenes = false;
     if (project.resources.contains("MISCMAPS.DAT")) {
         try {
@@ -168,9 +171,11 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
                                 .arg(name == "BRIT.CBT" ? "Outdoor" : "Dungeon")
                                 .arg(i + 1);
                 }
-                result.append(
-                    {QString("world/%1/%2").arg(name).arg(p.settlement >= 0 ? p.settlement : i),
-                     "World", group, title, name, i});
+                ContentDestination destination{
+                    QString("world/%1/%2").arg(name).arg(p.settlement >= 0 ? p.settlement : i),
+                    "World", group, title, name, i};
+                destination.settlement = p.settlement;
+                result.append(destination);
             }
             continue;
         }
@@ -248,6 +253,176 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
         d.sources = {name};
         if (name == "UNDER.OOL" && project.resources.contains("INIT.OOL")) d.sources.append("INIT.OOL");
         result.append(d);
+    }
+    return result;
+}
+// Derived comparisons only: originals and overrides remain owned by Project.
+QMap<QString, QStringList> contentChanges(const Project &project,
+                                          const QVector<ContentDestination> &destinations) {
+    QMap<QString, QStringList> result;
+    if (project.changed().isEmpty())
+        return result;
+    Project original = project;
+    for (auto it = original.resources.begin(); it != original.resources.end(); ++it) {
+        it->edited = it->original;
+        it->included = false;
+    }
+    auto changed = [&](const QString &name) {
+        if (!project.resources.contains(name))
+            return false;
+        const auto &r = project.resources[name];
+        return r.edited != r.original || r.included;
+    };
+    QMap<QString, QVector<U5::Conversation>> beforeTalk, afterTalk;
+    auto dialogueChanged = [&](const ContentDestination &d) {
+        if (!changed(d.resource) || !d.resource.endsWith(".TLK"))
+            return false;
+        if (!afterTalk.contains(d.resource)) {
+            afterTalk[d.resource] = U5::readDialogue(project.data(d.resource));
+            beforeTalk[d.resource] = U5::readDialogue(original.data(d.resource));
+        }
+        const auto &after = afterTalk[d.resource];
+        if (d.conversation < 0 || d.conversation >= after.size())
+            return true;
+        const auto &entry = after[d.conversation];
+        for (const auto &old : beforeTalk[d.resource])
+            if (old.id == entry.id)
+                return old.bytes != entry.bytes;
+        return true;
+    };
+    for (const auto &d : destinations) {
+        if (d.resource == "@overview")
+            continue;
+        QStringList parts;
+        try {
+            if (d.workspace == "Characters" && d.character >= 0) {
+                if (changed(d.scheduleResource)) {
+                    const auto &now = project.data(d.scheduleResource);
+                    const auto &old = original.data(d.scheduleResource);
+                    U5::require(now.size() == 4608 && old.size() == 4608, "Damaged schedules");
+                    int town = d.character / 32, slot = d.character % 32, base = town * 576;
+                    if (now.mid(base + slot * 16, 16) != old.mid(base + slot * 16, 16) ||
+                        now[base + 512 + slot] != old[base + 512 + slot] ||
+                        now[base + 544 + slot] != old[base + 544 + slot])
+                        parts.append("Schedule / appearance");
+                }
+                if (dialogueChanged(d))
+                    parts.append("Conversation");
+            } else if (d.workspace == "Characters" && d.conversation >= 0) {
+                if (dialogueChanged(d))
+                    parts.append("Conversation");
+            } else if (d.page >= 0 && MapDocument::supported(d.resource)) {
+                MapDocument map(&original, d.resource);
+                Project live = project;
+                MapDocument edited(&live, d.resource);
+                if (changed(d.resource) || (d.resource == "BRIT.DAT" && changed("DATA.OVL")))
+                    for (int i = 0; i < map.pages.size(); ++i) {
+                        if (d.settlement >= 0 ? map.pages[i].settlement != d.settlement
+                                              : i != d.page)
+                            continue;
+                        if (map.terrain(i) != edited.terrain(i)) {
+                            parts.append("Terrain");
+                            break;
+                        }
+                    }
+                // World destinations created in earlier phases encode settlement in their page.
+                int settlement = map.pages[d.page].settlement;
+                if (settlement >= 0) {
+                    QString schedules = d.resource.section('.', 0, 0) + ".NPC";
+                    if (changed(schedules) &&
+                        project.data(schedules).mid(settlement * 576, 576) !=
+                            original.data(schedules).mid(settlement * 576, 576))
+                        parts.append("Characters / schedules");
+                    for (const auto &character : destinations)
+                        if (character.settlement == settlement &&
+                            character.scheduleResource == schedules && dialogueChanged(character)) {
+                            parts.append("Conversations");
+                            break;
+                        }
+                    if (changed("SIGNS.DAT")) {
+                        const QStringList banks = {"TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT",
+                                                   "KEEP.DAT"};
+                        int location = banks.indexOf(d.resource) * 8 + settlement + 1;
+                        auto signsAt = [&](const Project &p) {
+                            QVector<SignRecord> records;
+                            for (auto sign : readSigns(p.data("SIGNS.DAT")))
+                                if (sign.map == location)
+                                    records.append(sign);
+                            return records;
+                        };
+                        if (signsAt(project) != signsAt(original))
+                            parts.append("Signs");
+                    }
+                } else if (d.resource == "BRIT.DAT" || d.resource == "UNDER.DAT") {
+                    const QString objects = d.resource == "BRIT.DAT" ? "BRIT.OOL" : "UNDER.OOL";
+                    int world = objects == "BRIT.OOL" ? 0 : 1;
+                    if (changed(objects) || (world == 1 && changed("INIT.OOL") &&
+                                             !WorldObjects::overridden(project, world)))
+                        parts.append("Starting objects");
+                    if (d.resource == "BRIT.DAT" && changed("SIGNS.DAT")) {
+                        auto worldSigns = [](const Project &p) {
+                            QVector<SignRecord> signs;
+                            for (auto sign : readSigns(p.data("SIGNS.DAT")))
+                                if (sign.map == 0)
+                                    signs.append(sign);
+                            return signs;
+                        };
+                        if (worldSigns(project) != worldSigns(original))
+                            parts.append("Signs");
+                    }
+                }
+                if (d.resource.endsWith(".CBT") && parts.isEmpty() &&
+                    project.data(d.resource).mid(map.pages[d.page].offset, 352) !=
+                        original.data(d.resource).mid(map.pages[d.page].offset, 352))
+                    parts.append("Encounter details");
+            } else if (d.resource == "MISCMAPS.DAT" && d.selection.contains("scene/current")) {
+                int scene = d.selection["scene/current"];
+                if (changed(d.resource))
+                    for (int stage = 0; stage < (scene == 4 ? 4 : 1); ++stage)
+                        if (SceneDocument::map(project.data(d.resource), scene, stage) !=
+                            SceneDocument::map(original.data(d.resource), scene, stage)) {
+                            parts.append("Scene map");
+                            break;
+                        }
+                if (scene == 4 &&
+                    project.data(d.resource).mid(1216) != original.data(d.resource).mid(1216))
+                    parts.append("Creation sequence");
+                QString messages = scene == 4   ? "QUESTION.DAT"
+                                   : scene == 3 ? "ENDMSG.DAT"
+                                                : "MISCMSG.DAT";
+                if (project.resources.contains(messages) &&
+                    (changed(messages) || changed("TEXT.OVR")))
+                    for (auto entry : narrativeEntries(messages)) {
+                        if (scene < 3 && !QString::fromLatin1(entry->label)
+                                              .startsWith(scene == 0   ? "Blackthorn"
+                                                          : scene == 1 ? "Shrine"
+                                                                       : "Codex"))
+                            continue;
+                        if (narrativeText(project, *entry) != narrativeText(original, *entry)) {
+                            parts.append("Messages");
+                            break;
+                        }
+                    }
+            } else {
+                for (const auto &source : d.sources.isEmpty() ? QStringList{d.resource} : d.sources)
+                    if (changed(source))
+                        parts.append("Content");
+                if (changed("TEXT.OVR") && capability(d.resource).editor == EditorKind::Narrative)
+                    for (auto entry : narrativeEntries(d.resource))
+                        if (narrativeText(project, *entry) != narrativeText(original, *entry)) {
+                            parts.append("Text");
+                            break;
+                        }
+            }
+        } catch (...) {
+            if (changed(d.resource) || changed(d.scheduleResource))
+                parts.append("Changed resource — detailed comparison unavailable");
+            for (const auto &source : d.sources)
+                if (changed(source))
+                    parts.append("Changed companion — detailed comparison unavailable");
+        }
+        parts.removeDuplicates();
+        result[d.id] = parts;
     }
     return result;
 }

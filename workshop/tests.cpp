@@ -80,6 +80,100 @@ int main(int argc, char **argv) {
         std::cout << "PASS " << name << "\n";
     };
     try {
+        test("Aggregate changes isolate locations, shared conversations and encounters", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            auto put = [&](const QString &name, const QByteArray &bytes) { p.resources[name] = {bytes, bytes, false}; };
+            put("TOWNE.DAT", QByteArray(16384, 0));
+            QByteArray schedules(4608, 0);
+            for (int slot = 0; slot < 3; ++slot) {
+                schedules[512 + slot] = 1;
+                schedules[544 + slot] = slot < 2 ? 1 : 2;
+            }
+            put("TOWNE.NPC", schedules);
+            auto talk = [](QString name) { return U5::encodeText(name + "<Entry>Description<Entry>Greeting<Entry>Job<Entry>Bye<Entry><Any><Label 15>@"); };
+            put("TOWNE.TLK", U5::writeDialogue({{1, talk("Shared")}, {2, talk("Other")}}));
+            put("BRIT.CBT", QByteArray(704, 0));
+            QByteArray seed(66, 0); seed += QByteArray::fromHex("ffff");
+            put("SIGNS.DAT", Workshop::writeSigns(seed, {{1, 0, 1, 1, Workshop::encodeSign("Moonglow")}}));
+            auto routes = Workshop::contentDestinations(p);
+            auto changed = Workshop::contentChanges(p, routes);
+            for (auto parts : changed) check(parts.isEmpty(), "Pristine content marked changed");
+            p.resources["TOWNE.DAT"].edited[1024] = 4; // Upper floor of Moonglow.
+            changed = Workshop::contentChanges(p, routes);
+            check(changed["world/TOWNE.DAT/0"].contains("Terrain") && changed["world/TOWNE.DAT/1"].isEmpty(), "Terrain changes leak into unrelated settlements");
+            p.resources["TOWNE.DAT"].edited = p.resources["TOWNE.DAT"].original;
+            p.resources["TOWNE.TLK"].edited = U5::writeDialogue({{1, talk("Updated")}, {2, talk("Other")}});
+            changed = Workshop::contentChanges(p, routes);
+            check(changed["character/TOWNE/0/0"].contains("Conversation") && changed["character/TOWNE/0/1"].contains("Conversation") && changed["character/TOWNE/0/2"].isEmpty(), "Shared dialogue markers are not identity-specific");
+            check(changed["world/TOWNE.DAT/0"].contains("Conversations") && changed["world/TOWNE.DAT/1"].isEmpty(), "Location does not aggregate its conversations");
+            p.resources["TOWNE.TLK"].edited = p.resources["TOWNE.TLK"].original;
+            p.resources["TOWNE.NPC"].edited[16] = 7;
+            changed = Workshop::contentChanges(p, routes);
+            check(changed["character/TOWNE/0/0"].isEmpty() && changed["character/TOWNE/0/1"].contains("Schedule / appearance"), "Schedule changes mark unrelated characters");
+            p.resources["SIGNS.DAT"].edited = Workshop::writeSigns(seed, {{1, 0, 1, 1, Workshop::encodeSign("Changed")}});
+            changed = Workshop::contentChanges(p, routes);
+            check(changed["world/TOWNE.DAT/0"].contains("Signs") && changed["world/TOWNE.DAT/1"].isEmpty(), "Sign changes mapped to wrong town");
+            p.resources["BRIT.CBT"].edited[363] = 5;
+            changed = Workshop::contentChanges(p, routes);
+            check(changed["world/BRIT.CBT/0"].isEmpty() && changed["world/BRIT.CBT/1"].contains("Encounter details"), "Combat metadata marks every encounter");
+            p.resources["TOWNE.NPC"].edited = p.resources["TOWNE.NPC"].original;
+            changed = Workshop::contentChanges(p, routes);
+            check(changed["character/TOWNE/0/1"].isEmpty(), "Reverted content remains changed");
+        });
+        test("Overview dashboard validation, navigation and compact toolbar", [&] {
+            QTemporaryDir dir;
+            fixture(dir.path());
+            WorkshopWindow w;
+            check(w.openGame(dir.path()), "Overview fixture failed");
+            auto &p = w.projectForTests();
+            p.resources["INIT.GAM"].edited[0x202] = 1;
+            auto workspace = w.findChild<QComboBox *>("contentWorkspace");
+            workspace->setCurrentText("Mod Overview");
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            auto overview = w.findChild<QWidget *>("modOverview");
+            check(overview, "Overview did not open from workspace selector");
+            auto changed = overview->findChild<QTreeWidget *>("overviewChanges");
+            auto resources = overview->findChild<QTreeWidget *>("overviewPackageResources");
+            check(changed && changed->topLevelItemCount() == 1 && resources && resources->topLevelItemCount() == 1, "Overview does not list changed content and actual package resources");
+            overview->findChild<QPushButton *>("overviewValidate")->click();
+            check(overview->findChild<QTreeWidget *>("overviewDiagnostics")->topLevelItemCount() > 0 && !overview->findChild<QLabel *>("overviewValidationStatus")->text().startsWith("Not checked"), "Overview validation not populated");
+            check(p.changed() == QStringList{"INIT.GAM"}, "Overview validation mutated resources");
+            changed->itemDoubleClicked(changed->topLevelItem(0), 0);
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            check(workspace->currentText() == "New Game", "Changed-content link did not open its editor");
+            auto toolbar = w.findChild<QToolBar *>();
+            QStringList commands;
+            for (auto action : toolbar->actions()) commands.append(action->text());
+            check(!commands.contains("New Mod") && !commands.contains("Open Project") && !commands.contains("Name Mod") && !commands.contains("Import Package") && commands.contains("Save Project") && commands.contains("Test Mod"), "Toolbar was not simplified");
+            auto projectMenu = w.menuBar()->actions().first()->menu();
+            check(projectMenu && projectMenu->actions().size() >= 6, "Project commands lost their menu access");
+            bool shortcut = false;
+            for (auto action : projectMenu->actions()) if (action->text() == "Open Project") shortcut = action->shortcut() == QKeySequence::Open;
+            check(shortcut, "Moved project command lost its shortcut");
+            p.resources["INIT.GAM"].edited = p.resources["INIT.GAM"].original;
+            w.selectResource("INIT.GAM");
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            auto field = w.findChild<QStackedWidget *>("workspaces")->currentWidget()->findChild<QSpinBox *>();
+            check(field && field->value() < field->maximum(), "Missing editable starting-state field");
+            field->setValue(field->value() + 1);
+            workspace->setCurrentText("Mod Overview");
+            auto undo = [&] {
+                for (auto action : w.findChildren<QAction *>()) if (action->text().startsWith("Undo ")) { action->trigger(); break; }
+                app.processEvents();
+                QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            };
+            undo();
+            auto active = w.findChild<QStackedWidget *>("workspaces")->currentWidget();
+            check(active->objectName() == "modOverview" && active->findChild<QTreeWidget *>("overviewChanges")->topLevelItemCount() == 0 && p.changed().isEmpty(), "Overview failed to refresh after Undo");
+            for (auto action : w.findChildren<QAction *>()) if (action->text().startsWith("Redo ")) { action->trigger(); break; }
+            app.processEvents();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            active = w.findChild<QStackedWidget *>("workspaces")->currentWidget();
+            check(active->findChild<QTreeWidget *>("overviewChanges")->topLevelItemCount() == 1 && active->findChild<QLabel *>("overviewValidationStatus")->text().startsWith("Not checked"), "Overview failed to refresh and invalidate validation after Redo");
+
+            w.findChild<QAction *>("showResourceLibrary")->trigger();
+        });
         test("Content routes consolidate companions and artwork preserves slot identity", [&] {
             QTemporaryDir dir;
             auto p = fixture(dir.path());
@@ -1008,7 +1102,7 @@ int main(int argc, char **argv) {
             floor->setCurrentIndex(floor->findData(1));
             app.processEvents();
             auto navigator = w.findChild<QWidget *>("resourceLibrary")->findChild<QTreeWidget *>();
-            check(navigator->currentItem() && navigator->currentItem()->text(0) == "Moonglow",
+            check(navigator->currentItem() && navigator->currentItem()->data(0, Qt::UserRole + 2).toString() == "world/TOWNE.DAT/0",
                   "Changing floors lost the shared location highlight");
             check(active()
                       ->findChild<QListWidget *>("locationTextEntries")

@@ -1,6 +1,6 @@
 # Workshop content navigation
 
-Phases 1–5 of the overarching UI redesign replace file-first navigation with a persistent content navigator.
+Phases 1–6 of the overarching UI redesign replace file-first navigation with a persistent content navigator.
 
 Choose World, Characters, Story & Scenes, Artwork & Fonts, Game Rules, New Game, or Mod Overview in the workspace selector. Search filters the current workspace by content name or category. World lists settlements once; selecting a settlement opens its main floor. Other floors remain in the editor's floor selector. Combat encounters use numbered labels where their purpose has not been verified.
 
@@ -35,7 +35,7 @@ Selecting a character opens **Conversation** and **Schedule** views without a se
 
 Schedules show four changes with start hour, destination coordinates, floor and behavior. Changes 2 and 4 share their destination and behavior, and editing either updates both. Existing unusual values remain editable within their byte ranges. Appearance and conversation-link controls are available; an appearance code of zero disables the schedule entry. Changing a conversation link resolves the character's new conversation without copying dialogue. **Show character on map** opens the first scheduled floor with the character selected. Map conversation and schedule links open the same character workspace.
 
-Valid conversation drafts commit before switching view or navigating; invalid drafts prevent leaving. Undo and Back/Forward preserve character identity and the selected view. The existing conversation editor retains topics, questions, preview, simulation and validation. Compatibility routes for damaged or empty banks remain available. No resource or package format changes are introduced. Change markers still follow the underlying conversation/schedule resource scope; per-character aggregate tracking remains phase 6.
+Valid conversation drafts commit before switching view or navigating; invalid drafts prevent leaving. Undo and Back/Forward preserve character identity and the selected view. The existing conversation editor retains topics, questions, preview, simulation and validation. Compatibility routes for damaged or empty banks remain available. No resource or package format changes are introduced. Change markers identify the selected character’s schedule and conversation; shared conversation edits mark every character that uses it.
 
 ## Artwork, stories, rules and new games (phase 5)
 
@@ -43,8 +43,14 @@ Artwork collections use verified purpose names: title artwork, introduction/endi
 
 Story & Scenes lists the Blackthorn, Shrine, Codex and Final rescue scenes separately. Each route opens its matching scene and includes its message source in the tooltip. Character creation lives in New Game, with its backgrounds, questions and sequence in one editor. When scene data is absent, standalone message/creation-text routes remain available. Introduction, ending and virtue text remain dedicated destinations.
 
-Game Rules groups prices, stock and location entrances with shop/service dialogue. Engine overlay coverage belongs to Mod Overview and opens its read-only coverage tab. New Game groups starting party/world state and world objects; the effective Underworld object list appears once, with both initial and override sources recorded. Direct resource access remains available for diagnostics. Companion change markers use resource scope; precise aggregate tracking is still phase 6. Resource serializers and mod package formats are unchanged.
+Game Rules groups prices, stock and location entrances with shop/service dialogue. Engine overlay coverage belongs to Mod Overview and opens its read-only coverage tab. New Game groups starting party/world state and world objects; the effective Underworld object list appears once, with both initial and override sources recorded. Direct resource access remains available for diagnostics. Change markers aggregate related content at the destination level. Resource serializers and mod package formats are unchanged.
 
-## Remaining phases
+## Mod Overview and aggregate changes (phase 6)
 
-6. Add aggregate content change tracking, a dedicated Mod Overview dashboard and simplified project toolbar. Until then Mod Overview contains read-only compatibility details, and change markers follow the underlying resource scope.
+Select **Mod Overview** to open the project dashboard. It distinguishes changed content destinations from whole resources included in the package, explains Save/Export/Test and fresh-game behavior, and provides direct editor links. The package list also exposes changes that cannot be assigned to a named destination, including removed characters and unknown bytes. Explicit overrides of inherited defaults appear even when their bytes match the base.
+
+**Run validation** checks the current project, engine decoder round trip and installed package conflicts without opening a modal dialog or launching the game. Results distinguish errors, warnings and information; double-click a source to open its editor or compatibility details. Export and Test retain their existing validation gates. Returning to the dashboard refreshes live changes and resets validation to “Not checked”; a saved project can still contain changes against the original game.
+
+Location markers aggregate terrain on every floor, assigned conversations, schedules and signs. Character markers compare individual schedule/appearance records and conversation identity; shared dialogue marks each user. Scene markers compare their own maps, message entries and creation sequence. Combat markers compare their own 352-byte encounter block. Categories show the number of changed visible destinations. Unrecognized or damaged layouts fall back to an explicitly labelled resource-level comparison; package contents remain authoritative. Undo, Redo and restoring original values update markers from live data. The dashboard and comparisons do not modify resources.
+
+The toolbar keeps Content, navigation, Save Project, Undo/Redo, Export, Validate and Test. **Project** contains New/Open/Save, naming and package import/export; **Tools** contains game-folder, validation and test configuration. Moved commands retain their shortcuts and draft guards. No file format, serializer or engine loading behavior changes.

@@ -53,6 +53,7 @@ class WorkshopWindow : public QMainWindow {
     void updateSummary();
     void edit(const QMap<QString, QByteArray> &changes, const QString &description,
               const QMap<QString, bool> &inclusion = {});
+    QWidget *overviewEditor();
     QWidget *resourceEditor(const QString &name);
     QWidget *mapEditor(const QString &name);
     QWidget *graphicsEditor(const QString &name);
