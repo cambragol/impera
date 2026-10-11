@@ -404,6 +404,10 @@ instructions remain intact; engine sequence and preview agree on supported steps
 
 ## Phase 7 — Fonts (`IBM.CH`, `RUNES.CH`, `IBM.HCS`, `RUNES.HCS`)
 
+Implemented: searchable bitmap gallery, pixel strokes, erase/copy/paste, global undo,
+project-only samples and normal/runic/border previews. Both Hercules fonts retain
+legacy-only diagnostics. Proportional previews remain read-only.
+
 UI: searchable glyph gallery, zoomed bitmap canvas, pencil/erase, undo, copy/paste,
 and sample panels for normal text, runes, signs and game borders. Keep glyph numbers
 in tooltips. Name decorative glyphs only after confirming their usage. Editing a

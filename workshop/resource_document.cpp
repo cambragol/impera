@@ -1,5 +1,6 @@
 #include "resource_document.h"
 #include "dialogue.h"
+#include "font_editor.h"
 #include "dungeon_editor.h"
 #include "location_text.h"
 #include "mod/world_resources.h"
@@ -9,6 +10,10 @@ using U5::require;
 namespace Workshop {
 Capability capability(const QString &resource) {
     const QString n = resource.toUpper();
+    if (QStringList{"IBM.CH", "RUNES.CH", "IBM.HCS", "RUNES.HCS"}.contains(n))
+        return {n.startsWith("RUNES") ? "Runic font" : "Normal font", "Fonts",
+                n.endsWith(".HCS") ? "Legacy Hercules font — not used by the SDL color renderer"
+                                    : "Editable game font", EditorKind::Fonts};
     if (n.endsWith(".16"))
         return {n, "Artwork", "Editable palette artwork", EditorKind::Artwork};
     if (n.endsWith(".TLK"))
@@ -137,10 +142,11 @@ QVector<Entry> ResourceDocument::entries() const {
         return result;
     }
     QVector<Entry> result;
-    if (resource == "IBM.CH" || resource == "RUNES.CH") {
-        require(size == 1024, "Font must contain 128 eight-byte glyphs");
+    if (capability(resource).editor == EditorKind::Fonts) {
+        FontDocument::validate(resource, project.data(resource));
+        int stride = FontDocument::stride(resource);
         for (int i = 0; i < 128; ++i)
-            result.append({QString("glyph/%1").arg(i), QString("Glyph %1").arg(i), i * 8, 8});
+            result.append({QString("glyph/%1").arg(i), FontDocument::label(i), i * stride, stride});
     } else if (resource.endsWith(".OOL")) {
         require(size == 256, "World objects must contain 32 eight-byte records");
         for (int i = 0; i < 32; ++i)
@@ -201,8 +207,8 @@ void validateResource(const Project &project, const QString &name) {
         DungeonDocument::validate(project);
         return;
     }
-    if (name == "IBM.CH" || name == "RUNES.CH") {
-        require(b.size() == 1024, "Bitmap fonts must contain 128 eight-byte glyphs");
+    if (kind == EditorKind::Fonts) {
+        FontDocument::validate(name, b);
         return;
     }
     if (kind == EditorKind::Artwork)

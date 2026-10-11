@@ -6,6 +6,7 @@
 #include "narrative_editor.h"
 #include "resource_document.h"
 #include "scene_editor.h"
+#include "font_editor.h"
 #include "text_preview.h"
 #include <QMouseEvent>
 #include <QPainter>
@@ -581,8 +582,9 @@ QWidget *WorkshopWindow::resourceEditor(const QString &name) {
             action->setChecked(!name.endsWith(".TLK") && !MapDocument::supported(name));
     const auto kind = Workshop::capability(name).editor;
     if (kind == Workshop::EditorKind::LocationText || kind == Workshop::EditorKind::Narrative ||
-        kind == Workshop::EditorKind::Scenes) {
-        editor = (kind == Workshop::EditorKind::Scenes      ? Workshop::sceneEditor
+        kind == Workshop::EditorKind::Scenes || kind == Workshop::EditorKind::Fonts) {
+        editor = (kind == Workshop::EditorKind::Fonts ? Workshop::fontEditor
+                  : kind == Workshop::EditorKind::Scenes      ? Workshop::sceneEditor
                   : kind == Workshop::EditorKind::Narrative ? Workshop::narrativeEditor
                                                             : Workshop::locationTextEditor)(
             &project, name,

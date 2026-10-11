@@ -1,4 +1,5 @@
 #include "dialogue.h"
+#include "font_editor.h"
 #include "dialogue_editor.h"
 #include "dungeon_editor.h"
 #include "location_text.h"
@@ -72,6 +73,50 @@ int main(int argc, char **argv) {
         std::cout << "PASS " << name << "\n";
     };
     try {
+        test("Bitmap fonts preserve every slot and verified row bit order", [] {
+            for (QString name : {"IBM.CH", "RUNES.CH", "IBM.HCS", "RUNES.HCS"}) {
+                int stride = Workshop::FontDocument::stride(name);
+                QByteArray b(128 * stride, 0);
+                b[65 * stride] = char(0x80);
+                b[65 * stride + stride - 1] = 1;
+                auto image = Workshop::FontDocument::glyph(name, b, 65);
+                check(qGray(image.pixel(0,0)) == 255 && qGray(image.pixel(1,0)) == 0 &&
+                      qGray(image.pixel(image.width()-1,image.height()-1)) == 255,
+                      "Font bit order or row stride wrong");
+                check(Workshop::FontDocument::replace(name,b,65,image) == b,"Font roundtrip");
+                image.setPixel(1,0,qRgb(255,255,255));
+                auto edited = Workshop::FontDocument::replace(name,b,65,image);
+                b[65 * stride] = char(0xc0);
+                check(edited == b,"Font edit altered unrelated slots");
+                rejects([&]{Workshop::FontDocument::validate(name,b.left(b.size()-1));});
+                rejects([&]{Workshop::FontDocument::glyph(name,b,128);});
+            }
+        });
+        test("Font workspace copy, paste, preview and undo", [&] {
+            QTemporaryDir dir;
+            auto p=fixture(dir.path());
+            QByteArray font(1024,0);font[65*8]=char(0x80);
+            file(dir.path()+"/IBM.CH",font);file(dir.path()+"/RUNES.CH",font);
+            WorkshopWindow w;check(w.openGame(dir.path()),"Font fixture open");w.selectResource("IBM.CH");
+            auto gallery=w.findChild<QListWidget *>("glyphGallery");
+            check(gallery && gallery->count()==128,"Font gallery slots missing");
+            gallery->setCurrentRow(65);w.findChild<QPushButton *>("copyGlyph")->click();
+            gallery->setCurrentRow(66);w.findChild<QPushButton *>("pasteGlyph")->click();
+            check(uchar(w.projectForTests().data("IBM.CH")[66*8])==0x80,"Glyph paste failed");
+            for(auto a:w.findChildren<QAction *>())if(a->text().startsWith("Undo ")){a->trigger();break;}
+            app.processEvents();app.processEvents();
+            check(w.projectForTests().data("IBM.CH")==font,"Glyph undo failed");
+            check(w.findChild<QListWidget *>("glyphGallery")->currentRow()==66,"Glyph selection lost");
+        });
+        test("Original fonts roundtrip (optional)", [] {
+            if(!qEnvironmentVariableIsSet("U5_GAME_DIR"))return;
+            Project p;p.openGame(qEnvironmentVariable("U5_GAME_DIR"));
+            for(QString name:{"IBM.CH","RUNES.CH","IBM.HCS","RUNES.HCS"}) {
+                auto b=p.data(name);
+                for(int i=0;i<128;++i)check(Workshop::FontDocument::replace(name,b,i,
+                    Workshop::FontDocument::glyph(name,b,i))==b,"Original font roundtrip failed");
+            }
+        });
         test("Scene maps preserve padding, unrelated scenes and creation trailer", [] {
             QByteArray b(1216, char(213));
             b += QByteArray::fromHex("06000c00002005010e020d00010f030109");
