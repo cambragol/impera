@@ -1,8 +1,9 @@
-#include "common/common.h"
 #include "audio/audio.h"
+#include "common/common.h"
 #include "funcs.h"
-#include "vars.h"
 #include "macros.h"
+#include "mod/runtime.h"
+#include "vars.h"
 
 #include <string.h>
 
@@ -1672,8 +1673,8 @@ int DUNGEON_1c6a_Klimb(int param_1, int param_2)
 
 void DUNGEON_1d08_Exit(void)
 {
-    D_5896_map_x = D_1e8a[D_5893_map_id - 1];
-    D_5897_map_y = D_1eb2[D_5893_map_id - 1];
+    D_5896_map_x = MOD_TableValue(7, (D_5893_map_id - 1), D_1e8a[D_5893_map_id - 1]);
+    D_5897_map_y = MOD_TableValue(8, (D_5893_map_id - 1), D_1eb2[D_5893_map_id - 1]);
 
     ULTIMA_1850_PrintString(_TEXT(0x6c84, "\nExit to "));
     if (D_5895_map_level != 0)

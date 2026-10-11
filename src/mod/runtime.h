@@ -6,6 +6,7 @@ void MOD_MountDirectory(const char *directory);
 FILE *MOD_OpenResource(const char *name, int *found);
 unsigned MOD_LoadedCount(void);
 unsigned MOD_Revision(void);
+unsigned MOD_TableValue(unsigned table, unsigned index, unsigned fallback);
 /* Snapshot resets on each mount; never mutates the original compiled index. */
 const uint8_t *MOD_BritanniaIndex(void);
 /* Build fresh worlds from resources, never from persisted SAVEGAME lists. */

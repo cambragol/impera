@@ -30,7 +30,7 @@ void Project::openGame(const QString &directory) {
     require(dir.exists(), "Game folder does not exist");
     for (const auto &name : dir.entryList(QDir::Files, QDir::Name)) {
         QString upper = name.toUpper();
-        if (upper == "TEXT.OVR")
+        if (upper == "TEXT.OVR" || upper == "RULES.TBL")
             continue; // Companion resources are package-only.
         if (!MOD_AllowedResource(upper.toLatin1().constData()))
             continue;
@@ -43,6 +43,7 @@ void Project::openGame(const QString &directory) {
     U5::readGraphics("TILES.16", next.data("TILES.16"));
     require(next.data("INIT.GAM").size() == 4192, "INIT.GAM must use the 4192-byte DOS layout");
     next.resources.insert("TEXT.OVR", {{}, {}});
+    next.resources.insert("RULES.TBL", {{}, {}});
     *this = next;
 }
 const QByteArray &Project::data(const QString &name) const {
@@ -75,7 +76,10 @@ QByteArray Project::package() const {
     auto list = changed();
     require(!list.isEmpty(), "There are no changes to export");
     require(list.size() <= MOD_MAX_ENTRIES, "Too many modified resources");
-    QByteArray out(list.contains("TEXT.OVR") ? "IMOD0002" : "IMOD0001", 8),
+    QByteArray out(list.contains("RULES.TBL")  ? "IMOD0003"
+                   : list.contains("TEXT.OVR") ? "IMOD0002"
+                                               : "IMOD0001",
+                   8),
         nameBytes = title.toUtf8();
     append32(out, nameBytes.size());
     append32(out, list.size());
@@ -137,7 +141,8 @@ void Project::importPackage(const QByteArray &bytes) {
     next.title = QString::fromUtf8(decoded.title);
     for (unsigned i = 0; i < decoded.count; i++) {
         auto &e = decoded.entries[i];
-        next.resources[QString::fromLatin1(e.name)].included = true;
+        next.resources[QString::fromLatin1(e.name)].included =
+            QStringList{"INIT.OOL", "BRIT.OOL", "UNDER.OOL"}.contains(QString::fromLatin1(e.name));
         next.resources[QString::fromLatin1(e.name)].edited =
             QByteArray(reinterpret_cast<char *>(e.data), e.size);
     }
@@ -160,8 +165,18 @@ void Project::save(const QString &path) {
                         {"bytes", QString::fromLatin1(r.edited.toBase64())}});
     }
     root["edits"] = edits;
-    if (changed().contains("TEXT.OVR"))
-        root["requires"] = QJsonObject{{"narrativeOverrides", 1}, {"packageVersion", 2}};
+    QJsonObject requirements;
+    if (changed().contains("RULES.TBL")) {
+        requirements["engineTables"] = 1;
+        requirements["packageVersion"] = 3;
+    }
+    if (changed().contains("TEXT.OVR")) {
+        requirements["narrativeOverrides"] = 1;
+        if (!requirements.contains("packageVersion"))
+            requirements["packageVersion"] = 2;
+    }
+    if (!requirements.isEmpty())
+        root["requires"] = requirements;
     QJsonObject annotations;
     for (auto it = dialogueNames.cbegin(); it != dialogueNames.cend(); ++it)
         annotations.insert(it.key(), it.value());
@@ -235,9 +250,9 @@ QVector<ModDiagnostic> validateMod(const Project &project) {
                        "No modified resources; there is no package to export or test."});
     for (const auto &name : changes) {
         try {
-            if (name == "TEXT.OVR") {
+            if (name == "TEXT.OVR" || name == "RULES.TBL") {
                 require(project.resources[name].original.isEmpty(),
-                        "Narrative companion must have an empty original base");
+                        "Companion resource must have an empty original base");
             } else {
                 QString actual;
                 QDir source(project.sourceDirectory);
@@ -269,6 +284,12 @@ QVector<ModDiagnostic> validateMod(const Project &project) {
                        QString("Package replaces this entire resource (%1 bytes → %2 bytes).")
                            .arg(project.resources[name].original.size())
                            .arg(project.data(name).size())});
+        if (name == "RULES.TBL")
+            result.append(
+                {ModDiagnostic::Information, name,
+                 "Requires engine table schema v1 / package v3. Verified shop prices, stock, and "
+                 "location entrances apply at runtime. Compiled defaults remain unchanged; omitted "
+                 "entries inherit them. Older engines reject the package."});
         if (name == "TEXT.OVR")
             result.append({ModDiagnostic::Information, name,
                            "Requires Impera with narrative override v1 / package v2 support. Older "
@@ -308,7 +329,8 @@ QVector<ModDiagnostic> validateMod(const Project &project) {
         if (name == "DATA.OVL") {
             result.append({ModDiagnostic::Information, name,
                            "Britannia map index supported by Impera; other DOS overlay tables "
-                           "are not runtime configuration. Requires an engine with Workshop Phase 1 support."});
+                           "are not runtime configuration. Edit Shops and locations to export "
+                           "RULES.TBL; consult the coverage inventory for unresolved spans."});
             auto before = project.resources[name].original;
             auto after = project.data(name);
             if (before.size() >= int(U5_WORLD_INDEX_OFFSET + U5_WORLD_INDEX_SIZE) &&
@@ -501,7 +523,7 @@ QString prepareModTest(const Project &project, const QString &sessionsDirectory)
                 "Cannot make test file writable");
     }
     for (const auto &name : project.resources.keys()) {
-        if (name == "TEXT.OVR")
+        if (name == "TEXT.OVR" || name == "RULES.TBL")
             continue; // Virtual companion exists only inside the package.
         auto bytes = readLimited(destination.filePath(name), MOD_MAX_RESOURCE);
         require(bytes == project.resources[name].original,

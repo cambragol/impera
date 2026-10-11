@@ -1,6 +1,7 @@
 #include "runtime.h"
 #include "common/common.h"
 #include "common/file.h"
+#include "engine_tables.h"
 #include "narrative.h"
 #include "package.h"
 #include "world_resources.h"
@@ -247,4 +248,9 @@ const char *MOD_NarrativeText(const char *resource, unsigned offset) {
 const char *MOD_SceneMessage(const char *resource, unsigned offset, const char *fallback) {
     const char *text = MOD_NarrativeText(resource, offset);
     return text ? text : fallback;
+}
+
+unsigned MOD_TableValue(unsigned table, unsigned index, unsigned fallback) {
+    const ModResource *r = mountedResource("RULES.TBL");
+    return r ? U5_TableValue(r->data, r->size, table, index, fallback) : fallback;
 }

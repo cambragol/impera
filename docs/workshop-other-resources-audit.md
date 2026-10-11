@@ -1,3 +1,10 @@
+> Implementation update: Phases 1–9 now provide verified resource editors and
+> runtime paths. See [fonts](workshop-fonts.md), [starting world objects](workshop-world-objects.md)
+> and [shops/location tables](workshop-engine-tables.md). The original audit below
+> records the compatibility gaps that motivated this work; its pre-implementation
+> descriptions are historical. Remaining overlay coverage is explicitly unresolved
+> in the new inventory rather than advertised as editable.
+
 # Workshop: Other Resources audit
 
 This records the baseline before the Phase 1 fixes. The Britannia runtime-index

@@ -1,14 +1,15 @@
 #include "window.h"
 #include "dialogue_editor.h"
 #include "dungeon_editor.h"
+#include "engine_tables.h"
+#include "font_editor.h"
 #include "location_text.h"
 #include "mod/package.h"
 #include "narrative_editor.h"
 #include "resource_document.h"
 #include "scene_editor.h"
-#include "font_editor.h"
-#include "world_objects.h"
 #include "text_preview.h"
+#include "world_objects.h"
 #include <QMouseEvent>
 #include <QPainter>
 #include <QtWidgets>
@@ -603,10 +604,12 @@ QWidget *WorkshopWindow::resourceEditor(const QString &name) {
     if (kind == Workshop::EditorKind::WorldObjects) {
         editor = Workshop::worldObjectEditor(&project, name == "BRIT.OOL" ? 0 : 1,
                                              objectCommit, &editorState, &flushDraft);
-    } else if (kind == Workshop::EditorKind::LocationText || kind == Workshop::EditorKind::Narrative ||
-        kind == Workshop::EditorKind::Scenes || kind == Workshop::EditorKind::Fonts) {
-        editor = (kind == Workshop::EditorKind::Fonts ? Workshop::fontEditor
-                  : kind == Workshop::EditorKind::Scenes      ? Workshop::sceneEditor
+    } else if (kind == Workshop::EditorKind::LocationText ||
+               kind == Workshop::EditorKind::Narrative || kind == Workshop::EditorKind::Scenes ||
+               kind == Workshop::EditorKind::Fonts || kind == Workshop::EditorKind::Tables) {
+        editor = (kind == Workshop::EditorKind::Tables      ? Workshop::tableEditor
+                  : kind == Workshop::EditorKind::Fonts     ? Workshop::fontEditor
+                  : kind == Workshop::EditorKind::Scenes    ? Workshop::sceneEditor
                   : kind == Workshop::EditorKind::Narrative ? Workshop::narrativeEditor
                                                             : Workshop::locationTextEditor)(
             &project, name,

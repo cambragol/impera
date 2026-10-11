@@ -1,6 +1,7 @@
-#include "common/common.h"
 #include "audio/audio.h"
+#include "common/common.h"
 #include "common/movement.h"
+#include "mod/runtime.h"
 #if defined(TARGET_SDL)
 #include "key/mouse.h"
 #include "key/key.h"
@@ -505,8 +506,8 @@ static bool TOWN_0600(int param_1)
 
                 // 07e6
                 D_594f = 0;
-                D_5896_map_x = D_1e8a[D_5893_map_id - 1];
-                D_5897_map_y = D_1eb2[D_5893_map_id - 1];
+                D_5896_map_x = MOD_TableValue(7, (D_5893_map_id - 1), D_1e8a[D_5893_map_id - 1]);
+                D_5897_map_y = MOD_TableValue(8, (D_5893_map_id - 1), D_1eb2[D_5893_map_id - 1]);
                 D_5893_map_id = 0;
             }
             else

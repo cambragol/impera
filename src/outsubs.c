@@ -1,10 +1,10 @@
-#include "mod/world_resources.h"
-#include "mod/runtime.h"
 #include "common/common.h"
-#include "vars.h"
 #include "funcs.h"
 #include "macros.h"
+#include "mod/runtime.h"
+#include "mod/world_resources.h"
 #include "tiles.h"
+#include "vars.h"
 
 #include <string.h>
 
@@ -259,7 +259,8 @@ int OUTSUBS_0388_EnterTown(char* param_1)
 
     for (local_6 = 0; local_6 < 0x20; local_6++)
     {
-        if (D_1e8a[local_6] == D_5896_map_x && (D_1eb2[local_6] == D_5897_map_y))
+        if (MOD_TableValue(7, (local_6), D_1e8a[local_6]) == D_5896_map_x &&
+            (MOD_TableValue(8, (local_6), D_1eb2[local_6]) == D_5897_map_y))
             break;
     }
 

@@ -462,6 +462,16 @@ not a destructive reset of normal saves.
 
 ## Phase 9 — Remaining `DATA.OVL` concepts
 
+Implemented: a named shop/location workspace, per-entry inheritance, previews,
+shared schema validation and runtime overrides for eight verified tables.
+[Authoring and compatibility](workshop-engine-tables.md) documents the supported
+tables and IMOD0003 companion. The searchable generated inventory identifies
+compiled, obsolete and unresolved data; unsupported spans remain explicitly
+unsupported. Tests cover original DOS spans, native editing/undo, package
+roundtrips, mounted lookup/fallback and atomic rejection. This phase delivers
+verified per-table support, not universal raw-overlay compatibility.
+
+
 The map-index part is covered by Phase 1. Finish coverage through a table-by-table
 inventory of the overlay against `vars.c` and every runtime consumer:
 

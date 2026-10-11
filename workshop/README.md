@@ -447,3 +447,13 @@ the sequence, rejecting unsafe references, coordinates and control flow.
 Extended scene messages require an engine with Workshop Phase 6 support, in
 addition to package-version-2 support. Older narrative-enabled builds do not have
 these scene entry points. Ordinary DAT edits use the existing version-1 format.
+
+### Fonts, starting objects and engine tables
+
+Use the [bitmap font editor](../docs/workshop-fonts.md) for normal, rune and
+border previews; Hercules fonts are clearly marked as legacy presentation data.
+The [starting world objects workspace](../docs/workshop-world-objects.md) combines
+Britannia and Underworld templates, placement and explicit inheritance. Existing
+saves retain their objects. [Shops and location tables](../docs/workshop-engine-tables.md)
+provide named, bounded controls with runtime-supported companion overrides and
+a searchable inventory of remaining unsupported overlay data.

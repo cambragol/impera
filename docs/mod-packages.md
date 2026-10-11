@@ -1,4 +1,4 @@
-# Impera mod packages, version 1
+# Impera mod packages
 
 Impera automatically scans the **selected game directory's `Mods` subfolder**
 at startup. Only files whose extension is `.imperamod` (case-insensitive) are
@@ -22,7 +22,7 @@ All integers are unsigned little-endian 32-bit values; there is no padding.
 
 | Header | Encoding |
 | --- | --- |
-| Magic/version | Eight ASCII bytes `IMOD0001` |
+| Magic/version | Eight ASCII bytes `IMOD0001`, `IMOD0002` or `IMOD0003` |
 | Title length | 1–256 UTF-8 bytes |
 | Resource count | 1–128 |
 | Title | Length bytes; embedded NUL forbidden |
@@ -115,3 +115,13 @@ Extended Blackthorn, shrine, Codex and final-rescue text uses the existing
 message print, never by replacing a bulk message-bank read. Other entries still
 use the original bank. These IDs require Phase 6 Impera: older narrative-enabled
 builds reject unknown entries. DAT-only map/message edits retain package version 1.
+
+## Companion versions
+
+Version 2 permits the verified `TEXT.OVR` narrative companion. Version 3 also
+permits [engine table overrides](workshop-engine-tables.md) in `RULES.TBL` and
+continues to accept narrative and ordinary resource entries. Companions have an
+empty original base and zero base CRC; the engine validates their schemas before
+mounting the package. Ordinary resource checks remain unchanged in all versions.
+Older engines reject unsupported versions explicitly. Current Impera retains
+version 1 and 2 compatibility.

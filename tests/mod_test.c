@@ -2,6 +2,7 @@
 #include "common/common.h"
 #include "common/file.h"
 #include "mod/creation_scene.h"
+#include "mod/engine_tables.h"
 #include "mod/narrative.h"
 #include "mod/package.h"
 #include "mod/runtime.h"
@@ -247,6 +248,50 @@ static void dungeonResources(void) {
     remove("game/DUNGEON.DAT");
     remove("game/DUNGEON.CBT");
 }
+static void engineTables(void) {
+    unsigned char rules[50] = "IRULES01";
+    rules[8] = 8;
+    for (unsigned i = 0; i < 8; ++i) {
+        unsigned char *r = rules + 10 + i * 5;
+        r[0] = i + 1;
+        r[3] = i == 3 ? 12 : 42;
+    }
+    assert(U5_ValidateTables(rules, sizeof(rules)));
+    Buffer b;
+    ModPackage p;
+    char error[256];
+    header(&b, 1);
+    memcpy(b.bytes, "IMOD0003", 8);
+    rawEntry(&b, "RULES.TBL", NULL, 0, rules, sizeof(rules));
+    assert(MOD_Decode(b.bytes, b.size, readBase, NULL, &p, error, sizeof(error)));
+    MOD_Free(&p);
+    put("game/Mods/01-rules.imperamod", b.bytes, b.size);
+    FILE_SetDataDirectory("game");
+    assert(MOD_LoadedCount() == 1);
+    for (unsigned id = 1; id <= 8; ++id) {
+        assert(MOD_TableValue(id, 0, 123) == (id == 4 ? 12 : 42));
+        assert(MOD_TableValue(id, 1, 123) == 123);
+    }
+    FILE_SetDataDirectory(NULL);
+    assert(MOD_TableValue(1, 0, 123) == 123);
+    remove("game/Mods/01-rules.imperamod");
+    memcpy(b.bytes, "IMOD0002", 8);
+    assert(!MOD_Decode(b.bytes, b.size, readBase, NULL, &p, error, sizeof(error)));
+    /* A bad stock reference rejects the whole package, including unrelated entries. */
+    rules[10 + 3 * 5 + 3] = 48;
+    header(&b, 2);
+    memcpy(b.bytes, "IMOD0003", 8);
+    entry(&b, "INIT.GAM", "base", "partial");
+    rawEntry(&b, "RULES.TBL", NULL, 0, rules, sizeof(rules));
+    assert(!MOD_Decode(b.bytes, b.size, readBase, NULL, &p, error, sizeof(error)));
+    assert(p.count == 0);
+    put("game/Mods/01-rules.imperamod", b.bytes, b.size);
+    FILE_SetDataDirectory("game");
+    assert(MOD_LoadedCount() == 0);
+    assert(MOD_TableValue(4, 0, 123) == 123);
+    FILE_SetDataDirectory(NULL);
+    remove("game/Mods/01-rules.imperamod");
+}
 int main(void) {
     assert(MOD_AllowedResource("INIT.GAM"));
     assert(MOD_AllowedResource("BRIT.CBT"));
@@ -340,6 +385,7 @@ int main(void) {
     dungeonResources();
     narrativeResources();
     sceneResources();
+    engineTables();
     puts("Mod package validation, atomic mounting, order, conflicts, reloads and original preservation "
          "passed");
     return 0;

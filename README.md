@@ -646,7 +646,8 @@ project documentation.
 ## Modding with Impera Workshop
 
 **Impera Workshop** is a native desktop modding application for maps, NPCs,
-combat setup, DOS graphics, conversations, story and starting state. It edits
+combat setup, DOS graphics, conversations, story, bitmap fonts, starting world
+objects, shop stock/prices and location entrances. It edits
 projects and exports `.imperamod` packages while keeping original files untouched.
 See [Workshop build and authoring instructions](workshop/README.md).
 

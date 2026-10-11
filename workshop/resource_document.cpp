@@ -1,12 +1,13 @@
 #include "resource_document.h"
 #include "dialogue.h"
-#include "font_editor.h"
-#include "world_objects.h"
 #include "dungeon_editor.h"
+#include "engine_tables.h"
+#include "font_editor.h"
 #include "location_text.h"
 #include "mod/world_resources.h"
 #include "narrative_editor.h"
 #include "scene_editor.h"
+#include "world_objects.h"
 using U5::require;
 namespace Workshop {
 Capability capability(const QString &resource) {
@@ -15,6 +16,11 @@ Capability capability(const QString &resource) {
         return {n.startsWith("RUNES") ? "Runic font" : "Normal font", "Fonts",
                 n.endsWith(".HCS") ? "Legacy Hercules font — not used by the SDL color renderer"
                                     : "Editable game font", EditorKind::Fonts};
+    if (n == "DATA.OVL" || n == "RULES.TBL")
+        return {n == "DATA.OVL" ? "Engine tables and coverage" : "Shops and locations",
+                "Engine tables",
+                "Verified concepts use RULES.TBL; raw overlay coverage is explicitly classified",
+                EditorKind::Tables};
     if (n.endsWith(".16"))
         return {n, "Artwork", "Editable palette artwork", EditorKind::Artwork};
     if (n.endsWith(".TLK"))
@@ -180,6 +186,10 @@ QMap<QString, QByteArray> ResourceDocument::replace(const Entry &e, const QByteA
 void validateResource(const Project &project, const QString &name) {
     const auto &b = project.data(name);
     const auto kind = capability(name).editor;
+    if (name == "RULES.TBL") {
+        TableDocument::validate(b);
+        return;
+    }
     if (kind == EditorKind::Scenes) {
         SceneDocument::validate(b);
         return;

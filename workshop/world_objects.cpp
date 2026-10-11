@@ -35,8 +35,9 @@ void WorldObjects::validate(const QString &name, const QByteArray &b, const QByt
         if (r == original.mid(i * 8, 8) || !uchar(r[0]))
             continue;
         require(i > 0, "World object slot 0 is reserved for the active party");
-        if (!QList<int>{1, 2, 15, 16, 17, 25, 27, 30, 36, 37, 38, 39, 40, 41, 42, 43}.contains(
-                uchar(r[0])))
+        if (!QList<int>{1,  2,  15, 16, 17, 25, 27, 30, 32, 33,
+                        34, 35, 36, 37, 38, 39, 40, 41, 42, 43}
+                 .contains(uchar(r[0])))
             continue; // Unknown object types are retained, with diagnostics rather than invented
                       // semantics.
         require(uchar(r[4]) == (name == "BRIT.OOL" ? 0 : 255), "Object floor must match its world");
@@ -47,6 +48,27 @@ void WorldObjects::validate(const QString &name, const QByteArray &b, const QByt
         if ((tile & 0xf8) == TILE_ACTOR_FRIGATE_20)
             require(uchar(r[5]) <= 100, "Ship hull condition must be between 0 and 100");
     }
+}
+static QString objectName(int shape) {
+    if (shape == TILE_ACTOR_CHEST)
+        return "Chest";
+    if (shape == TILE_ACTOR_GOLD)
+        return "Gold";
+    if (shape == TILE_ACTOR_FOOD)
+        return "Food";
+    if (shape == TILE_ACTOR_HORSE || shape == TILE_ACTOR_HORSE + 1)
+        return "Horse";
+    if (shape == TILE_ACTOR_MOONSTONE)
+        return "Moonstone";
+    if (shape == TILE_ACTOR_CARPET)
+        return "Magic carpet";
+    if (shape == TILE_ACTOR_SLEEP)
+        return "Sleeping figure";
+    if ((shape & 0xf8) == TILE_ACTOR_FRIGATE_20)
+        return "Frigate";
+    if (shape >= TILE_ACTOR_SKIFF && shape <= TILE_ACTOR_SKIFF + 3)
+        return "Skiff";
+    return QString("World object (shape %1)").arg(shape);
 }
 QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit commit,
                            QMap<QString, int> *state, std::function<bool()> *flush) {
@@ -104,8 +126,8 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
     auto il = new QFormLayout(inspector);
     auto type = new QComboBox;
     type->setObjectName("worldObjectType");
-    for (int tile : {1, 2, 15, 16, 17, 25, 27, 30, 36, 37, 38, 39, 40, 41, 42, 43})
-        type->addItem(MapDocument::tileName(256 + tile), tile);
+    for (int tile : {1, 2, 15, 16, 17, 25, 27, 30, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43})
+        type->addItem(objectName(tile), tile);
     type->setToolTip("Choose a verified world object shape. Other inherited shapes are retained, "
                      "with unsupported properties read-only.");
     il->addRow("Object", type);
@@ -191,7 +213,7 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
             if (!tile)
                 continue;
             ++count;
-            QString label = MapDocument::tileName(256 + tile);
+            QString label = objectName(tile);
             auto item = new QListWidgetItem(
                 QIcon(QPixmap::fromImage(canvas->tiles.value(256 + tile))),
                 QString("%1 · (%2,%3)").arg(label).arg(uchar(r[2])).arg(uchar(r[3])), list);
@@ -226,11 +248,18 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
         selection();
     };
     auto write = [=](int slot, const QByteArray &r) {
-        int which = world->currentIndex();
-        auto bytes = WorldObjects::change(*project, which, slot, r);
-        if (commit(WorldObjects::resource(which), bytes, true)) {
+        try {
+            int which = world->currentIndex();
+            auto bytes = WorldObjects::change(*project, which, slot, r);
+            if (!commit(WorldObjects::resource(which), bytes, true))
+                return false;
             (*state)["objects/slot"] = slot;
             (*load)();
+            return true;
+        } catch (const std::exception &error) {
+            QMessageBox::warning(root, "Cannot change starting object", error.what());
+            (*load)();
+            return false;
         }
     };
     auto change = [=] {
@@ -301,8 +330,7 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
         auto r = WorldObjects::effective(*project, world->currentIndex()).mid(slot * 8, 8);
         r[2] = char(p.x());
         r[3] = char(p.y());
-        write(slot, r);
-        return true;
+        return write(slot, r);
     };
     *flush = [=] {
         canvas->cancelStroke();

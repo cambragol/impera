@@ -1,10 +1,11 @@
 #include "dialogue.h"
-#include "font_editor.h"
-#include "world_objects.h"
 #include "dialogue_editor.h"
 #include "dungeon_editor.h"
+#include "engine_tables.h"
+#include "font_editor.h"
 #include "location_text.h"
 #include "mod/creation_scene.h"
+#include "mod/engine_tables.h"
 #include "mod/package.h"
 #include "mod/world_resources.h"
 #include "narrative_editor.h"
@@ -12,6 +13,7 @@
 #include "scene_editor.h"
 #include "text_preview.h"
 #include "window.h"
+#include "world_objects.h"
 #include <QTemporaryDir>
 #include <QtWidgets>
 #include <algorithm>
@@ -74,6 +76,106 @@ int main(int argc, char **argv) {
         std::cout << "PASS " << name << "\n";
     };
     try {
+        test("Engine table schema bounds, inheritance and package v3", [] {
+            QByteArray bytes;
+            bytes = Workshop::TableDocument::change(bytes, 1, 0, 321);
+            bytes = Workshop::TableDocument::change(bytes, 4, 0, 17);
+            bytes = Workshop::TableDocument::change(bytes, 7, 0, 111);
+            bytes = Workshop::TableDocument::change(bytes, 8, 0, 222);
+            check(Workshop::TableDocument::value(bytes, 1, 0) == 321 &&
+                      Workshop::TableDocument::value(bytes, 1, 1) == U5_TableDefault1[1],
+                  "Table override/default wrong");
+            rejects([&] { Workshop::TableDocument::change(bytes, 4, 0, 48); });
+            rejects([&] { Workshop::TableDocument::change(bytes, 4, 7, 2); });
+            rejects([&] { Workshop::TableDocument::change(bytes, 5, 3, 25); });
+            rejects([&] { Workshop::TableDocument::change(bytes, 5, 12, 25); });
+            rejects([&] { Workshop::TableDocument::change(bytes, 6, 3, 25); });
+            rejects([&] { Workshop::TableDocument::change(bytes, 7, 40, 25); });
+            rejects([&] { Workshop::TableDocument::change(bytes, 2, 0, 256); });
+            rejects([&] { Workshop::TableDocument::validate(bytes + "x"); });
+            auto bad = bytes;
+            bad[8] = char(255);
+            rejects([&] { Workshop::TableDocument::validate(bad); });
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            QByteArray ending(3698, 0);
+            for (auto e : Workshop::narrativeEntries("END.DAT"))
+                ending.replace(e->offset, 6, "Hello", 6);
+            file(dir.path() + "/END.DAT", ending);
+            p.openGame(dir.path());
+            p.resources["RULES.TBL"].edited = bytes;
+            QByteArray narrative("ITXT0001", 8);
+            auto append32 = [&](unsigned n) {
+                for (int i = 0; i < 4; ++i) narrative.append(char(n >> (8 * i)));
+            };
+            QByteArray id("ending/page/1"), text("Test ending");
+            append32(1);
+            append32(id.size()); narrative += id;
+            append32(text.size() + 1); narrative += text; narrative.append(char(0));
+            p.resources["TEXT.OVR"].edited = narrative;
+            auto package = p.package();
+            check(package.startsWith("IMOD0003"), "Table package is not v3");
+            Project copy;
+            copy.openGame(dir.path());
+            copy.importPackage(package);
+            check(copy.data("RULES.TBL") == bytes, "Table package failed roundtrip");
+            check(copy.data("TEXT.OVR") == narrative, "Version 3 lost narrative overrides");
+            copy.save(dir.path() + "/tables.imperaproject");
+            Project saved;
+            saved.load(dir.path() + "/tables.imperaproject");
+            check(saved.data("RULES.TBL") == bytes, "Table project failed roundtrip");
+            bytes = Workshop::TableDocument::change({}, 1, 0, 321);
+            check(Workshop::TableDocument::change(bytes, 1, 0, 321, true).isEmpty(),
+                  "Last override was not removed");
+            package.replace(0, 8, "IMOD0002");
+            rejects([&] { copy.importPackage(package); });
+        });
+        test("Table workspace, inventory filtering and undo", [&] {
+            QTemporaryDir dir;
+            fixture(dir.path());
+            WorkshopWindow w;
+            check(w.openGame(dir.path()), "Table fixture open");
+            w.selectResource("RULES.TBL");
+            auto table = w.findChild<QTableWidget *>("engineTableEntries");
+            check(table && table->rowCount() == 48, "Equipment table workspace missing");
+            auto inventory = w.findChild<QTreeWidget *>("overlayCoverage");
+            check(inventory && inventory->topLevelItemCount() > 1000,
+                  "Overlay inventory incomplete");
+            w.findChild<QSpinBox *>("engineTableValue")->setValue(345);
+            w.findChild<QPushButton *>("applyEngineTable")->click();
+            check(Workshop::TableDocument::value(w.projectForTests().data("RULES.TBL"), 1, 0) ==
+                      345,
+                  "Table UI edit failed");
+            for (auto a : w.findChildren<QAction *>())
+                if (a->text().startsWith("Undo ")) {
+                    a->trigger();
+                    break;
+                }
+            app.processEvents();
+            app.processEvents();
+            check(w.projectForTests().data("RULES.TBL").isEmpty(),
+                  "Table undo did not restore inheritance");
+            auto selector = w.findChild<QComboBox *>("engineTableSelector");
+            selector->setCurrentIndex(3);
+            check(w.findChild<QComboBox *>("engineStockItem")->isEnabled(),
+                  "Stock references unavailable");
+        });
+        test("Verified table spans match original DOS overlay (optional)", [] {
+            if (!qEnvironmentVariableIsSet("U5_GAME_DIR"))
+                return;
+            Project p;
+            p.openGame(qEnvironmentVariable("U5_GAME_DIR"));
+            auto overlay = p.data("DATA.OVL");
+            for (auto &spec : U5_EngineTables) {
+                bool words = spec.id == 1 || spec.id == 5 || spec.id == 6;
+                for (unsigned i = 0; i < spec.rows * spec.columns; ++i) {
+                    unsigned value = words ? U5::word(overlay, spec.address + 16 + i * 2)
+                                           : U5::byte(overlay, spec.address + 16 + i);
+                    check(value == spec.defaults[i],
+                          "Audited table span does not match DOS edition");
+                }
+            }
+        });
         test("World objects use fresh-game precedence and preserve properties", [] {
             QTemporaryDir dir;auto p=fixture(dir.path());
             QByteArray seed(256,0);seed[8]=seed[9]=41;seed[10]=14;seed[11]=char(242);seed[12]=char(255);

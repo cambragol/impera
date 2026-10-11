@@ -127,7 +127,7 @@ static int SHOPPES_02ba(int param_1, int param_2, int param_3)
     ASSERT(param_2 < 3); // ?
     ASSERT(D_b114 < 4); // ?
 
-    D_b118 = D_3bea[D_b114][param_2];
+    D_b118 = MOD_TableValue(5, (D_b114) * 4 + (param_2), D_3bea[D_b114][param_2]);
     D_b118 += (D_b118 * -((s32)(D_55a8_party[param_1].intel * 3) - 100) / (u32)100);
 
     ULTIMA_1850_PrintString(_TEXT(0x786e, "\n\n\""));
@@ -276,7 +276,8 @@ static int SHOPPES_0502(int param_1, int param_2, int param_3)
     local_6 = 0;
     for (local_8 = 0; local_8 < 8; local_8++)
     {
-        if (D_3a32[D_b114][local_8] != 0) // NOT MATCHING
+        if (MOD_TableValue(2, (D_b114) * 8 + (local_8), D_3a32[D_b114][local_8]) !=
+            0) // NOT MATCHING
         {
             if (local_6 == param_2)
                 break;
@@ -297,9 +298,9 @@ static int SHOPPES_0502(int param_1, int param_2, int param_3)
     }
     else
     {
-        D_b118 = D_3a32[D_b114][local_8];
+        D_b118 = MOD_TableValue(2, (D_b114) * 8 + (local_8), D_3a32[D_b114][local_8]);
         D_b118 += D_b118 * -((s32)(D_55a8_party[param_1].intel * 3) - 100) / (u32)100;
-        D_b11a = D_3a5a[D_b114][local_8];
+        D_b11a = MOD_TableValue(3, (D_b114) * 8 + (local_8), D_3a5a[D_b114][local_8]);
 
         ULTIMA_1850_PrintString(_TEXT(0x7952, "\n\n\""));
         SHOPPES_PrintEntry(D_3c10[local_8],
@@ -362,7 +363,8 @@ static int SHOPPES_0666(int param_1)
         local_8 = 0;
         do
         {
-            if (D_3a32[D_b114][local_8] != 0) // size = max_b114 * 8 + 8
+            if (MOD_TableValue(2, (D_b114) * 8 + (local_8), D_3a32[D_b114][local_8]) !=
+                0) // size = max_b114 * 8 + 8
             {
                 ULTIMA_16ba_PrintChar(local_c++);
                 ULTIMA_1850_PrintString(_TEXT(0x7a16, "..."));
@@ -492,7 +494,7 @@ void SHOPPES_07be(int param_1)
         local_8 = 0;
         local_12 = 0;
 
-        D_b118 = D_3c30[D_b114];
+        D_b118 = MOD_TableValue(6, (D_b114), D_3c30[D_b114]);
         D_b118 += (D_b118 * -((s32)(D_55a8_party[param_1].intel * 3) - 100) / (u32)100);
 
         SHOPPES_01b6();
@@ -565,7 +567,7 @@ static int SHOPPES_09ac(int param_1, int param_2, int param_3)
 {
     byte local_4;
 
-    D_b118 = D_3a82[param_2];
+    D_b118 = MOD_TableValue(1, (param_2), D_3a82[param_2]);
     D_b118 += (D_b118 * -((s32)(D_55a8_party[param_1].intel * 3) - 100) / (u32)100);
 
     ULTIMA_1850_PrintString(_TEXT(0x7b5e, "\n\n\""));
@@ -657,7 +659,7 @@ static int SHOPPES_0b30(int param_1)
 
         for (local_8 = 0; local_8 < 8; local_8++)
         {
-            local_c = D_3ae2[D_b114][local_8];
+            local_c = MOD_TableValue(4, (D_b114) * 8 + (local_8), D_3ae2[D_b114][local_8]);
             if (local_c == 0xff)
                 break;
 
@@ -692,7 +694,9 @@ static int SHOPPES_0b30(int param_1)
             if (local_c < local_8 && local_c >= 0)
             {
                 ULTIMA_16ba_PrintChar(local_c + 0x61); // + 'a' NOT MATCHING
-                local_a = SHOPPES_09ac(param_1, D_3ae2[D_b114][local_c], local_a);
+                local_a = SHOPPES_09ac(
+                    param_1, MOD_TableValue(4, (D_b114) * 8 + (local_c), D_3ae2[D_b114][local_c]),
+                    local_a);
                 if (local_a == -1)
                 {
                     local_6 = 1;
@@ -848,9 +852,11 @@ static int SHOPPES_0e76(int param_1, int param_2)
     else
     {
         ULTIMA_1850_PrintString(_TEXT(0x7d64, "\n\n\""));
-        if (D_3a82[param_2] != 0)
-        {
-            D_b118 = (D_55a8_party[param_1].intel * D_3a82[param_2] * (u32)3) / (u32)100 + 1;
+        if (MOD_TableValue(1, (param_2), D_3a82[param_2]) != 0) {
+            D_b118 = (D_55a8_party[param_1].intel * MOD_TableValue(1, (param_2), D_3a82[param_2]) *
+                      (u32)3) /
+                         (u32)100 +
+                     1;
 
             D_ab00 = D_3cce[param_2];
             if (D_3cce[param_2] == 0)
@@ -880,9 +886,7 @@ static int SHOPPES_0e76(int param_1, int param_2)
                 ULTIMA_3f36_DecreaseByte(&D_57c0[param_2], 1);
             }
             ULTIMA_2884_UpdateGoldDisplay();
-        }
-        else
-        {
+        } else {
             SHOPPES_0026(_TEXT(0x7d8c, "That, I cannot buy from thee.\"\nsays $."));
         }
 

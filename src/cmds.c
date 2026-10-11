@@ -1,9 +1,10 @@
 #include "common/common.h"
-#include "key/mouse.h"
 #include "funcs.h"
-#include "vars.h"
+#include "key/mouse.h"
 #include "macros.h"
+#include "mod/runtime.h"
 #include "tiles.h"
+#include "vars.h"
 
 #include "audio/aud_mus.h"
 
@@ -1239,9 +1240,10 @@ static void CMDS_12c8(char* param_1)
                 return;
             }
 
-            if (local_6 + D_5896_map_x == D_1e8a[local_4 + 0x20] &&
-                local_a + D_5897_map_y == D_1eb2[local_4 + 0x20])
-            {
+            if (local_6 + D_5896_map_x ==
+                    MOD_TableValue(7, (local_4 + 0x20), D_1e8a[local_4 + 0x20]) &&
+                local_a + D_5897_map_y ==
+                    MOD_TableValue(8, (local_4 + 0x20), D_1eb2[local_4 + 0x20])) {
                 D_58d0[local_4] ^= 0x80;
                 *ULTIMA_4402_GetTileAddr(local_6 + D_5896_map_x, local_a + D_5897_map_y) ^= D_4512[local_4] ^ TILE_MAP_DF;
                 D_24e6 |= 2;
