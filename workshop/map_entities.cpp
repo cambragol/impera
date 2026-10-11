@@ -13,8 +13,15 @@ QString actorName(int shape) {
     // Combat group names do not always describe the NPC appearance artwork.
     if (shape == 96)
         return "Man in stocks";
-    if (shape >= 64 && shape <= 252)
-        return QString::fromLatin1(engineActorNames[(shape - 64) / 4]).toLower();
+    if (shape >= 64 && shape <= 252) {
+        QString name = QString::fromLatin1(engineActorNames[(shape - 64) / 4]).toLower();
+        // This table names combat groups; the picker places one creature at a time.
+        if (name == "headlesses")
+            return "headless";
+        if (name.endsWith('s'))
+            name.chop(1);
+        return name;
+    }
     return QString("Appearance %1").arg(shape);
 }
 QList<int> monsterShapes() {
@@ -33,7 +40,7 @@ QString mapItemName(MapItemKind k) {
     case MapItemKind::Sign:
         return "Sign";
     case MapItemKind::Container:
-        return "Container";
+        return "Chest";
     case MapItemKind::HiddenContents:
         return "Hidden contents";
     case MapItemKind::Horse:

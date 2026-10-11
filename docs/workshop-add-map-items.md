@@ -21,7 +21,7 @@ attached contents. Project saving and package export retain the entities.
 | Monster | Dungeon combat rooms | A native monster placement with an editable species. |
 | Monster | Outdoor combat templates | A starting position for encounter-generated enemies; the encounter determines species and count. Adding a position does not increase that count. |
 | Sign | Britannia / settlements | Creates both a visible sign and text. Appearance can be sign, gravestone or cross. Dragging moves text and the visible tile together. |
-| Container | Worlds, settlements, dungeon levels, combat maps | Chest with explicit item contents, locks, traps and refill settings. Starts empty; add items in the right pane. |
+| Chest | Worlds, settlements, dungeon levels, combat maps | Chest with explicit item contents, locks, traps and refill settings. Starts empty; add items in the right pane. |
 | Hidden contents | Same maps as containers | Searchable contents without changing the terrain, including trees, furniture and other hiding places. |
 | Horse, skiff, frigate, magic carpet | Britannia / Underworld | Native usable objects. Frigates start with 99 hull condition. Place ships on suitable water. |
 | Trigger | Dungeon combat rooms | Stepping on it changes up to two destination tiles. Edit destinations and replacement tile in the right pane; preview is optional. |
@@ -67,7 +67,7 @@ sign / container / hidden-content list. These need records beyond terrain artwor
   duplicating them in Add… would create two ways to paint the same thing.
 * Barrels, trunks, desks, dressers, trees and similar objects can carry **Hidden
   contents**. Painting their artwork alone never invents an inventory. These are
-  Search targets; the chest Container option uses Open.
+  Search targets; the Chest option uses Open.
 * Graves and crosses use Sign's appearance selector, rather than separate Add entries.
 * Shopkeepers need shop definitions as well as an NPC. The Shops editor changes
   existing shops; arbitrary new shops/services require a future runtime extension.
