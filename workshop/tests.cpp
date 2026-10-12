@@ -292,7 +292,7 @@ int main(int argc, char **argv) {
             check(active()->findChild<QComboBox *>("mapPage")->currentText() == "Britannia", "Startup did not open Britannia");
             check(active()->findChild<QWidget *>("mapMinimap")->isVisible(), "Britannia thumbnail missing");
             check(!active()->findChild<QLabel *>("mapInteractionHint") && active()->findChild<QWidget *>("mapCanvas")->toolTip().isEmpty() && view()->toolTip().isEmpty(), "Map instructions or hover tooltip remain");
-            for (auto action : w.findChild<QToolBar *>()->actions()) check(action->objectName() != "showResourceLibrary", "Content button remains on toolbar");
+            check(!w.findChild<QToolBar *>(), "Command toolbar still occupies a row");
             auto rules = Workshop::TableDocument::change({}, 7, 16, 94);
             rules = Workshop::TableDocument::change(rules, 8, 16, 110);
             w.projectForTests().resources["RULES.TBL"].edited = rules;
@@ -405,10 +405,21 @@ int main(int argc, char **argv) {
             changed->itemDoubleClicked(changed->topLevelItem(0), 0);
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             check(workspace->currentText() == "Game Rules", "Changed-content link did not open its editor");
-            auto toolbar = w.findChild<QToolBar *>();
-            QStringList commands;
-            for (auto action : toolbar->actions()) commands.append(action->text());
-            check(!commands.contains("New Mod") && !commands.contains("Open Project") && !commands.contains("Name Mod") && !commands.contains("Import Package") && commands.contains("Save Project") && commands.contains("Test Mod"), "Toolbar was not simplified");
+            check(!w.findChild<QToolBar *>(), "Command toolbar still occupies a row");
+            QStringList menus;
+            for (auto action : w.menuBar()->actions())
+                menus.append(action->text());
+            check(menus == QStringList{"Project", "Edit", "Tools"},
+                  "Command menus are out of order");
+            auto editMenu = w.menuBar()->actions()[1]->menu();
+            QStringList editCommands;
+            for (auto action : editMenu->actions())
+                if (!action->isSeparator())
+                    editCommands.append(action->text());
+            check(editCommands.size() == 4 && editCommands[0].startsWith("Undo") &&
+                      editCommands[1].startsWith("Redo") && editCommands[2] == "Back" &&
+                      editCommands[3] == "Forward",
+                  "Edit commands lost their menu access");
             auto projectMenu = w.menuBar()->actions().first()->menu();
             check(projectMenu && projectMenu->actions().size() >= 6, "Project commands lost their menu access");
             bool shortcut = false;
@@ -3876,6 +3887,46 @@ int main(int argc, char **argv) {
             check(terminal.glyphs.size() == 2 && !terminal.notes.isEmpty(),
                   "Game preview displayed unreachable text after end conversation");
         });
+        test("Wait actions hide conventional spacing and insert it automatically", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            auto bytes =
+                U5::encodeText("Name<Entry>Description<Entry>Greeting<Entry>Work<New Line><New "
+                               "Line><Key Wait><Entry>Bye<Entry><Any><Label 15>@");
+            file(dir.path() + "/TOWNE.TLK", U5::writeDialogue({{1, bytes}}));
+            p.openGame(dir.path());
+            int commits = 0;
+            ConversationEditor editor(
+                &p, "TOWNE.TLK",
+                [&](const QByteArray &data, const QString &) {
+                    p.resources["TOWNE.TLK"].edited = data;
+                    ++commits;
+                },
+                {}, 0, 3, [](int, int) {});
+            auto outline = editor.findChild<QTreeWidget *>("conversationOutline");
+            outline->setCurrentItem(treeItem(outline, "Job / Work"));
+            auto field = editor.findChild<QPlainTextEdit *>("conversationBlockText");
+            check(field && field->toPlainText() == "Work",
+                  "Wait spacing remains visible in speech");
+            check(editor.flush() && commits == 0, "Opening wait spacing rewrote original bytes");
+            field->setPlainText("Edited work");
+            check(editor.flush(), "Cannot edit speech before wait");
+            auto doc = Dialogue::parse(U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes);
+            check(doc.entries[3].bytes ==
+                      Dialogue::text("Edited work") + QByteArray::fromHex("8d8d8f"),
+                  "Editing speech lost automatic wait spacing");
+            outline->setCurrentItem(treeItem(outline, "Greeting (introduced)"));
+            auto actions = editor.findChild<QListWidget *>("conversationAvailableActions");
+            QListWidgetItem *wait = nullptr;
+            for (int n = 0; n < actions->count(); ++n)
+                if (actions->item(n)->text() == "Wait for key")
+                    wait = actions->item(n);
+            check(wait, "Wait action missing");
+            actions->itemClicked(wait);
+            doc = Dialogue::parse(U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes);
+            check(doc.entries[2].bytes.endsWith(QByteArray::fromHex("8d8d8f")),
+                  "New wait action omitted its line spacing");
+        });
         test("Conversation surface, unified questions and source-linked playtest", [&] {
             QTemporaryDir dir;
             auto p = fixture(dir.path());
@@ -3956,6 +4007,10 @@ int main(int argc, char **argv) {
                       !editor.findChild<QToolButton *>("conversationInsert"),
                   "Available actions are not in a persistent right-hand pane");
             chooseEntry(question.prompt);
+            auto questionRow = treeItem(outline, "Otherwise / fallback")->parent();
+            check(questionRow->child(questionRow->childCount() - 1)->text(0) ==
+                      "Otherwise / fallback",
+                  "Fallback precedes explicit answers");
             int sections = 0;
             for (auto group : editor.findChildren<QGroupBox *>())
                 sections += group->property("dialogueSectionEntry").isValid();

@@ -172,9 +172,6 @@ WorkshopWindow::WorkshopWindow() {
             [messages](const QString &message) { messages->setVisible(!message.isEmpty()); });
     resize(1320, 860);
     setWindowIcon(QIcon(":/impera.png"));
-    auto toolbar = addToolBar("Project");
-    toolbar->setMovable(false);
-    toolbar->setToolButtonStyle(Qt::ToolButtonTextOnly);
     const QMap<QString, QString> help{
         {"New Mod",
          "Start a mod using the remembered Ultima 5 game folder, or locate it if unavailable."},
@@ -197,7 +194,6 @@ WorkshopWindow::WorkshopWindow() {
         auto a = new QAction(label, this);
         addAction(a); // Preserve shortcuts for commands moved out of the toolbar.
         projectMenu->addAction(a);
-        if (label == "Save Project" || label == "Export Package") toolbar->addAction(a);
         a->setShortcut(key);
         a->setToolTip(help.value(label));
         connect(a, &QAction::triggered, this, fn);
@@ -212,6 +208,8 @@ WorkshopWindow::WorkshopWindow() {
         if (!p.isEmpty())
             openGame(p);
     });
+    auto editMenu = menuBar()->addMenu("Edit");
+    editMenu->setToolTipsVisible(true);
     auto toolsMenu = menuBar()->addMenu("Tools");
     toolsMenu->setToolTipsVisible(true);
     auto extra = [this, toolsMenu, help](const QString &label, std::function<void()> fn) {
@@ -256,11 +254,11 @@ WorkshopWindow::WorkshopWindow() {
             openProject(p);
     });
     action("Save Project", QKeySequence::Save, [this] { saveProject(); });
-    toolbar->addSeparator();
     auto undo = history.createUndoAction(this, "Undo");
     undo->setShortcut(QKeySequence::Undo);
     undo->setToolTip("Undo the last committed edit.");
-    toolbar->addAction(undo);
+    editMenu->addAction(undo);
+    addAction(undo);
     QObject::disconnect(undo, nullptr, &history, nullptr);
     connect(undo, &QAction::triggered, this, [this] {
         if (flushDraft && !flushDraft())
@@ -270,7 +268,8 @@ WorkshopWindow::WorkshopWindow() {
     auto redo = history.createRedoAction(this, "Redo");
     redo->setShortcut(QKeySequence::Redo);
     redo->setToolTip("Reapply the last undone edit.");
-    toolbar->addAction(redo);
+    editMenu->addAction(redo);
+    addAction(redo);
     QObject::disconnect(redo, nullptr, &history, nullptr);
     connect(redo, &QAction::triggered, this, [this] {
         if (flushDraft && !flushDraft())
@@ -396,8 +395,11 @@ WorkshopWindow::WorkshopWindow() {
         if (item)
             navigateContent(item->data(0, Qt::UserRole + 2).toString());
     });
-    backAction = toolbar->addAction("Back");
-    forwardAction = toolbar->addAction("Forward");
+    editMenu->addSeparator();
+    backAction = editMenu->addAction("Back");
+    forwardAction = editMenu->addAction("Forward");
+    addAction(backAction);
+    addAction(forwardAction);
     backAction->setShortcut(QKeySequence("Alt+Left"));
     forwardAction->setShortcut(QKeySequence("Alt+Right"));
     backAction->setToolTip(
@@ -421,12 +423,6 @@ WorkshopWindow::WorkshopWindow() {
     };
     connect(backAction, &QAction::triggered, this, [travel] { travel(-1); });
     connect(forwardAction, &QAction::triggered, this, [travel] { travel(1); });
-    auto validate = toolbar->addAction("Validate");
-    validate->setToolTip("Check package compatibility and navigate to reported problems.");
-    connect(validate, &QAction::triggered, this, [this] { reviewPackage(false); });
-    auto test = toolbar->addAction("Test Mod");
-    test->setToolTip(help.value("Test Mod"));
-    connect(test, &QAction::triggered, this, [this] { reviewPackage(true); });
     syncNavigation();
     connect(&history, &QUndoStack::cleanChanged, this, [this] { updateSummary(); });
     QVBoxLayout *welcome;

@@ -569,10 +569,10 @@ void ConversationEditor::buildOutline(int selectEntry) {
     for (auto q : doc.questions) {
         auto group = row(questions, questionName(q.label), q.prompt);
         group->setExpanded(true);
-        if (q.fallback >= 0)
-            row(group, "Otherwise / fallback", q.fallback);
         for (auto r : q.replies)
             row(group, label(r), r.response);
+        if (q.fallback >= 0)
+            row(group, "Otherwise / fallback", q.fallback);
     }
     for (int e : doc.rawEntries)
         row(root("Unrecognized bytes"), QString("Raw entry %1 (Advanced)").arg(e), e);
@@ -961,7 +961,15 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
             ++end;
         }
         if (inlineControls) {
-            auto surface = new DialogueTextSurface(entryBlocks.mid(index, end - index));
+            auto displayed = entryBlocks.mid(index, end - index);
+            QByteArray spacing;
+            if (end < entryBlocks.size() && entryBlocks[end].opcode == 143 &&
+                displayed.last().opcode < 0 &&
+                displayed.last().bytes.endsWith(QByteArray::fromHex("8d8d"))) {
+                spacing = QByteArray::fromHex("8d8d");
+                displayed.last().bytes.chop(2);
+            }
+            auto surface = new DialogueTextSurface(displayed);
             surface->setProperty("dialogueEntry", entry);
             surface->setProperty("dialogueBlock", index);
             surface->setProperty("dialogueBlockEnd", end);
@@ -970,7 +978,7 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
                 activateEntry(entry);
                 changed();
             };
-            readers[entry].append([surface] { return surface->bytes(); });
+            readers[entry].append([surface, spacing] { return surface->bytes() + spacing; });
             readerRanges[entry].append({index, end});
             sectionLayout->addWidget(surface);
             index = end - 1;
@@ -1046,7 +1054,15 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
         tools->addWidget(more);
         layout->addLayout(tools);
         if (b.opcode < 0) {
-            auto edit = new DialogueParagraph(plain(b.bytes), group);
+            QByteArray visible = b.bytes, spacing;
+            if (index + 1 < entryBlocks.size() && entryBlocks[index + 1].opcode == 143 &&
+                visible.endsWith(QByteArray::fromHex("8d8d"))) {
+                spacing = QByteArray::fromHex("8d8d");
+                visible.chop(2);
+            }
+            auto edit = new DialogueParagraph(plain(visible), group);
+            if (visible.isEmpty() && !spacing.isEmpty())
+                group->hide();
             edit->setObjectName("conversationBlockText");
             edit->setProperty("dialogueEntry", entry);
             edit->setProperty("dialogueBlock", index);
@@ -1059,8 +1075,9 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
             edit->fit();
             layout->addWidget(edit);
             auto original = edit->toPlainText();
-            readers[entry].append([b, edit, original] {
-                return edit->toPlainText() == original ? b.bytes : text(edit->toPlainText());
+            readers[entry].append([b, edit, original, spacing] {
+                return edit->toPlainText() == original ? b.bytes
+                                                       : text(edit->toPlainText()) + spacing;
             });
             connect(edit, &QPlainTextEdit::textChanged, this, [this] { changed(); });
         } else if (b.opcode == 133 || b.opcode == 134 || b.opcode == 140 || b.opcode == 254 ||
@@ -1433,6 +1450,11 @@ void ConversationEditor::mutateBlocks(int entry, int block, int delta, bool remo
     attempt([&] {
         auto bs = blocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
         U5::require(block >= 0 && block < bs.size(), "This block no longer exists");
+        if (bs[block].opcode == 143 && block > 0 && bs[block - 1].opcode < 0 &&
+            bs[block - 1].bytes.endsWith(QByteArray::fromHex("8d8d"))) {
+            bs[block - 1].bytes.chop(2);
+            bs[block].bytes.prepend(QByteArray::fromHex("8d8d"));
+        }
         if (remove)
             bs.removeAt(block);
         else {
@@ -1467,8 +1489,16 @@ void ConversationEditor::insertBlock(int entry, int before, const QByteArray &by
             bs.insert(at + i, addition[i]);
         auto next = doc;
         QByteArray result = next.entries[entry].bytes.left(entryPrefix(entry));
-        for (const auto &b : bs)
+        for (int i = 0; i < bs.size(); ++i) {
+            const auto &b = bs[i];
+            if (bytes == QByteArray(1, char(143)) && i == at) {
+                if (!result.endsWith(char(141)))
+                    result += char(141);
+                if (!result.endsWith(QByteArray::fromHex("8d8d")))
+                    result += char(141);
+            }
             result += b.bytes;
+        }
         next.entries[entry].bytes = result;
         install(next.bytes(), "Insert response block", entry);
     });
