@@ -3928,6 +3928,67 @@ int main(int argc, char **argv) {
             check(doc.entries[2].bytes.endsWith(QByteArray::fromHex("8d8d8f")),
                   "New wait action omitted its line spacing");
         });
+        test("Paragraph and brief pauses have distinct authoring actions", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            auto bytes = U5::encodeText(
+                "Name<Entry><Pause>Delayed<Entry>Spaced<New Line><New Line><Pause>Continued<Entry>"
+                "State<New Line><New Line><Pause>Continued<Entry>Bye<Entry><Any><Label 15>@");
+            const int statePause = bytes.lastIndexOf(QByteArray::fromHex("8d8d83"));
+            bytes.replace(statePause, 3, QByteArray::fromHex("8d8d864183"));
+            file(dir.path() + "/TOWNE.TLK", U5::writeDialogue({{1, bytes}}));
+            p.openGame(dir.path());
+            int commits = 0;
+            ConversationEditor editor(
+                &p, "TOWNE.TLK",
+                [&](const QByteArray &data, const QString &) {
+                    p.resources["TOWNE.TLK"].edited = data;
+                    ++commits;
+                },
+                {}, 0, 3, [](int, int) {});
+            auto outline = editor.findChild<QTreeWidget *>("conversationOutline");
+            auto actionLabel = [&] {
+                for (auto frame : editor.findChildren<QFrame *>("conversationAction"))
+                    if (frame->property("dialogueOpcode").toInt() == 131)
+                        return frame->findChild<QToolButton *>()->text();
+                return QString();
+            };
+            outline->setCurrentItem(treeItem(outline, "Description"));
+            check(actionLabel() == "Brief pause (no line break)",
+                  "Leading pause was presented as a paragraph pause");
+            outline->setCurrentItem(treeItem(outline, "Greeting (introduced)"));
+            check(actionLabel() == "Pause after paragraph",
+                  "Paragraph pause was not recognized");
+            outline->setCurrentItem(treeItem(outline, "Job / Work"));
+            check(actionLabel() == "Pause after paragraph",
+                  "State action obscured paragraph pause spacing");
+            check(editor.flush() && commits == 0, "Classifying pauses rewrote original bytes");
+
+            outline->setCurrentItem(treeItem(outline, "Farewell"));
+            auto available = editor.findChild<QListWidget *>("conversationAvailableActions");
+            auto findAction = [available](const QString &name) {
+                for (int i = 0; i < available->count(); ++i)
+                    if (available->item(i)->text() == name)
+                        return available->item(i);
+                return static_cast<QListWidgetItem *>(nullptr);
+            };
+            check(!findAction("Pause") && findAction("Pause after paragraph") &&
+                      findAction("Brief pause (no line break)"),
+                  "Pause choices are ambiguous in Available actions");
+            available->itemClicked(findAction("Pause after paragraph"));
+            auto doc = Dialogue::parse(U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes);
+            check(doc.entries[4].bytes.endsWith(QByteArray::fromHex("8d8d83")),
+                  "Paragraph pause omitted its hidden spacing");
+            available = editor.findChild<QListWidget *>("conversationAvailableActions");
+            QListWidgetItem *brief = nullptr;
+            for (int i = 0; i < available->count(); ++i)
+                if (available->item(i)->text() == "Brief pause (no line break)")
+                    brief = available->item(i);
+            available->itemClicked(brief);
+            doc = Dialogue::parse(U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes);
+            check(doc.entries[4].bytes.endsWith(QByteArray::fromHex("8d8d8383")),
+                  "Brief pause unexpectedly inserted line spacing");
+        });
         test("Conversation surface, unified questions and source-linked playtest", [&] {
             QTemporaryDir dir;
             auto p = fixture(dir.path());

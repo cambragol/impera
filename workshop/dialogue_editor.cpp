@@ -3,6 +3,7 @@
 #include "dialogue_surface.h"
 #include <memory>
 using namespace Dialogue;
+static constexpr int InsertParagraphPause = 1000;
 static QPushButton *button(QBoxLayout *layout, const QString &text,
                            const std::function<void()> &fn) {
     auto b = new QPushButton(text);
@@ -22,11 +23,25 @@ static QString caption(const QByteArray &bytes) {
     }
     return s.simplified().left(65);
 }
-static bool waitFollowsStateActions(const QVector<Block> &entryBlocks, int index) {
+static int actionAfterStateActions(const QVector<Block> &entryBlocks, int index) {
     while (index < entryBlocks.size() &&
            (entryBlocks[index].opcode == 134 || entryBlocks[index].opcode == 140))
         ++index;
-    return index < entryBlocks.size() && entryBlocks[index].opcode == 143;
+    return index < entryBlocks.size() ? entryBlocks[index].opcode : -1;
+}
+static bool paragraphSpacingBefore(const QVector<Block> &entryBlocks, int actionIndex) {
+    int textBlock = actionIndex - 1;
+    while (textBlock >= 0 &&
+           (entryBlocks[textBlock].opcode == 134 || entryBlocks[textBlock].opcode == 140))
+        --textBlock;
+    return textBlock >= 0 && entryBlocks[textBlock].opcode < 0 &&
+           entryBlocks[textBlock].bytes.endsWith(QByteArray::fromHex("8d8d"));
+}
+static QString displayedActionName(const QVector<Block> &entryBlocks, int index) {
+    if (entryBlocks[index].opcode == 131)
+        return paragraphSpacingBefore(entryBlocks, index) ? "Pause after paragraph"
+                                                          : "Brief pause (no line break)";
+    return actionName(entryBlocks[index].opcode);
 }
 // Keyword chips wrap without forcing the conversation column wider than the window.
 class KeywordFlowLayout : public QLayout {
@@ -287,9 +302,16 @@ ConversationEditor::ConversationEditor(
         auto item = new QListWidgetItem(name, available);
         item->setData(Qt::UserRole, code);
         item->setToolTip("Insert " + name.toLower() + " at the end of the selected response.");
+        return item;
     };
     addAvailable("Text paragraph", -1);
-    for (int code : {129, 142, 143, 130, 131, 132, 133, 134, 136, 137, 138, 139, 140, 254, 255})
+    for (int code : {129, 142, 143, 130})
+        addAvailable(actionName(code), code);
+    addAvailable("Pause after paragraph", InsertParagraphPause)
+        ->setToolTip("Add paragraph spacing, then pause briefly before continuing.");
+    addAvailable("Brief pause (no line break)", 131)
+        ->setToolTip("Pause briefly without changing the text layout.");
+    for (int code : {132, 133, 134, 136, 137, 138, 139, 140, 254, 255})
         addAvailable(actionName(code), code);
     addAvailable("Explicit line break", 141);
     addAvailable("Enter question", 145);
@@ -969,7 +991,8 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
         if (inlineControls) {
             auto displayed = entryBlocks.mid(index, end - index);
             QByteArray spacing;
-            if (waitFollowsStateActions(entryBlocks, end) && displayed.last().opcode < 0 &&
+            const int followingAction = actionAfterStateActions(entryBlocks, end);
+            if ((followingAction == 131 || followingAction == 143) && displayed.last().opcode < 0 &&
                 displayed.last().bytes.endsWith(QByteArray::fromHex("8d8d"))) {
                 spacing = QByteArray::fromHex("8d8d");
                 displayed.last().bytes.chop(2);
@@ -1001,10 +1024,10 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
         layout->setContentsMargins(4, 2, 4, 2);
         auto tools = new QHBoxLayout;
         auto summary = new QToolButton;
-        summary->setText(actionName(b.opcode));
+        summary->setText(displayedActionName(entryBlocks, index));
         summary->setToolButtonStyle(Qt::ToolButtonTextOnly);
         summary->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-        summary->setAccessibleName(actionName(b.opcode));
+        summary->setAccessibleName(displayedActionName(entryBlocks, index));
         if (b.opcode >= 0)
             tools->addWidget(summary, 1);
         else
@@ -1060,7 +1083,8 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
         layout->addLayout(tools);
         if (b.opcode < 0) {
             QByteArray visible = b.bytes, spacing;
-            if (waitFollowsStateActions(entryBlocks, index + 1) &&
+            const int followingAction = actionAfterStateActions(entryBlocks, index + 1);
+            if ((followingAction == 131 || followingAction == 143) &&
                 visible.endsWith(QByteArray::fromHex("8d8d"))) {
                 spacing = QByteArray::fromHex("8d8d");
                 visible.chop(2);
@@ -1198,8 +1222,12 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
                 changed();
             });
         } else {
-            summary->setToolTip(
-                "Use the action menu to copy, move or explicitly remove this control.");
+            summary->setToolTip(b.opcode == 131
+                                    ? paragraphSpacingBefore(entryBlocks, index)
+                                          ? "Add paragraph spacing, then pause briefly."
+                                          : "Pause briefly without changing the text layout."
+                                    : "Use the action menu to copy, move or explicitly remove "
+                                      "this control.");
             if (b.opcode == 142) {
                 runic = !runic;
                 summary->setText(runic ? "Begin runic text" : "End runic text");
@@ -1455,7 +1483,7 @@ void ConversationEditor::mutateBlocks(int entry, int block, int delta, bool remo
     attempt([&] {
         auto bs = blocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
         U5::require(block >= 0 && block < bs.size(), "This block no longer exists");
-        if (bs[block].opcode == 143) {
+        if (bs[block].opcode == 131 || bs[block].opcode == 143) {
             int textBlock = block - 1;
             while (textBlock >= 0 &&
                    (bs[textBlock].opcode == 134 || bs[textBlock].opcode == 140))
@@ -1542,11 +1570,14 @@ void ConversationEditor::addBlock(bool isText, int entry, int before, int reques
                 auto layout = new QVBoxLayout(&dlg);
                 auto choice = new QComboBox;
                 choice->setObjectName("conversationActionChoice");
-                for (int code :
-                     {129, 142, 130, 131, 132, 133, 134, 136, 137, 138, 139, 140, 143, 254, 255}) {
+                for (int code : {129, 142, 130, InsertParagraphPause, 131, 132, 133, 134, 136, 137,
+                                 138, 139, 140, 143, 254, 255}) {
                     if ((code == 140 || code == 254) && doc.questions.isEmpty())
                         continue;
-                    choice->addItem(actionName(code), code);
+                    choice->addItem(code == InsertParagraphPause ? "Pause after paragraph"
+                                    : code == 131                ? "Brief pause (no line break)"
+                                                                 : actionName(code),
+                                    code);
                 }
                 choice->addItem("Explicit line break", 141);
                 if (!doc.questions.isEmpty())
@@ -1564,12 +1595,16 @@ void ConversationEditor::addBlock(bool isText, int entry, int before, int reques
             U5::require(!doc.questions.isEmpty() || (code != 140 && code != 254 && code != 145),
                         "Add a question before inserting a branch to it");
             const int label = doc.questions.isEmpty() ? 0 : doc.questions.first().label;
-            bytes = code == 141 ? text("\n")
-                                : action(code == 145 ? 144 + label : code,
-                                         code == 134   ? 65
-                                         : code == 254 ? 50
-                                                       : 0,
-                                         label);
+            if (code == 141)
+                bytes = text("\n");
+            else if (code == InsertParagraphPause)
+                bytes = text("\n\n") + action(131);
+            else
+                bytes = action(code == 145 ? 144 + label : code,
+                               code == 134   ? 65
+                               : code == 254 ? 50
+                                             : 0,
+                               label);
         }
         insertBlock(entry, before, bytes, true);
     });
