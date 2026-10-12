@@ -610,7 +610,7 @@ void WorkshopWindow::navigateContent(const QString &id) {
         prepareNavigation();
         if (!replayNavigation && navigationIndex >= 0)
             navigationStates[navigationIndex] = editorState;
-        if (d.workspace == "NPCs") {
+        if (d.workspace == "NPCs" && d.resource != "SHOPPE.DAT") {
             if (!replayNavigation && d.character >= 0 && d.resource != current &&
                 current.left(current.size() - 4) == d.resource.left(d.resource.size() - 4) &&
                 editorState.value(current + "/character", -1) == d.character)
@@ -655,7 +655,7 @@ void WorkshopWindow::rebuildTree() {
     destinations = Workshop::contentDestinations(project);
     QMap<QString, QTreeWidgetItem *> groups;
     const bool characters = workspaceSelector->currentText() == "NPCs";
-    characterLocation->setVisible(characters);
+    characterLocation->setVisible(characters && current != "SHOPPE.DAT");
     const QString selectedLocation = characterLocation->currentData().toString();
     {
         QSignalBlocker filterBlock(characterLocation);
@@ -663,7 +663,7 @@ void WorkshopWindow::rebuildTree() {
         characterLocation->addItem("All locations", QString());
         QSet<QString> locations;
         for (const auto &d : destinations)
-            if (d.workspace == "NPCs")
+            if (d.workspace == "NPCs" && d.resource != "SHOPPE.DAT")
                 locations.insert(d.group);
         QStringList sorted = locations.values();
         sorted.sort();
@@ -709,7 +709,8 @@ void WorkshopWindow::rebuildTree() {
         if (d.workspace == "Mod Overview" && d.id != "overview" &&
             !property("overviewAdvanced").toBool())
             continue;
-        if (characters && !characterLocation->currentData().toString().isEmpty() &&
+        if (characters && d.resource != "SHOPPE.DAT" &&
+            !characterLocation->currentData().toString().isEmpty() &&
             d.group != characterLocation->currentData().toString())
             continue;
         if (!query.isEmpty() && !d.title.contains(query, Qt::CaseInsensitive) &&

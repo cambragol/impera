@@ -529,3 +529,12 @@ matching tileset in Engine Options to see those changes. See the
 The map editor’s **View** menu contains only **Contents markers** and
 **Highlight changes**, both checkable. Inspectors open by selecting an item with
 Select / Move; the View menu does not contain inspector shortcuts.
+
+### Shop and service dialogue
+
+**NPCs → Shops & Services** uses a response tree, one editable text pane and a
+right-hand value-insertion pane. Shop values appear as inline labels; compressed
+words appear as readable text. Valid edits save with Undo and use extended mod
+storage automatically when needed. Shop/service templates are shared across
+providers. Prices and inventory remain in Game Rules. The shop editor has no
+in-game-font preview or sample-value controls.

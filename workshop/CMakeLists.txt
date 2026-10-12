@@ -80,7 +80,7 @@ foreach(item IN LISTS actor_matches)
 endforeach()
 string(APPEND actor_header "};\n")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/actor_names.h" "${actor_header}")
-add_library(impera_workshop_core STATIC map_entities.cpp contents_editor.cpp ../src/mod/contents.c content_navigation.cpp engine_tables.cpp world_objects.cpp font_editor.cpp scene_editor.cpp narrative_editor.cpp location_text.cpp dungeon_editor.cpp resource_document.cpp text_preview.cpp formats.cpp dialogue.cpp dialogue_preview.cpp dialogue_surface.cpp map_editor.cpp project.cpp ../src/mod/package.c)
+add_library(impera_workshop_core STATIC shop_editor.cpp map_entities.cpp contents_editor.cpp ../src/mod/contents.c content_navigation.cpp engine_tables.cpp world_objects.cpp font_editor.cpp scene_editor.cpp narrative_editor.cpp location_text.cpp dungeon_editor.cpp resource_document.cpp text_preview.cpp formats.cpp dialogue.cpp dialogue_preview.cpp dialogue_surface.cpp map_editor.cpp project.cpp ../src/mod/package.c)
 qt_add_resources(impera_workshop_core alternate_tilesets PREFIX "/tilesets"
     BASE ../textures/tilesets FILES
     ../textures/tilesets/Ultima_5_Tiles_Amiga.png

@@ -19,6 +19,7 @@
 #include "text_preview.h"
 #include "ui_theme.h"
 #include "window.h"
+#include "shop_editor.h"
 #include "mod/tileset_resources.h"
 #include "world_objects.h"
 #include <QTemporaryDir>
@@ -530,7 +531,8 @@ int main(int argc, char **argv) {
                     check(d.sources.size() == 2, "Scene message provenance missing");
                 }
                 if (d.resource == "UNDER.OOL" || d.resource == "INIT.OOL") ++underworld;
-                if (d.resource == "SHOPPE.DAT") check(d.workspace == "Game Rules", "Shop dialogue misplaced");
+                if (d.resource == "SHOPPE.DAT")
+                    check(d.workspace == "NPCs", "Shop dialogue misplaced");
                 if (d.resource == "DATA.OVL") check(d.workspace == "Mod Overview", "Overlay coverage is not a rule editor");
             }
             check(scenes == 5 && underworld == 1, "Scene or effective-world routes missing");
@@ -1131,10 +1133,72 @@ int main(int argc, char **argv) {
             check(Workshop::narrativeEntries("SHOPPE.DAT").size() == 194,
                   "Shop subtables incomplete");
         });
+        test("Shop workspace navigation, insertions, extended text and undo", [&] {
+            QTemporaryDir dir;
+            fixture(dir.path());
+            file(dir.path() + "/SHOPPE.DAT", QByteArray(12000, 0));
+            WorkshopWindow window;
+            check(window.openGame(dir.path()), "Shop fixture open");
+            window.selectResource("SHOPPE.DAT");
+            auto editor = window.findChild<QStackedWidget *>("workspaces")->currentWidget();
+            auto text = editor->findChild<QTextEdit *>("shopDialogueText");
+            auto responses = editor->findChild<QTreeWidget *>("shopResponses");
+            check(text && responses && !editor->findChild<QWidget *>("textPreviewPanel") &&
+                      !editor->findChild<QCheckBox *>("narrativeExtended") &&
+                      !editor->findChild<QPushButton *>("narrativeApply"),
+                  "Shop editor still exposes preview or format controls");
+            check(window.findChild<QComboBox *>("contentWorkspace")->currentText() == "NPCs",
+                  "Shop dialogue is not in NPCs");
+            auto insert = editor->findChild<QPushButton *>("shopInsertValue0");
+            insert->click();
+            text->insertPlainText(QString(600, 'a'));
+            text->selectAll();
+            text->copy();
+            text->moveCursor(QTextCursor::End);
+            text->paste();
+            check(Workshop::shopTextBytes(*text->document()).count('#') == 2,
+                  "Copy/paste lost inline substitution identity");
+            QEventLoop loop;
+            QTimer::singleShot(650, &loop, &QEventLoop::quit);
+            loop.exec();
+            check(!window.projectForTests().data("TEXT.OVR").isEmpty(),
+                  "Long shop response did not use automatic extended storage");
+            auto encoded = Workshop::shopTextBytes(*text->document());
+            check(encoded.startsWith('#'), "Inline shop-name value lost runtime identity");
+            const auto routes = Workshop::contentDestinations(window.projectForTests());
+            const auto markers = Workshop::contentChanges(window.projectForTests(), routes);
+            int changedServices = 0;
+            for (const auto &route : routes)
+                if (route.resource == "SHOPPE.DAT" && !markers.value(route.id).isEmpty())
+                    ++changedServices;
+            check(changedServices == 1, "Shop edit marked unrelated services as modified");
+            auto package = window.projectForTests().package();
+            Project restored = window.projectForTests();
+            for (auto it = restored.resources.begin(); it != restored.resources.end(); ++it)
+                it->edited = it->original;
+            restored.importPackage(package);
+            check(restored.data("TEXT.OVR") == window.projectForTests().data("TEXT.OVR"),
+                  "Shop extended response package did not roundtrip");
+            for (auto action : window.findChildren<QAction *>())
+                if (action->text().startsWith("Undo ")) {
+                    action->trigger();
+                    break;
+                }
+            check(window.projectForTests().data("TEXT.OVR").isEmpty(), "Shop undo failed");
+        });
         test("Shop tokens roundtrip and bounded runtime substitution", [] {
             QByteArray raw("# $ @ % ^ & * ");
             raw += char(128);
             raw += " sword";
+            QTextEdit human;
+            Workshop::loadShopText(&human, raw);
+            check(Workshop::shopTextBytes(*human.document()) == raw,
+                  "Readable shop editor changed encoded words or substitution identity");
+            auto cursor = human.textCursor();
+            cursor.movePosition(QTextCursor::End);
+            cursor.insertText("!");
+            check(Workshop::shopTextBytes(*human.document()) == raw + "!",
+                  "Shop text edit lost unrelated compressed words");
             auto source = Workshop::narrativeSource(raw, true);
             check(Workshop::encodeNarrative(source, true) == raw, "Shop token roundtrip failed");
             const char *values[7] = {"shop", "keeper", "morning", "25", "2", "sword", "Avatar"};
@@ -1233,6 +1297,12 @@ int main(int argc, char **argv) {
                 for (auto entry : Workshop::narrativeEntries(name)) {
                     auto raw = Workshop::narrativeText(p, *entry);
                     bool shop = name == "SHOPPE.DAT";
+                    if (shop) {
+                        QTextEdit human;
+                        Workshop::loadShopText(&human, raw);
+                        check(Workshop::shopTextBytes(*human.document()) == raw,
+                              "Original shop response failed readable-document byte roundtrip");
+                    }
                     check(Workshop::encodeNarrative(Workshop::narrativeSource(raw, shop), shop) ==
                               raw,
                           "Original narrative token no-op failed");

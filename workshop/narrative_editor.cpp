@@ -1,4 +1,5 @@
 #include "narrative_editor.h"
+#include "shop_editor.h"
 #include "text_preview.h"
 #include <QtWidgets>
 #include <memory>
@@ -173,6 +174,8 @@ void validateNarrative(const Project &project, const QString &resource) {
 }
 QWidget *narrativeEditor(Project *project, const QString &resource, TextCommit commit,
                          QMap<QString, int> *state, std::function<bool()> *flush) {
+    if (resource == "SHOPPE.DAT")
+        return shopEditor(project, commit, state, flush);
     validateNarrative(*project, resource);
     auto root = new QWidget;
     root->setObjectName("narrativeWorkspace");

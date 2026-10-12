@@ -45,7 +45,7 @@ Graphics lists Tilesets first, followed by Illustrations and Fonts. Artwork coll
 
 Cutscenes lists the Blackthorn, Shrine, Codex and Final rescue scenes separately. Each route opens its matching scene and includes its message source in the tooltip. Character creation lives in Game Rules, with its backgrounds, questions and sequence in one editor. When scene data is absent, standalone message/creation-text routes remain available. Introduction, ending and virtue text remain dedicated destinations.
 
-Game Rules groups prices, stock and location entrances with shop/service dialogue. Engine overlay coverage belongs to Mod Overview and opens its read-only coverage tab. Game Rules also groups starting party/world state and world objects; the effective Underworld object list appears once, with both initial and override sources recorded. Direct resource access remains available for diagnostics. Change markers aggregate related content at the destination level. Resource serializers and mod package formats are unchanged.
+Game Rules groups prices, stock and location entrances. Shop/service dialogue lives in NPCs under Shops & Services. Engine overlay coverage belongs to Mod Overview and opens its read-only coverage tab. Game Rules also groups starting party/world state and world objects; the effective Underworld object list appears once, with both initial and override sources recorded. Direct resource access remains available for diagnostics. Change markers aggregate related content at the destination level. Resource serializers and mod package formats are unchanged.
 
 ## Mod Overview and aggregate changes (phase 6)
 
@@ -83,3 +83,26 @@ corresponding tileset in Engine Options to use the edited artwork; the package
 does not change the player's tileset preference. Older Impera builds without
 alternate-PNG package support reject these packages. Original game files and
 bundled artwork remain untouched.
+
+## Shop and service dialogue
+
+In **NPCs → Shops & Services**, choose a service and then its greeting, refusal,
+farewell, item description or service response. These are shared templates, not
+individual NPC conversations. Shared variants remain one response; the compact
+scope label and its tooltip identify that shared use. Location filtering applies
+to individual NPCs and does not hide service dialogue.
+
+Edit one response in the normal application font. The right pane inserts shop,
+keeper, customer, time, price, quantity and item values as inline labels. Original
+compressed words appear as ordinary words and retain their byte encoding when
+unchanged. Copy/paste within the editor preserves substitution identities.
+There is no game-font preview, sample-values form, compression-code selector,
+Apply button, or manual extended-storage switch. Shop transaction and branching
+behavior remain controlled by the engine.
+
+Valid edits save after a short typing pause, on response changes, and before
+project actions, with normal project Undo/Redo. Oversized fixed entries use the
+existing extended-text mod storage automatically. Invalid drafts stay in the
+editor with a concise error and block navigation/export until corrected. Original
+resources, shared offsets, token spacing, and unrelated narrative editors retain
+their existing behavior. Changed markers identify the affected services.

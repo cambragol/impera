@@ -1,4 +1,5 @@
 #include "content_navigation.h"
+#include "shop_editor.h"
 #include "mod/tileset_resources.h"
 #include "contents_editor.h"
 #include "dialogue.h"
@@ -247,6 +248,17 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
             continue;
         case EditorKind::Story:
         case EditorKind::Narrative:
+            if (name == "SHOPPE.DAT") {
+                const auto services = shopServices();
+                for (int index = 0; index < services.size(); ++index) {
+                    ContentDestination d{"shop/" + services[index], "NPCs", "Shops & Services",
+                                         services[index], name};
+                    d.selection["SHOPPE.DAT/service"] = index;
+                    d.sources = {name, "TEXT.OVR"};
+                    result.append(d);
+                }
+                continue;
+            }
             if (usableScenes &&
                 QStringList{"QUESTION.DAT", "MISCMSG.DAT", "ENDMSG.DAT"}.contains(name)) continue;
             workspace = QStringList{"QUESTION.DAT", "SHOPPE.DAT"}.contains(name) ? "Game Rules" : "Cutscenes";
@@ -439,6 +451,14 @@ QMap<QString, QStringList> contentChanges(const Project &project,
                             parts.append("Messages");
                             break;
                         }
+                    }
+            } else if (d.resource == "SHOPPE.DAT") {
+                const auto service = shopServices().value(d.selection.value("SHOPPE.DAT/service"));
+                for (auto entry : narrativeEntries("SHOPPE.DAT"))
+                    if (shopEntryServices(*entry).contains(service) &&
+                        narrativeText(project, *entry) != narrativeText(original, *entry)) {
+                        parts.append("Dialogue");
+                        break;
                     }
             } else {
                 for (const auto &source : d.sources.isEmpty() ? QStringList{d.resource} : d.sources)
