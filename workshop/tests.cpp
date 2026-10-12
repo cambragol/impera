@@ -4114,6 +4114,93 @@ int main(int argc, char **argv) {
             check(read().entries[6].bytes == narration,
                   "Unrelated edits changed narration quotes or post-wait spacing");
         });
+        test("Speech and narration compile to ordinary dialogue with automatic middle quotes", [&] {
+            const auto speech = Dialogue::text("I speak.");
+            auto mixed = Dialogue::insertTextParagraph(speech, speech.size(),
+                                                       Dialogue::ParagraphKind::Narration,
+                                                       "He gestures.", true, true);
+            check(mixed == Dialogue::text("I speak.\"\n\nHe gestures.\n\n") + char(255),
+                  "Narration failed to close speech or suppress the automatic final quote");
+            mixed = Dialogue::insertTextParagraph(
+                mixed, mixed.size() - 1, Dialogue::ParagraphKind::Speech, "Listen.", true, true);
+            check(mixed ==
+                      Dialogue::text("I speak.\"\n\nHe gestures.\n\n\"Listen.\"\n\n") + char(255),
+                  "Resumed speech did not reopen its quotation");
+            auto preview =
+                Dialogue::previewResponse(mixed, 3, QByteArray(1024, 0), QByteArray(1024, 0), {});
+            QString rendered;
+            for (const auto &glyph : preview.glyphs)
+                rendered += QChar(glyph.character);
+            check(rendered == "\"I speak.\"He gestures.\"Listen.\"",
+                  "Mixed paragraphs have missing or spurious quotation marks");
+            const auto description = Dialogue::insertTextParagraph(
+                {}, 0, Dialogue::ParagraphKind::Narration, "A quiet room.", false, false);
+            check(description == Dialogue::text("A quiet room."),
+                  "Description narration acquired quotation marks or control flow");
+            rejects([&] {
+                Dialogue::insertTextParagraph({}, 0, Dialogue::ParagraphKind::Narration,
+                                              "Only narration.", true, true);
+            });
+            rejects([&] {
+                Dialogue::insertTextParagraph(speech, speech.size(),
+                                              Dialogue::ParagraphKind::Narration,
+                                              "Question narration.", true, false);
+            });
+
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            auto bytes = U5::encodeText("Name<Entry>Description<Entry>Greeting<Entry>I "
+                                        "speak.<Entry>Bye<Entry><Any><Label 15>@");
+            file(dir.path() + "/TOWNE.TLK", U5::writeDialogue({{1, bytes}}));
+            p.openGame(dir.path());
+            ConversationEditor editor(
+                &p, "TOWNE.TLK",
+                [&](const QByteArray &data, const QString &) {
+                    p.resources["TOWNE.TLK"].edited = data;
+                },
+                {}, 0, 3, [](int, int) {});
+            auto outline = editor.findChild<QTreeWidget *>("conversationOutline");
+            outline->setCurrentItem(treeItem(outline, "Job / Work"));
+            auto insert = [&](const QString &name) {
+                auto actions = editor.findChild<QListWidget *>("conversationAvailableActions");
+                for (int i = 0; i < actions->count(); ++i) {
+                    check(actions->item(i)->text() != "Text paragraph",
+                          "Ambiguous text action remains");
+                    if (actions->item(i)->text() == name) {
+                        actions->itemClicked(actions->item(i));
+                        return;
+                    }
+                }
+                throw std::runtime_error("Typed text action missing");
+            };
+            insert("Narration Text");
+            insert("Speech Text");
+            QPlainTextEdit *speechField = nullptr, *narrationField = nullptr;
+            for (auto field : editor.findChildren<QPlainTextEdit *>("conversationBlockText")) {
+                if (field->toPlainText() == "New speech.")
+                    speechField = field;
+                if (field->toPlainText() == "New narration.")
+                    narrationField = field;
+            }
+            check(speechField && narrationField &&
+                      speechField->property("dialogueTextKind") == "speech" &&
+                      narrationField->property("dialogueTextKind") == "narration",
+                  "Typed paragraphs were merged or expose their generated quote boundaries");
+            speechField->setPlainText("Listen carefully.");
+            narrationField->setPlainText("He gestures.");
+            check(editor.flush(), "Cannot edit mixed text paragraphs");
+            const auto encoded = p.data("TOWNE.TLK");
+            p.save(dir.path() + "/mixed.imperaproject");
+            Project reopened;
+            reopened.load(dir.path() + "/mixed.imperaproject");
+            check(reopened.data("TOWNE.TLK") == encoded,
+                  "Project persistence lost text types or quote boundaries");
+            Project imported;
+            imported.openGame(dir.path());
+            imported.importPackage(p.package());
+            check(imported.data("TOWNE.TLK") == encoded,
+                  "Ordinary mod package lost text paragraph formatting");
+        });
         test("Conversation surface, unified questions and source-linked playtest", [&] {
             QTemporaryDir dir;
             auto p = fixture(dir.path());

@@ -22,10 +22,22 @@ quotes. It resumes speech with `"Good, huh!`. Adding quotes to every paragraph i
 the engine would turn that narration into something the NPC said. Quotes inside
 speech and passages continuing across a wait also need their literal punctuation.
 
-Workshop therefore preserves authored quotation marks. A future authoring feature
-could explicitly distinguish Speech from Narration and generate boundary quotes
-when exporting; it must allow literal quotations and preserve imported punctuation.
-The engine should not infer this distinction from newline or action placement.
+Workshop therefore provides **Speech Text** and **Narration Text** authoring actions.
+They insert ordinary quotation and newline bytes into the native dialogue data.
+Speech closes the previous spoken paragraph and opens the new one. Narration closes
+previous speech and leaves its own text unquoted. Following speech reopens its quote.
+The editable fields hide their surrounding speech quotes and paragraph layout;
+internal, literal quotations remain editable. Opening a resource preserves its
+original bytes, including unusual punctuation.
+
+When narration finishes a normal spoken response, Workshop adds the existing
+`Return to ordinary topics` action to bypass the dispatcher's automatic closing
+quote. Description text already has an unquoted dispatch path. A spoken response
+must contain speech before its first narration paragraph; a question prompt can
+contain middle narration but must retain a final speech paragraph before input.
+These are constraints of the existing native dispatch paths, not new runtime
+requirements. Projects and packages carry the resulting ordinary TLK bytes without
+new metadata or engine features.
 
 ## Action layout
 

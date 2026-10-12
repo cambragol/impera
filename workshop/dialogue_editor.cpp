@@ -4,6 +4,52 @@
 #include <memory>
 using namespace Dialogue;
 static constexpr int InsertParagraphPause = 1000;
+static constexpr int InsertSpeechText = 1001;
+static constexpr int InsertNarrationText = 1002;
+static QVector<Block> paragraphBlocks(const QByteArray &bytes) {
+    QVector<Block> result;
+    for (const auto &block : blocks(bytes)) {
+        if (block.opcode >= 0) {
+            result.append(block);
+            continue;
+        }
+        int begin = 0;
+        while (begin < block.bytes.size()) {
+            int end = block.bytes.indexOf(QByteArray::fromHex("8d8d"), begin);
+            if (end < 0)
+                end = block.bytes.size();
+            else {
+                end += 2;
+                while (end < block.bytes.size() && U5::byte(block.bytes, end) == 141)
+                    ++end;
+            }
+            result.append({block.bytes.mid(begin, end - begin), -1});
+            begin = end;
+        }
+    }
+    return result;
+}
+static bool speechAt(const QVector<Block> &entryBlocks, int index, bool implicitQuotes) {
+    bool open = implicitQuotes;
+    int lastLiteral = implicitQuotes ? 162 : 0;
+    for (int i = 0; i < index; ++i) {
+        const auto &block = entryBlocks[i];
+        if (block.opcode < 0) {
+            for (unsigned char ch : block.bytes) {
+                if (ch == 162 && lastLiteral != 162)
+                    open = !open;
+                if (ch > 128)
+                    lastLiteral = ch;
+            }
+        } else if (block.opcode == 136) {
+            open = false;
+            lastLiteral = 162;
+        }
+    }
+    if (entryBlocks[index].bytes.startsWith(char(162)) && lastLiteral != 162)
+        open = !open;
+    return open;
+}
 static QPushButton *button(QBoxLayout *layout, const QString &text,
                            const std::function<void()> &fn) {
     auto b = new QPushButton(text);
@@ -320,7 +366,10 @@ ConversationEditor::ConversationEditor(
         item->setToolTip("Insert " + name.toLower() + " at the end of the selected response.");
         return item;
     };
-    addAvailable("Text paragraph", -1);
+    addAvailable("Speech Text", InsertSpeechText)
+        ->setToolTip("Add spoken text with quotation marks supplied automatically.");
+    addAvailable("Narration Text", InsertNarrationText)
+        ->setToolTip("Add unquoted narration between spoken paragraphs.");
     for (int code : {129, 142, 143, 130})
         addAvailable(actionName(code), code);
     addAvailable("Pause after paragraph", InsertParagraphPause)
@@ -448,7 +497,7 @@ ConversationEditor::ConversationEditor(
         const int offset = i->data(0, Qt::UserRole + 2).toInt();
         if (e >= 0 && flush()) {
             loadEntry(e);
-            const auto bs = blocks(doc.entries[e].bytes.mid(entryPrefix(e)));
+            const auto bs = paragraphBlocks(doc.entries[e].bytes.mid(entryPrefix(e)));
             int begin = entryPrefix(e), block = -1;
             for (int n = 0; n < bs.size(); ++n) {
                 if (offset >= begin && offset < begin + bs[n].bytes.size())
@@ -909,7 +958,9 @@ void ConversationEditor::buildBlocks() {
         content->addLayout(keywords);
         buildEntryBlocks(entry, content);
         auto insert = new QHBoxLayout;
-        button(insert, "+ Text", [this, entry] { addBlock(true, entry); });
+        button(insert, "+ Speech", [this, entry] { addBlock(true, entry); });
+        button(insert, "+ Narration",
+               [this, entry] { addBlock(false, entry, -1, InsertNarrationText); });
         button(insert, "Actions →", [this, entry] {
             activateEntry(entry);
             findChild<QListWidget *>("conversationAvailableActions")->setFocus();
@@ -986,7 +1037,7 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
     };
     if (entry == 0 || entry == 1)
         engineText(entry == 0 ? "My name is " : "You see ");
-    const auto entryBlocks = blocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
+    const auto entryBlocks = paragraphBlocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
     for (const auto &block : entryBlocks)
         entryShapes[entry].append(block.opcode);
     if (entry == selected)
@@ -1003,16 +1054,35 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
                 entryBlocks[end].opcode == 142)) {
             inlineControls |= entryBlocks[end].opcode >= 0;
             ++end;
+            if (entryBlocks[end - 1].opcode < 0 &&
+                entryBlocks[end - 1].bytes.endsWith(QByteArray::fromHex("8d8d")))
+                break;
         }
         if (inlineControls) {
             auto displayed = entryBlocks.mid(index, end - index);
-            QByteArray spacing;
+            QByteArray spacing, opening, closing;
             const int followingAction = actionAfterStateActions(entryBlocks, end);
             if (displayed.last().opcode < 0) {
                 spacing = managedSpacing(displayed.last().bytes, followingAction);
+                if (spacing.isEmpty() && end < entryBlocks.size() && entryBlocks[end].opcode < 0 &&
+                    displayed.last().bytes.endsWith(QByteArray::fromHex("8d8d")))
+                    spacing = QByteArray::fromHex("8d8d");
                 displayed.last().bytes.chop(spacing.size());
             }
+            const bool speech = speechAt(entryBlocks, index, entry != 1);
+            if (speech && displayed.first().opcode < 0 &&
+                displayed.first().bytes.startsWith(char(162))) {
+                opening = displayed.first().bytes.left(1);
+                displayed.first().bytes.remove(0, 1);
+            }
+            if (speech && displayed.last().opcode < 0 &&
+                displayed.last().bytes.endsWith(char(162))) {
+                closing = displayed.last().bytes.right(1);
+                displayed.last().bytes.chop(1);
+            }
             auto surface = new DialogueTextSurface(displayed);
+            surface->setAccessibleName(speech ? "Speech Text" : "Narration Text");
+            surface->setProperty("dialogueTextKind", speech ? "speech" : "narration");
             surface->setProperty("dialogueEntry", entry);
             surface->setProperty("dialogueBlock", index);
             surface->setProperty("dialogueBlockEnd", end);
@@ -1021,9 +1091,18 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
                 activateEntry(entry);
                 changed();
             };
-            readers[entry].append([surface, spacing] { return surface->bytes() + spacing; });
+            readers[entry].append([surface, spacing, opening, closing] {
+                return opening + surface->bytes() + closing + spacing;
+            });
             readerRanges[entry].append({index, end});
-            sectionLayout->addWidget(surface);
+            auto paragraph = new QWidget;
+            auto row = new QHBoxLayout(paragraph);
+            row->setContentsMargins(0, 0, 0, 0);
+            auto kindLabel = new QLabel(speech ? "Speech" : "Narration");
+            kindLabel->setObjectName("conversationTextKind");
+            row->addWidget(kindLabel, 0, Qt::AlignTop);
+            row->addWidget(surface, 1);
+            sectionLayout->addWidget(paragraph);
             index = end - 1;
             continue;
         }
@@ -1054,8 +1133,11 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
         more->setAccessibleName("Paragraph or action menu");
         more->setPopupMode(QToolButton::InstantPopup);
         auto menu = new QMenu(more);
-        menu->addAction("Insert text before", this,
+        menu->addAction("Insert Speech Text before", this,
                         [this, entry, index] { addBlock(true, entry, index); });
+        menu->addAction("Insert Narration Text before", this, [this, entry, index] {
+            addBlock(false, entry, index, InsertNarrationText);
+        });
         menu->addAction("Insert action before…", this,
                         [this, entry, index] { addBlock(false, entry, index); });
         auto up = menu->addAction("Move up", this,
@@ -1070,7 +1152,7 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
                 if (!attempt([&] { target = resolveDisplayedBlock(entry, index); }) || !flush())
                     return;
                 auto data = new QMimeData;
-                const auto bs = blocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
+                const auto bs = paragraphBlocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
                 data->setData("application/x-impera-dialogue-action", bs[target].bytes);
                 data->setText(actionName(bs[target].opcode));
                 QApplication::clipboard()->setMimeData(data);
@@ -1102,8 +1184,23 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
             QByteArray visible = b.bytes, spacing;
             const int followingAction = actionAfterStateActions(entryBlocks, index + 1);
             spacing = managedSpacing(visible, followingAction);
+            if (spacing.isEmpty() && index + 1 < entryBlocks.size() &&
+                entryBlocks[index + 1].opcode < 0 && visible.endsWith(QByteArray::fromHex("8d8d")))
+                spacing = QByteArray::fromHex("8d8d");
             visible.chop(spacing.size());
+            const bool speech = speechAt(entryBlocks, index, entry != 1);
+            QByteArray opening, closing;
+            if (speech && visible.startsWith(char(162))) {
+                opening = visible.left(1);
+                visible.remove(0, 1);
+            }
+            if (speech && visible.endsWith(char(162))) {
+                closing = visible.right(1);
+                visible.chop(1);
+            }
             auto edit = new DialogueParagraph(plain(visible), group);
+            edit->setAccessibleName(speech ? "Speech Text" : "Narration Text");
+            edit->setProperty("dialogueTextKind", speech ? "speech" : "narration");
             if (visible.isEmpty() && !spacing.isEmpty())
                 group->hide();
             edit->setObjectName("conversationBlockText");
@@ -1117,13 +1214,17 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
             }
             edit->fit();
             auto paragraphRow = new QHBoxLayout;
+            auto kindLabel = new QLabel(speech ? "Speech" : "Narration");
+            kindLabel->setObjectName("conversationTextKind");
+            paragraphRow->addWidget(kindLabel, 0, Qt::AlignTop);
             paragraphRow->addWidget(edit, 1);
             paragraphRow->addWidget(more, 0, Qt::AlignTop);
             layout->addLayout(paragraphRow);
             auto original = edit->toPlainText();
-            readers[entry].append([b, edit, original, spacing] {
-                return edit->toPlainText() == original ? b.bytes
-                                                       : text(edit->toPlainText()) + spacing;
+            readers[entry].append([b, edit, original, spacing, opening, closing] {
+                return edit->toPlainText() == original
+                           ? b.bytes
+                           : opening + text(edit->toPlainText()) + closing + spacing;
             });
             connect(edit, &QPlainTextEdit::textChanged, this, [this] { changed(); });
         } else if (b.opcode == 133 || b.opcode == 134 || b.opcode == 140 || b.opcode == 254 ||
@@ -1344,7 +1445,7 @@ bool ConversationEditor::applyDraft() {
                     if (q.prompt == it.key())
                         prefix = 2;
                 QVector<int> shape;
-                for (const auto &block : blocks(next.entries[it.key()].bytes.mid(prefix)))
+                for (const auto &block : paragraphBlocks(next.entries[it.key()].bytes.mid(prefix)))
                     shape.append(block.opcode);
                 shapeChanged |= shape != it.value();
             }
@@ -1484,7 +1585,7 @@ int ConversationEditor::resolveDisplayedBlock(int entry, int block) const {
     for (int i = 0; i < ranges.size(); ++i) {
         if (block <= ranges[i].first)
             return current;
-        const auto expanded = blocks(fields[i]());
+        const auto expanded = paragraphBlocks(fields[i]());
         if (block < ranges[i].second)
             return current + qMin(block - ranges[i].first, int(expanded.size()));
         current += expanded.size();
@@ -1498,7 +1599,7 @@ void ConversationEditor::mutateBlocks(int entry, int block, int delta, bool remo
         doc.rawEntries.contains(entry))
         return;
     attempt([&] {
-        auto bs = blocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
+        auto bs = paragraphBlocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
         U5::require(block >= 0 && block < bs.size(), "This block no longer exists");
         if (bs[block].opcode == 131 || handoffSpacing(bs[block].opcode)) {
             int textBlock = block - 1;
@@ -1538,7 +1639,7 @@ void ConversationEditor::insertBlock(int entry, int before, const QByteArray &by
         U5::require(!bytes.contains(char(0)), "Clipboard cannot contain structural separators");
         auto addition = blocks(bytes);
         U5::require(!addition.isEmpty(), "Empty clipboard block");
-        auto bs = blocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
+        auto bs = paragraphBlocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
         const int at = before < 0 ? int(bs.size()) : before;
         U5::require(at >= 0 && at <= bs.size(), "Insertion position no longer exists");
         if (addition.size() == 1 && handoffSpacing(addition[0].opcode)) {
@@ -1581,7 +1682,7 @@ void ConversationEditor::addBlock(bool isText, int entry, int before, int reques
         return;
     attempt([&] {
         if (before < 0) {
-            const auto existing = blocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
+            const auto existing = paragraphBlocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
             if (!existing.isEmpty()) {
                 const int terminal = existing.last().opcode;
                 if (terminal == 130 || terminal == 255 || (terminal >= 145 && terminal <= 159))
@@ -1589,9 +1690,26 @@ void ConversationEditor::addBlock(bool isText, int entry, int before, int reques
             }
         }
         QByteArray bytes;
-        if (isText)
-            bytes = text("New text.");
-        else {
+        if (isText || requestedCode == InsertSpeechText || requestedCode == InsertNarrationText) {
+            const auto existing = paragraphBlocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
+            const int at = before < 0 ? int(existing.size()) : before;
+            U5::require(at >= 0 && at <= existing.size(), "Paragraph position no longer exists");
+            int offset = entryPrefix(entry);
+            for (int i = 0; i < at; ++i)
+                offset += existing[i].bytes.size();
+            const bool narration = requestedCode == InsertNarrationText;
+            bool prompt = false;
+            for (const auto &q : doc.questions)
+                prompt |= q.prompt == entry;
+            auto next = doc;
+            next.entries[entry].bytes = insertTextParagraph(
+                doc.entries[entry].bytes, offset,
+                narration ? ParagraphKind::Narration : ParagraphKind::Speech,
+                narration ? "New narration." : "New speech.", entry != 1, !prompt);
+            install(next.bytes(), narration ? "Insert narration text" : "Insert speech text",
+                    entry);
+            return;
+        } else {
             int code = requestedCode;
             if (code == -1) {
                 QDialog dlg(this);

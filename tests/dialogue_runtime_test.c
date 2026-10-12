@@ -76,6 +76,20 @@ int main(void) {
     assert(TALK_0f32_ProcessChar(1) == 0);
     assert(TALK_0f32_ProcessChar(0x82) == 1);
     assert(!strcmp(output, D_24ea[0]));
+    /* Workshop's mixed paragraphs are ordinary native text and quote bytes. */
+    reset();
+    TALK_04da_PrintQuoteMark();
+    text("I speak.\"");
+    TALK_04d2_PrintCr();
+    TALK_04d2_PrintCr();
+    text("He gestures.");
+    TALK_04d2_PrintCr();
+    TALK_04d2_PrintCr();
+    text("\"Listen.\"");
+    /* Normal spoken dispatch supplies another closing quote; the native guard suppresses it. */
+    TALK_04da_PrintQuoteMark();
+    TALK_04e2_PrintWord();
+    assert(!strcmp(output, "\"I speak.\"\n\nHe gestures.\n\n\"Listen.\""));
     puts("PASS dialogue flushes literal/dictionary words before actions, preserves operands and "
          "rune style, and retains long words");
     return 0;

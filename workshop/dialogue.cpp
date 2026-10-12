@@ -20,6 +20,81 @@ QVector<Block> blocks(const QByteArray &b) {
     }
     return out;
 }
+QByteArray insertTextParagraph(const QByteArray &entry, int offset, ParagraphKind kind,
+                               const QString &body, bool implicitQuotes, bool canReturnToTopics) {
+    U5::require(offset >= 0 && offset <= entry.size(), "Paragraph position no longer exists");
+    QByteArray left = entry.left(offset), right = entry.mid(offset);
+    bool quoteOpen = implicitQuotes, hasText = false;
+    int lastLiteral = implicitQuotes ? 162 : 0;
+    for (const auto &block : blocks(left)) {
+        if (block.opcode < 0) {
+            for (unsigned char ch : block.bytes) {
+                if (ch == 162 && lastLiteral != 162)
+                    quoteOpen = !quoteOpen;
+                if (ch > 128)
+                    lastLiteral = ch;
+                if (ch != 162 && ch != 141 && ch != 160)
+                    hasText = true;
+            }
+        } else if (block.opcode == 129) {
+            hasText = true;
+        } else if (block.opcode == 136) {
+            quoteOpen = false; // The built-in name question prints its own closing quote.
+            lastLiteral = 162;
+        }
+    }
+    U5::require(kind != ParagraphKind::Narration || !implicitQuotes || hasText,
+                "Add speech before narration in this response, or use Description for narration.");
+    int newlines = 0;
+    while (left.endsWith(char(141))) {
+        left.chop(1);
+        ++newlines;
+    }
+    if (hasText) {
+        if (quoteOpen)
+            left += char(162);
+        left += QByteArray(qMax(2, newlines), char(141));
+    } else {
+        left += QByteArray(newlines, char(141));
+    }
+    QByteArray paragraph = text(body);
+    bool rightHasText = false, rightEndsResponse = false;
+    for (const auto &block : blocks(right)) {
+        if (block.opcode < 0 && !plain(block.bytes).remove('"').trimmed().isEmpty())
+            rightHasText = true;
+        rightHasText |= block.opcode == 129 || block.opcode == 136;
+        rightEndsResponse |= block.opcode == 130 || block.opcode == 132 || block.opcode == 255 ||
+                             (block.opcode >= 145 && block.opcode <= 159);
+    }
+    if (kind == ParagraphKind::Speech) {
+        if (hasText || !implicitQuotes)
+            paragraph.prepend(char(162));
+        // Impera already ignores an immediately repeated closing quote at a normal entry end.
+        paragraph += char(162);
+    }
+    if (!right.isEmpty()) {
+        int lines = 2;
+        const auto following = blocks(right);
+        if (!following.isEmpty() && following.first().opcode == 130)
+            lines = 1;
+        paragraph += QByteArray(lines, char(141));
+    }
+    if (kind == ParagraphKind::Narration && implicitQuotes && !rightHasText && !rightEndsResponse) {
+        // Use the existing topic-return action to avoid the normal spoken closing quote.
+        // A question prompt must retain its player-input path instead.
+        U5::require(canReturnToTopics,
+                    "Place narration before the question's final speech paragraph.");
+        if (right.isEmpty())
+            paragraph += QByteArray::fromHex("8d8dff");
+        else
+            right += char(255);
+    }
+    // Keep existing following speech inside its original quotation context.
+    if (rightHasText && quoteOpen && !right.startsWith(char(162)) && !right.isEmpty() &&
+        blocks(right).first().opcode < 0)
+        paragraph += char(162);
+    return left + paragraph + right;
+}
 QByteArray Document::bytes() const {
     QByteArray b;
     for (const auto &e : entries) {
