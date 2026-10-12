@@ -1,3 +1,4 @@
+#include "map_positions.h"
 #include "content_navigation.h"
 #include "contents_editor.h"
 #include "map_entities.h"
@@ -1558,7 +1559,7 @@ int main(int argc, char **argv) {
             auto canvas = dynamic_cast<MapCanvas *>(active()->findChild<QWidget *>("mapCanvas"));
             auto view = dynamic_cast<MapView *>(active()->findChild<QScrollArea *>("canvasView"));
             auto floor = active()->findChild<QComboBox *>("mapPage");
-            check(modes->count() == 4 && modes->tabText(3) == "Contents", "Wrong settlement modes");
+            check(modes->count() == 5 && modes->tabText(4) == "Contents", "Wrong settlement modes");
             view->setZoom(2);
             view->centerMap({16, 16});
             const auto center = view->mapCenter();
@@ -1687,8 +1688,8 @@ int main(int argc, char **argv) {
             };
             auto modes = active()->findChild<QTabBar *>("locationModes");
             auto canvas = dynamic_cast<MapCanvas *>(active()->findChild<QWidget *>("mapCanvas"));
-            check(modes->count() == 3 && modes->tabText(1) == "Starting Objects" &&
-                      modes->tabText(2) == "Contents",
+            check(modes->count() == 4 && modes->tabText(1) == "Starting Objects" &&
+                      modes->tabText(3) == "Contents",
                   "World mode availability wrong");
             canvas->keyboardCell = {50, 60};
             modes->setCurrentIndex(1);
@@ -2309,17 +2310,121 @@ int main(int argc, char **argv) {
             });
             check(p.data("TOWNE.NPC") == before, "Failed placement changed existing NPCs");
         });
+        test("Map positions preserve bytes, floors, entrance pairs, packages and native placement",
+             [&] {
+                 QTemporaryDir dir;
+                 auto p = fixture(dir.path());
+
+                 auto original = p.data("INIT.GAM");
+                 auto start = Workshop::moveMapPosition(p, 0, 0, -1, {9, 10});
+                 auto expected = original;
+                 expected[0x2ed] = 0;
+                 expected[0x2ef] = char(255);
+                 expected[0x2f0] = expected[0x6b6] = 9;
+                 expected[0x2f1] = expected[0x6b7] = 10;
+                 expected[0x6b8] = char(255);
+                 check(start["INIT.GAM"] == expected,
+                       "Party placement changed unrelated starting state");
+                 auto moon = Workshop::moveMapPosition(p, 3, 0, -1, {12, 13});
+                 expected = original;
+                 expected[0x28c] = 12;
+                 expected[0x294] = 13;
+                 expected[0x29c] = 0;
+                 expected[0x2a4] = char(255);
+                 check(moon["INIT.GAM"] == expected, "Moonstone placement changed another phase");
+
+                 auto entrance = Workshop::moveMapPosition(p, 100, 0, 0, {20, 21});
+                 check(Workshop::TableDocument::value(entrance["RULES.TBL"], 7, 0) == 20 &&
+                           Workshop::TableDocument::value(entrance["RULES.TBL"], 8, 0) == 21,
+                       "Entrance placement did not update both coordinates");
+                 rejects([&] { Workshop::moveMapPosition(p, 100, 0, -1, {20, 21}); });
+                 rejects([&] { Workshop::moveMapPosition(p, 1, 17, 0, {20, 21}); });
+                 rejects([&] { Workshop::moveMapPosition(p, 0, 33, 0, {8, 7}); });
+                 check(Workshop::moveMapPosition(p, 0, 33, 7, {6, 7})["INIT.GAM"][0x2ed] == 33,
+                       "Dungeon party starts are missing");
+                 p.resources["INIT.GAM"].edited = start["INIT.GAM"];
+                 p.resources["RULES.TBL"].edited = entrance["RULES.TBL"];
+
+                 auto package = p.package();
+                 auto copy = fixture(dir.path());
+                 copy.importPackage(package);
+                 check(copy.data("INIT.GAM") == p.data("INIT.GAM") &&
+                           copy.data("RULES.TBL") == p.data("RULES.TBL"),
+                       "Position edits did not roundtrip a mod package");
+
+                 Project graphical = p;
+                 QByteArray world(65536, 1), brit(256, 1), overlay(0x3986, 0);
+                 world[21 * 256 + 20] = char(0x14);
+                 U5::writeWorld("BRIT.DAT", world, brit, overlay);
+                 graphical.resources["BRIT.DAT"] = {brit, brit};
+                 graphical.resources["DATA.OVL"] = {overlay, overlay};
+                 auto relocated = Workshop::moveMapPosition(graphical, 100, 0, 0, {22, 23});
+                 auto rebuilt =
+                     U5::worldMap("BRIT.DAT", relocated["BRIT.DAT"], relocated["DATA.OVL"]);
+                 auto expectedWorld = world;
+                 expectedWorld[21 * 256 + 20] = 1;
+                 expectedWorld[23 * 256 + 22] = char(0x14);
+                 check(rebuilt == expectedWorld &&
+                           Workshop::TableDocument::value(relocated["RULES.TBL"], 7, 0) == 22,
+                       "Entrance landmark and coordinate did not move together");
+                 auto coordinatesOnly =
+                     Workshop::moveMapPosition(graphical, 100, 0, 0, {22, 23}, false);
+                 check(!coordinatesOnly.contains("BRIT.DAT"),
+                       "Coordinate-only entrance move repainted terrain");
+                 auto collision =
+                     Workshop::TableDocument::change(graphical.data("RULES.TBL"), 7, 1, 22);
+                 collision = Workshop::TableDocument::change(collision, 8, 1, 23);
+                 graphical.resources["RULES.TBL"].edited = collision;
+                 rejects([&] { Workshop::moveMapPosition(graphical, 100, 0, 0, {22, 23}); });
+                 check(graphical.data("BRIT.DAT") == brit && graphical.data("DATA.OVL") == overlay,
+                       "Failed landmark placement changed terrain before validation");
+                 U5::MapPage page{};
+                 MapCanvas canvas;
+                 QMap<QString, int> state{{"positions/selected", 3}};
+                 std::unique_ptr<QWidget> panel(Workshop::mapPositionEditor(
+                     &p, "UNDER.DAT", page, &canvas,
+                     [&](const auto &changes, const QString &) {
+                         for (auto it = changes.begin(); it != changes.end(); ++it)
+                             p.resources[it.key()].edited = it.value();
+                         return true;
+                     },
+                     &state, [](QPoint) {}));
+
+                 panel->findChild<QPushButton *>("placeMapPosition")->click();
+                 check(canvas.placing() && canvas.placeItem({14, 15}),
+                       "Native moonstone placement failed");
+                 check(U5::byte(p.data("INIT.GAM"), 0x28c) == 14 &&
+                           U5::byte(p.data("INIT.GAM"), 0x294) == 15,
+                       "Native placement missed the selected moonstone");
+
+                 panel->findChild<QCheckBox *>("moonstoneCarried")->setChecked(true);
+                 check(U5::byte(p.data("INIT.GAM"), 0x29c) == 255,
+                       "Moonstone inventory toggle failed");
+                 file(dir.path() + "/UNDER.DAT", QByteArray(65536, 1));
+                 file(dir.path() + "/init.gam", start["INIT.GAM"]);
+
+                 WorkshopWindow w;
+                 check(w.openGame(dir.path()), "Position UI fixture failed");
+
+                 w.selectResource("INIT.GAM");
+                 w.findChild<QPushButton *>("showPartyStartMap")->click();
+                 auto active = w.findChild<QStackedWidget *>("workspaces")->currentWidget();
+                 check(active->findChild<QWidget *>("mapPositionEditor"),
+                       "Game Rules cannot open the party start on its map");
+             });
         test("World and combat Add items reserve runtime slots and preserve metadata", [&] {
             QTemporaryDir dir;
             auto p = fixture(dir.path());
             p.resources["UNDER.DAT"] = {QByteArray(65536, 1), QByteArray(65536, 1)};
             for (auto r : {"INIT.OOL", "BRIT.OOL", "UNDER.OOL"})
                 p.resources[r] = {QByteArray(256, 0), QByteArray(256, 0)};
-            check(Workshop::availableMapItems(p, "UNDER.DAT").contains(Workshop::MapItemKind::Item),
+            check(Workshop::availableMapItems(p, "UNDER.DAT").contains(Workshop::MapItemKind::Gold),
                   "World Add menu is missing Item");
-            for (int shape : {2, 15, 25}) {
+            for (int shape : {2, 15}) {
                 auto item = Workshop::addMapItem(p, "UNDER.DAT", 0, {4, 5},
-                                                 Workshop::MapItemKind::Item, shape);
+                                                 shape == 2    ? Workshop::MapItemKind::Gold
+                                                 : shape == 15 ? Workshop::MapItemKind::Food
+                                                               : Workshop::MapItemKind::Moonstone);
                 auto record = item.changes["UNDER.OOL"].mid(item.slot * 8, 8);
                 check(item.mode == "Starting Objects" && U5::byte(record, 0) == shape &&
                           U5::byte(record, 1) == shape && U5::byte(record, 2) == 4 &&
@@ -2349,8 +2454,79 @@ int main(int argc, char **argv) {
                       "Item property edit was not saved");
             }
             rejects([&] {
-                Workshop::addMapItem(p, "UNDER.DAT", 0, {4, 5}, Workshop::MapItemKind::Item, 144);
+                Workshop::addMapItem(p, "UNDER.DAT", 0, {4, 5}, Workshop::MapItemKind::Npc, 144);
             });
+            auto placedMoon = Workshop::addMapItem(p, "UNDER.DAT", 0, {6, 7},
+                                                   Workshop::MapItemKind::Moonstone, 4);
+            check(placedMoon.mode == "Positions" && !placedMoon.changes.contains("UNDER.OOL") &&
+                      U5::byte(placedMoon.changes["INIT.GAM"], 0x28e) == 6 &&
+                      U5::byte(placedMoon.changes["INIT.GAM"], 0x296) == 7 &&
+                      U5::byte(placedMoon.changes["INIT.GAM"], 0x2a6) == 255,
+                  "Add Moonstone did not use the buried stone's initial position");
+            for (auto kind : {Workshop::MapItemKind::Potion, Workshop::MapItemKind::Scroll,
+                              Workshop::MapItemKind::Equipment, Workshop::MapItemKind::Gem,
+                              Workshop::MapItemKind::Key, Workshop::MapItemKind::SkeletonKey,
+                              Workshop::MapItemKind::Torch, Workshop::MapItemKind::SandalwoodBox,
+                              Workshop::MapItemKind::Corpse}) {
+                auto item = Workshop::addMapItem(p, "UNDER.DAT", 0, {6, 7}, kind);
+                check(U5::byte(item.changes["UNDER.OOL"], 8) == Workshop::mapItemShape(kind) &&
+                          !item.changes.contains("UNDER.DAT"),
+                      "Additional native item uses wrong artwork or paints terrain");
+            }
+            rejects([&] {
+                Workshop::addMapItem(p, "UNDER.DAT", 0, {6, 7}, Workshop::MapItemKind::Potion, 8);
+            });
+            rejects([&] {
+                Workshop::addMapItem(p, "UNDER.DAT", 0, {6, 7}, Workshop::MapItemKind::Equipment,
+                                     48);
+            });
+            for (auto kind : {Workshop::MapItemKind::Potion, Workshop::MapItemKind::Equipment,
+                              Workshop::MapItemKind::Scroll, Workshop::MapItemKind::SkeletonKey}) {
+                auto item = Workshop::addMapItem(p, "UNDER.DAT", 0, {6, 7}, kind);
+                Project edited = p;
+                edited.resources["UNDER.OOL"].edited = item.changes["UNDER.OOL"];
+                edited.resources["UNDER.OOL"].included = true;
+                QMap<QString, int> state;
+                std::function<bool()> flush;
+                std::unique_ptr<QWidget> panel(Workshop::worldObjectEditor(
+                    &edited, 1,
+                    [&](const QString &r, const QByteArray &b, bool included) {
+                        edited.resources[r].edited = b;
+                        edited.resources[r].included = included;
+                        return true;
+                    },
+                    &state, &flush));
+                if (kind == Workshop::MapItemKind::SkeletonKey) {
+                    auto count = panel->findChild<QSpinBox *>("worldItemValue");
+                    check(panel->findChild<QCheckBox *>("worldSkeletonKey")->isChecked(),
+                          "Skeleton key identity lost");
+                    count->setValue(3);
+                    check(U5::byte(edited.data("UNDER.OOL"), 13) == 131,
+                          "Skeleton-key quantity lost its flag");
+                } else {
+                    auto variant = panel->findChild<QComboBox *>("worldItemVariant");
+                    int id = kind == Workshop::MapItemKind::Potion   ? 7
+                             : kind == Workshop::MapItemKind::Scroll ? 255
+                                                                     : 45;
+                    variant->setCurrentIndex(variant->findData(id));
+                    check(U5::byte(edited.data("UNDER.OOL"), 13) == unsigned(id),
+                          "Native item subtype edit failed");
+                    if (kind == Workshop::MapItemKind::Equipment)
+                        check(U5::byte(edited.data("UNDER.OOL"), 8) == 12,
+                              "Equipment subtype did not update its artwork");
+                }
+            }
+            QByteArray signSeed(67, 0);
+            signSeed[66] = char(255);
+            p.resources["SIGNS.DAT"] = {signSeed, signSeed};
+            auto underSign =
+                Workshop::addMapItem(p, "UNDER.DAT", 0, {18, 19}, Workshop::MapItemKind::Sign);
+            auto records = Workshop::readSigns(underSign.changes["SIGNS.DAT"]);
+            check(records.size() == 1 && records[0].map == 0 && records[0].floor == -1 &&
+                      records[0].x == 18 && records[0].y == 19 &&
+                      U5::byte(U5::worldMap("UNDER.DAT", underSign.changes["UNDER.DAT"], {}),
+                               19 * 256 + 18) == 0xf8,
+                  "Underworld sign placement is missing or uses the wrong world");
             auto sleeper = Workshop::addMapItem(p, "UNDER.DAT", 0, {4, 5},
                                                 Workshop::MapItemKind::SleepingFigure);
             check(U5::byte(sleeper.changes["UNDER.OOL"], 8) == 30 &&
@@ -3483,6 +3659,15 @@ int main(int argc, char **argv) {
                 "Party member tab label is wrong");
             check(tabs->widget(0)->findChildren<QSpinBox *>().size() == 13,
                   "Party, time, and supplies page is empty or incomplete");
+            check(statePage->findChild<QSpinBox *>("startingField_21a") &&
+                      statePage->findChild<QSpinBox *>("startingField_24a") &&
+                      statePage->findChild<QSpinBox *>("startingField_282") &&
+                      statePage->findChild<QCheckBox *>("startingOwned_209") &&
+                      statePage->findChild<QComboBox *>("startingActiveMember"),
+                  "Shared inventory or starting settings are still missing");
+            check(!statePage->findChild<QSpinBox *>("startingField_28a") &&
+                      !statePage->findChild<QSpinBox *>("startingField_292"),
+                  "Moonstone coordinates still clutter Game Rules");
             auto hour = tabs->widget(0)->findChild<QSpinBox *>("startingField_2d9");
             auto before = w.projectForTests().data("INIT.GAM");
             hour->setValue(12);

@@ -1,0 +1,253 @@
+#include "map_positions.h"
+#include "engine_table_names.h"
+#include <QtWidgets>
+#include <memory>
+using U5::require;
+namespace Workshop {
+int positionMap(const QString &resource, const U5::MapPage &page) {
+    if (resource == "DUNGEON.DAT")
+        return 33 + page.settlement;
+    if (resource == "BRIT.DAT" || resource == "UNDER.DAT")
+        return 0;
+    int bank = QStringList{"TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT", "KEEP.DAT"}.indexOf(resource);
+    return bank < 0 ? -1 : bank * 8 + page.settlement + 1;
+}
+QVector<MapPosition> mapPositions(const Project &p) {
+    QVector<MapPosition> out;
+    auto b = p.data("INIT.GAM");
+    if (b.size() == 4192) {
+        out.append({0,
+                    "Party start",
+                    int(U5::byte(b, 0x2ed)),
+                    int(int8_t(b[0x2ef])),
+                    {int(U5::byte(b, 0x2f0)), int(U5::byte(b, 0x2f1))}});
+        for (int i = 0; i < 8; ++i)
+            out.append({i + 1,
+                        QString("Moonstone %1").arg(i + 1),
+                        0,
+                        int(int8_t(b[0x2a2 + i])),
+                        {int(U5::byte(b, 0x28a + i)), int(U5::byte(b, 0x292 + i))},
+                        U5::byte(b, 0x29a + i) == 255});
+    }
+    static const QMap<int, QString> locationNames = [] {
+        QMap<int, QString> names;
+        const QStringList banks{"TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT", "KEEP.DAT"};
+        // The catalog is fixed by the engine, independent of resource contents or availability.
+        for (int bank = 0; bank < banks.size(); ++bank)
+            for (auto page : U5::mapPages(banks[bank], QByteArray(16384, 0)))
+                names[bank * 8 + page.settlement] = page.name.section(" — ", 0, 0);
+        return names;
+    }();
+    for (int i = 0; i < 40; ++i) {
+        QString name = locationNames.value(i, QString::fromUtf8(tableLocationNames[i]));
+        if (name == "(unused)")
+            continue;
+        if (!locationNames.contains(i)) {
+            name = name.toLower();
+            if (!name.isEmpty())
+                name[0] = name[0].toUpper();
+        }
+        out.append({100 + i,
+                    name + " entrance",
+                    0,
+                    0,
+                    {TableDocument::value(p.data("RULES.TBL"), 7, i),
+                     TableDocument::value(p.data("RULES.TBL"), 8, i)}});
+    }
+    return out;
+}
+QMap<QString, QByteArray> moveMapPosition(const Project &p, int id, int map, int floor, QPoint cell,
+                                          bool moveLandmark) {
+    int side = map == 0 ? 256 : map >= 33 ? 8 : 32;
+    require(map >= 0 && map <= 40 && cell.x() >= 0 && cell.y() >= 0 && cell.x() < side &&
+                cell.y() < side,
+            "Position is outside this map");
+    require(map >= 33 ? floor >= 0 && floor <= 7
+            : map     ? floor >= -1 && floor <= 3
+                      : floor == 0 || floor == -1,
+            "Unsupported map floor");
+    if (id >= 100 && id < 140) {
+        require(map == 0 && floor == 0, "Location entrances belong on Britannia");
+        auto b = TableDocument::change(p.data("RULES.TBL"), 7, id - 100, cell.x());
+        b = TableDocument::change(b, 8, id - 100, cell.y());
+        QMap<QString, QByteArray> changes{{"RULES.TBL", b}};
+        if (moveLandmark && p.resources.contains("BRIT.DAT") && p.resources.contains("DATA.OVL")) {
+            MapDocument document(&p, "BRIT.DAT");
+            auto terrain = document.terrain(0);
+            QPoint old{TableDocument::value(p.data("RULES.TBL"), 7, id - 100),
+                       TableDocument::value(p.data("RULES.TBL"), 8, id - 100)};
+            auto landmark = [](int tile) {
+                return (tile >= 0x10 && tile <= 0x1b) || tile == 0x39 || tile == 0x3e;
+            };
+            int tile = U5::byte(terrain, old.y() * 256 + old.x());
+            require(landmark(tile), "This entrance has no landmark tile. Turn off Move landmark "
+                                    "tile to move only its coordinate.");
+            if (old != cell) {
+                require(!landmark(U5::byte(terrain, cell.y() * 256 + cell.x())),
+                        "Another landmark already occupies this tile");
+                for (auto pos : mapPositions(p))
+                    require(pos.id < 100 || pos.id == id || pos.cell != cell,
+                            "Another entrance already occupies this tile");
+                int ground = 5;
+                for (auto delta : {QPoint(0, 1), QPoint(1, 0), QPoint(-1, 0), QPoint(0, -1)}) {
+                    QPoint neighbor = old + delta;
+                    if (neighbor.x() < 0 || neighbor.y() < 0 || neighbor.x() > 255 ||
+                        neighbor.y() > 255)
+                        continue;
+                    int nearby = U5::byte(terrain, neighbor.y() * 256 + neighbor.x());
+                    if (nearby < 0x10) {
+                        ground = nearby;
+                        break;
+                    }
+                }
+                terrain[old.y() * 256 + old.x()] = char(ground);
+                terrain[cell.y() * 256 + cell.x()] = char(tile);
+                auto mapChanges = document.changes(0, terrain);
+                for (auto it = mapChanges.begin(); it != mapChanges.end(); ++it)
+                    changes[it.key()] = it.value();
+            }
+        }
+        return changes;
+    }
+    auto b = p.data("INIT.GAM");
+    require(b.size() == 4192, "Starting state is missing or incomplete");
+    if (id == 0) {
+        b[0x2ed] = char(map);
+        b[0x2ef] = char(floor);
+        b[0x2f0] = char(cell.x());
+        b[0x2f1] = char(cell.y());
+        // Keep the active-party actor's position in sync with the saved map position.
+        b[0x6b6] = char(cell.x());
+        b[0x6b7] = char(cell.y());
+        b[0x6b8] = char(floor);
+    } else {
+        require(id >= 1 && id <= 8 && map == 0, "Moonstones belong on a world map");
+        int phase = id - 1;
+        b[0x28a + phase] = char(cell.x());
+        b[0x292 + phase] = char(cell.y());
+        b[0x29a + phase] = 0;
+        b[0x2a2 + phase] = char(floor);
+    }
+    return {{"INIT.GAM", b}};
+}
+QWidget *
+mapPositionEditor(Project *p, const QString &resource, const U5::MapPage &page, MapCanvas *canvas,
+                  std::function<bool(const QMap<QString, QByteArray> &, const QString &)> commit,
+                  QMap<QString, int> *state, std::function<void(QPoint)> locate) {
+    auto root = new QWidget;
+    root->setObjectName("mapPositionEditor");
+    auto layout = new QVBoxLayout(root);
+    auto list = new QListWidget;
+    list->setObjectName("mapPositionList");
+    list->setToolTip("Select a position to move on this map.");
+    layout->addWidget(list);
+    auto place = new QPushButton("Place on this map");
+    place->setObjectName("placeMapPosition");
+    place->setToolTip("Click a tile to set the selected position without changing terrain.");
+    layout->addWidget(place);
+    auto carried = new QCheckBox("Carried by the party");
+    carried->setObjectName("moonstoneCarried");
+    carried->setToolTip("Start with this moonstone in the party's inventory.");
+    layout->addWidget(carried);
+    auto landmark = new QCheckBox("Move landmark tile");
+    landmark->setObjectName("moveEntranceLandmark");
+    landmark->setChecked(true);
+    landmark->setToolTip("Move the map landmark with its entrance coordinate.");
+    layout->addWidget(landmark);
+    auto loading = std::make_shared<bool>(false);
+    const int map = positionMap(resource, page);
+    const int floor = resource == "UNDER.DAT" ? -1 : page.floor;
+    auto refresh = [=] {
+        *loading = true;
+        list->clear();
+        canvas->actors.clear();
+        for (auto pos : mapPositions(*p)) {
+            if ((pos.id >= 100 && (map || floor)) || (pos.id > 0 && pos.id < 100 && map))
+                continue;
+            auto item = new QListWidgetItem(pos.name + (pos.carried ? " (carried)" : ""), list);
+            item->setData(Qt::UserRole, pos.id);
+            item->setToolTip(pos.map == map && pos.floor == floor && !pos.carried
+                                 ? "Drag the marker to move it."
+                                 : "Place this position on the current map.");
+            if (pos.map == map && pos.floor == floor && !pos.carried)
+                canvas->actors.append({pos.cell.x(), pos.cell.y(), -1, pos.id,
+                                       pos.id == 0    ? "S"
+                                       : pos.id < 100 ? QString("M%1").arg(pos.id)
+                                                      : "E"});
+            if (pos.id == state->value("positions/selected", 0))
+                list->setCurrentItem(item);
+        }
+        if (!list->currentItem() && list->count())
+            list->setCurrentRow(0);
+        canvas->selectedNpc =
+            list->currentItem() ? list->currentItem()->data(Qt::UserRole).toInt() : -1;
+        *loading = false;
+        canvas->update();
+    };
+    auto select = [=](bool center) {
+        if (*loading || !list->currentItem())
+            return;
+        int id = list->currentItem()->data(Qt::UserRole).toInt();
+        (*state)["positions/selected"] = id;
+        canvas->selectedNpc = id;
+        *loading = true;
+        carried->setVisible(id > 0 && id < 100);
+        landmark->setVisible(id >= 100);
+        for (auto pos : mapPositions(*p))
+            if (pos.id == id) {
+                carried->setChecked(pos.carried);
+                if (center && pos.map == map && pos.floor == floor && !pos.carried)
+                    locate(pos.cell);
+            }
+        *loading = false;
+        canvas->update();
+    };
+    auto move = [=](int id, QPoint cell) {
+        try {
+            if (!commit(moveMapPosition(*p, id, map, floor, cell, landmark->isChecked()),
+                        "Move map position"))
+                return false;
+            (*state)["positions/selected"] = id;
+            refresh();
+            select(false);
+            return true;
+        } catch (const std::exception &e) {
+            QMessageBox::warning(root, "Cannot move position", e.what());
+            return false;
+        }
+    };
+    canvas->chooseNpc = [=](int id) {
+        for (int i = 0; i < list->count(); ++i)
+            if (list->item(i)->data(Qt::UserRole).toInt() == id) {
+                *loading = true;
+                list->setCurrentRow(i);
+                *loading = false;
+                select(false);
+            }
+    };
+    canvas->moveNpc = move;
+    QObject::connect(list, &QListWidget::currentRowChanged, root, [=] { select(true); });
+    QObject::connect(place, &QPushButton::clicked, root, [=] {
+        if (!list->currentItem())
+            return;
+        int id = list->currentItem()->data(Qt::UserRole).toInt();
+        canvas->beginPlacement(-1, false, [=](QPoint cell) { return move(id, cell); });
+    });
+    QObject::connect(carried, &QCheckBox::toggled, root, [=](bool on) {
+        if (*loading || !list->currentItem())
+            return;
+        int id = list->currentItem()->data(Qt::UserRole).toInt();
+        if (id < 1 || id > 8)
+            return;
+        auto b = p->data("INIT.GAM");
+        b[0x29a + id - 1] = on ? char(255) : 0;
+        if (commit({{"INIT.GAM", b}}, "Change moonstone inventory")) {
+            refresh();
+            select(false);
+        }
+    });
+    refresh();
+    select(false);
+    return root;
+}
+} // namespace Workshop

@@ -366,7 +366,7 @@ QVector<ModDiagnostic> validateMod(const Project &project) {
         if (name == "DATA.OVL") {
             result.append({ModDiagnostic::Information, name,
                            "Britannia map index supported by Impera; other DOS overlay tables "
-                           "are not runtime configuration. Edit Shops and locations to export "
+                           "are not runtime configuration. Edit Shops to export "
                            "RULES.TBL; consult the coverage inventory for unresolved spans."});
             auto before = project.resources[name].original;
             auto after = project.data(name);

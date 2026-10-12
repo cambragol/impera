@@ -1,3 +1,4 @@
+#include "map_positions.h"
 #include "map_editor.h"
 #include "map_entities.h"
 #include "world_objects.h"
@@ -188,6 +189,12 @@ void MapCanvas::paintEvent(QPaintEvent *e) {
         if (actor.tile >= 0 && actor.tile < tiles.size())
             p.drawImage(QRectF(actor.x * cell, actor.y * cell, cell, cell), tiles[actor.tile]);
     if (tool == InspectNpc) {
+        for (auto marker : positionMarkers) {
+            QRectF r(marker.x * cell, marker.y * cell, cell, cell);
+            p.setPen(QPen(QColor("#a9df86"), 2));
+            p.drawRect(r.adjusted(3, 3, -3, -3));
+            p.drawText(r, Qt::AlignCenter, marker.label);
+        }
         if (showContentsMarkers)
             for (auto marker : contentsMarkers) {
                 p.setPen(QPen(QColor("#ffbd55"), 2));
@@ -1610,6 +1617,18 @@ void MapWorkspace::enableLocationModes(const QStringList &names, LocationLayerFa
     highlightAction->setToolTip(comparison->toolTip());
     connect(highlightAction, &QAction::toggled, comparison, &QCheckBox::setChecked);
     connect(comparison, &QCheckBox::toggled, highlightAction, &QAction::setChecked);
+    for (int i = 0; i < locationModes->count(); ++i)
+        if (locationModes->tabText(i) == "Positions") {
+            auto positions = new QToolButton;
+            positions->setText("Positions");
+            positions->setObjectName("mapPositions");
+            positions->setToolTip(
+                "Place the party start, moonstones, and location entrances on the map.");
+            connect(positions, &QToolButton::clicked, this,
+                    [this, i] { locationModes->setCurrentIndex(i); });
+            if (auto row = findChild<QHBoxLayout *>("mapLocationRow"))
+                row->addWidget(positions);
+        }
     viewOptions->setMenu(viewMenu);
     if (auto row = findChild<QHBoxLayout *>("mapLocationRow"))
         row->addWidget(viewOptions);
@@ -1643,6 +1662,8 @@ void MapWorkspace::applyLocationMode() {
                               panel->style()->pixelMetric(QStyle::PM_ScrollBarExtent));
     }
     inspector->parentWidget()->setMinimumWidth(minimum);
+    if (auto button = findChild<QToolButton *>("mapDeleteItem"))
+        button->setEnabled(mode != "Positions");
     canvas->actors.clear();
     canvas->ghosts.clear();
     canvas->ids = document.terrain(currentPage());
@@ -1719,8 +1740,11 @@ void MapWorkspace::applyLocationMode() {
 }
 bool MapWorkspace::selectMapItem(QPoint cell) {
     const auto &page = document.pages[currentPage()];
-    int npcMode = -1, signMode = -1, contentsMode = -1, objectMode = -1, encounterMode = -1;
+    int npcMode = -1, signMode = -1, contentsMode = -1, objectMode = -1, encounterMode = -1,
+        positionsMode = -1;
     for (int i = 0; i < locationModes->count(); ++i) {
+        if (locationModes->tabText(i) == "Positions")
+            positionsMode = i;
         if (locationModes->tabText(i) == "NPCs / Schedules")
             npcMode = i;
         if (locationModes->tabText(i) == "Contents")
@@ -1758,11 +1782,12 @@ bool MapWorkspace::selectMapItem(QPoint cell) {
         }
     }
     const int signMap =
-        resource == "BRIT.DAT"
+        (resource == "BRIT.DAT" || resource == "UNDER.DAT")
             ? 0
             : QStringList{"TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT", "KEEP.DAT"}.indexOf(resource) *
                       8 +
                   page.settlement + 1;
+    const int signFloor = resource == "UNDER.DAT" ? -1 : page.floor;
     if (npcMode >= 0 && page.settlement >= 0 && project->data(npcResource).size() == 4608) {
         MapNpcDocument npcs(project, npcResource);
         for (int id = 1; id < 32; ++id) {
@@ -1775,7 +1800,7 @@ bool MapWorkspace::selectMapItem(QPoint cell) {
     if (signMode >= 0) {
         try {
             for (const auto &sign : Workshop::readSigns(project->data("SIGNS.DAT")))
-                signRecordHit |= sign.map == signMap && sign.floor == page.floor &&
+                signRecordHit |= sign.map == signMap && sign.floor == signFloor &&
                                  sign.x == cell.x() && sign.y == cell.y();
         } catch (const std::exception &) {
         }
@@ -1799,6 +1824,18 @@ bool MapWorkspace::selectMapItem(QPoint cell) {
             modes.append(mode);
         }
     };
+    bool positionHit = false;
+    int positionId = -1;
+    if (positionsMode >= 0)
+        for (auto pos : Workshop::mapPositions(*project))
+            if (!pos.carried && pos.map == Workshop::positionMap(resource, page) &&
+                pos.floor == (resource == "UNDER.DAT" ? -1 : page.floor) && pos.cell == cell) {
+                positionHit = true;
+                positionId = pos.id;
+            }
+    if (positionHit)
+        (*navigation)["positions/selected"] = positionId;
+    offer(positionHit, "Map position", positionsMode);
     offer(npcHit, "NPC", npcMode);
     offer(signHit, "Sign", signMode);
     offer(contentsHit || containerTile, "Contents", contentsMode);
@@ -1843,7 +1880,17 @@ bool MapWorkspace::selectMapItem(QPoint cell) {
 }
 void MapWorkspace::refreshContextActors() {
     canvas->contextActors.clear();
+    canvas->positionMarkers.clear();
     const auto &page = document.pages[currentPage()];
+    if (!resource.endsWith(".CBT") && locationModes->tabText(activeMode) != "Positions")
+        for (auto pos : Workshop::mapPositions(*project))
+            if (!pos.carried && pos.map == Workshop::positionMap(resource, page) &&
+                pos.floor == (resource == "UNDER.DAT" ? -1 : page.floor))
+                canvas->positionMarkers.append({pos.cell.x(), pos.cell.y(), -1, pos.id,
+                                                pos.id == 0    ? "S"
+                                                : pos.id < 100 ? QString("M%1").arg(pos.id)
+                                                               : "E"});
+
     if ((resource == "BRIT.DAT" || resource == "UNDER.DAT") &&
         project->resources.contains("INIT.OOL") && project->resources.contains("BRIT.OOL") &&
         project->resources.contains("UNDER.OOL") &&
@@ -3072,7 +3119,7 @@ void MapWorkspace::beginAdd(int value) {
         auto kind = Workshop::MapItemKind(value);
         int appearance = -1, conversation = -1;
         QString name = "New NPC";
-        if (kind == Workshop::MapItemKind::Item || kind == Workshop::MapItemKind::Npc ||
+        if (!Workshop::mapItemVariants(kind).isEmpty() || kind == Workshop::MapItemKind::Npc ||
             (kind == Workshop::MapItemKind::Monster && resource != "BRIT.CBT")) {
             QDialog dialog(this);
             dialog.setWindowTitle("Add " + Workshop::mapItemName(kind));
@@ -3101,20 +3148,20 @@ void MapWorkspace::beginAdd(int value) {
                 conversations->setToolTip("Create a conversation or share an existing one.");
                 connect(conversations, &QComboBox::currentIndexChanged, &dialog,
                         [=] { names->setEnabled(conversations->currentData().toInt() < 0); });
-            } else if (kind == Workshop::MapItemKind::Item) {
-                for (auto item : {qMakePair(2, QString("Gold")), qMakePair(15, QString("Food")),
-                                  qMakePair(25, QString("Moonstone"))})
-                    shapes->addItem(
-                        QIcon(QPixmap::fromImage(canvas->tiles.value(256 + item.first))),
-                        item.second, item.first);
+            } else if (!Workshop::mapItemVariants(kind).isEmpty()) {
+                for (auto variant : Workshop::mapItemVariants(kind))
+                    shapes->addItem(QIcon(QPixmap::fromImage(canvas->tiles.value(
+                                        256 + Workshop::mapItemShape(kind, variant.second)))),
+                                    variant.first, variant.second);
             } else
                 for (int shape : Workshop::monsterShapes())
                     shapes->addItem(QIcon(QPixmap::fromImage(canvas->tiles.value(256 + shape))),
                                     Workshop::actorName(shape), shape);
-            shapes->setToolTip(kind == Workshop::MapItemKind::Item
-                                   ? "Choose the item to place on the world map."
-                                   : "Choose the artwork and native creature type.");
-            layout->addRow(kind == Workshop::MapItemKind::Item ? "Item" : "Appearance", shapes);
+            shapes->setToolTip(Workshop::mapItemVariants(kind).isEmpty()
+                                   ? "Choose the artwork and native creature type."
+                                   : "Choose the item to place.");
+            layout->addRow(Workshop::mapItemVariants(kind).isEmpty() ? "Appearance" : "Type",
+                           shapes);
             auto buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
             layout->addRow(buttons);
             connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
@@ -3128,17 +3175,25 @@ void MapWorkspace::beginAdd(int value) {
             if (name.isEmpty())
                 name = "New NPC";
         }
-        int tile = kind == Workshop::MapItemKind::SleepingFigure ? 286
-                   : kind == Workshop::MapItemKind::Sign         ? 0xf8
-                   : kind == Workshop::MapItemKind::Container    ? 257
-                   : kind == Workshop::MapItemKind::Horse        ? 272
-                   : kind == Workshop::MapItemKind::Skiff        ? 296
-                   : kind == Workshop::MapItemKind::Frigate      ? 288
-                   : kind == Workshop::MapItemKind::Carpet       ? 283
-                   : appearance >= 0                             ? 256 + appearance
-                                                                 : -1;
+        int tile = kind == Workshop::MapItemKind::Gold             ? 258
+                   : kind == Workshop::MapItemKind::Food           ? 271
+                   : kind == Workshop::MapItemKind::Moonstone      ? 281
+                   : kind == Workshop::MapItemKind::SleepingFigure ? 286
+                   : kind == Workshop::MapItemKind::Sign           ? 0xf8
+                   : kind == Workshop::MapItemKind::Container      ? 257
+                   : kind == Workshop::MapItemKind::Horse          ? 272
+                   : kind == Workshop::MapItemKind::Skiff          ? 296
+                   : kind == Workshop::MapItemKind::Frigate        ? 288
+                   : kind == Workshop::MapItemKind::Carpet         ? 283
+                   : appearance >= 0                               ? 256 + appearance
+                                                                   : -1;
+        if (kind != Workshop::MapItemKind::Sign && kind != Workshop::MapItemKind::Container &&
+            kind != Workshop::MapItemKind::HiddenContents && kind != Workshop::MapItemKind::Trigger)
+            tile = 256 + Workshop::mapItemShape(kind, appearance);
         canvas->beginPlacement(
-            tile, kind != Workshop::MapItemKind::Npc && kind != Workshop::MapItemKind::Sign,
+            tile,
+            kind != Workshop::MapItemKind::Npc && kind != Workshop::MapItemKind::Sign &&
+                kind != Workshop::MapItemKind::Moonstone,
             [this, value, appearance, conversation, name](QPoint cell) {
                 return placeAddedItem(value, appearance, conversation, name, cell);
             });
@@ -3159,6 +3214,8 @@ bool MapWorkspace::placeAddedItem(int value, int appearance, int conversation, Q
         if (!commitResources(edit.changes, "Add " + Workshop::mapItemName(kind)))
             return false;
         canvas->keyboardCell = cell;
+        if (edit.mode == "Positions")
+            (*navigation)["positions/selected"] = edit.slot;
         if (edit.mode == "Starting Objects")
             (*navigation)["objects/slot"] = edit.slot;
         setItemMode(edit.mode);
@@ -3196,6 +3253,8 @@ void MapWorkspace::deleteSelectedItem() {
             if (actor.npc == canvas->selectedNpc)
                 cell = {actor.x, actor.y};
         const auto mode = locationModes->tabText(activeMode);
+        if (mode == "Positions")
+            return;
         auto changes = Workshop::deleteMapItem(*project, resource, currentPage(), mode,
                                                canvas->selectedNpc, cell);
         if (commitResources(changes, "Delete map item")) {

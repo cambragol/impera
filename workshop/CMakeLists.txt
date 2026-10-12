@@ -30,6 +30,20 @@ foreach(item IN LISTS equipment_matches)
 endforeach()
 string(APPEND equipment_header "};\n")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/inventory_names.h" "${equipment_header}")
+# Spell inventory labels use the engine's incantations and syllable dictionary.
+string(FIND "${engine_names_source}" "char* D_1bfc" syllables_begin)
+string(FIND "${engine_names_source}" "char* D_1c30" spells_begin)
+string(FIND "${engine_names_source}" "u8 D_1c90" spells_end)
+math(EXPR syllables_length "${spells_begin}-${syllables_begin}")
+math(EXPR spells_length "${spells_end}-${spells_begin}")
+string(SUBSTRING "${engine_names_source}" ${syllables_begin} ${syllables_length} syllables_source)
+string(SUBSTRING "${engine_names_source}" ${spells_begin} ${spells_length} spells_source)
+string(REPLACE "char* D_1bfc" "static const char *engineSpellSyllables" syllables_source "${syllables_source}")
+string(REPLACE "char* D_1c30" "static const char *engineSpellCodes" spells_source "${spells_source}")
+string(REGEX REPLACE "_STATIC_TEXT\\([^,]+, (\"[^\"]*\")\\)" "\\1" syllables_source "${syllables_source}")
+string(REGEX REPLACE "_STATIC_TEXT\\([^,]+, (\"[^\"]*\")\\)" "\\1" spells_source "${spells_source}")
+file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/inventory_names.h" "${syllables_source}\n${spells_source}")
+
 # Dungeon order is the engine's final eight location names.
 string(FIND "${engine_names_source}" "char* D_1e3a" dungeon_names_begin)
 string(FIND "${engine_names_source}" "u8 D_1e8a" dungeon_names_end)
@@ -80,7 +94,7 @@ foreach(item IN LISTS actor_matches)
 endforeach()
 string(APPEND actor_header "};\n")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/actor_names.h" "${actor_header}")
-add_library(impera_workshop_core STATIC shop_editor.cpp map_entities.cpp contents_editor.cpp ../src/mod/contents.c content_navigation.cpp engine_tables.cpp world_objects.cpp font_editor.cpp scene_editor.cpp narrative_editor.cpp location_text.cpp dungeon_editor.cpp resource_document.cpp text_preview.cpp formats.cpp dialogue.cpp dialogue_preview.cpp dialogue_surface.cpp map_editor.cpp project.cpp ../src/mod/package.c)
+add_library(impera_workshop_core STATIC shop_editor.cpp map_positions.cpp map_entities.cpp contents_editor.cpp ../src/mod/contents.c content_navigation.cpp engine_tables.cpp world_objects.cpp font_editor.cpp scene_editor.cpp narrative_editor.cpp location_text.cpp dungeon_editor.cpp resource_document.cpp text_preview.cpp formats.cpp dialogue.cpp dialogue_preview.cpp dialogue_surface.cpp map_editor.cpp project.cpp ../src/mod/package.c)
 qt_add_resources(impera_workshop_core alternate_tilesets PREFIX "/tilesets"
     BASE ../textures/tilesets FILES
     ../textures/tilesets/Ultima_5_Tiles_Amiga.png
@@ -88,7 +102,7 @@ qt_add_resources(impera_workshop_core alternate_tilesets PREFIX "/tilesets"
     ../textures/tilesets/Ultima_5_Tiles_Grayscale.png
     ../textures/tilesets/Ultima_5_Tiles_SharpX68000_World.png
     ../textures/tilesets/Ultima_5_Tiles_SharpX68000_NPC.png)
-target_include_directories(impera_workshop_core PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_include_directories(impera_workshop_core PUBLIC "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(impera_workshop_core PUBLIC Qt6::Widgets)
 target_include_directories(impera_workshop_core PUBLIC . ../src)
 add_executable(ImperaWorkshop WIN32 MACOSX_BUNDLE main.cpp window.cpp dialogue_editor.cpp)

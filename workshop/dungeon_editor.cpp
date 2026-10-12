@@ -1,3 +1,4 @@
+#include "map_positions.h"
 #include "dungeon_editor.h"
 #include "contents_editor.h"
 #include "map_entities.h"
@@ -273,6 +274,8 @@ DungeonWorkspace::DungeonWorkspace(
     inspectors->setMinimumWidth(300);
     split->addWidget(inspectors);
     canvas->prepareSelection = [=](QPoint cell) {
+        if (inspectors->currentWidget()->objectName() == "mapPositionEditor")
+            return true;
         if (*contentsPanel) {
             inspectors->removeWidget(*contentsPanel);
             delete *contentsPanel;
@@ -284,6 +287,30 @@ DungeonWorkspace::DungeonWorkspace(
         (*contentsPanel)->selectCell(cell);
         return true;
     };
+    auto positions = new QToolButton;
+    positions->setText("Positions");
+    positions->setObjectName("mapPositions");
+    positions->setToolTip("Place the party start on this dungeon level.");
+    tools->addWidget(positions);
+    connect(positions, &QToolButton::clicked, this, [=] {
+        canvas->cancelStroke();
+        U5::MapPage page{};
+        page.settlement = dungeon->currentIndex();
+        page.floor = floor->currentIndex();
+        auto old = inspectors->findChild<QWidget *>("mapPositionEditor");
+        if (old) {
+            inspectors->removeWidget(old);
+            delete old;
+        }
+        canvas->tool = MapCanvas::InspectNpc;
+        auto panel =
+            mapPositionEditor(p, "DUNGEON.DAT", page, canvas, commit, state, [=](QPoint cell) {
+                canvas->keyboardCell = cell;
+                canvas->update();
+            });
+        inspectors->addWidget(panel);
+        inspectors->setCurrentWidget(panel);
+    });
     auto addMenuButton = new QToolButton;
     addMenuButton->setText("Add…");
     addMenuButton->setObjectName("dungeonAddMenu");

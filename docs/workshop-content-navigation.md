@@ -112,8 +112,10 @@ no duplicate entries in normal navigation. Look descriptions belong to Game Rule
 If required maps or world-object companions are missing, direct resource recovery
 remains accessible through Mod Overview's Advanced compatibility details.
 
-On Britannia and Underworld, **Add… → Item** places loose gold, food, or a
-moonstone. Select the placed item to change its quantity (gold/food) or moon
-phase (0–7). Items share the world-object slot limits with mounts, vessels,
-and monsters; they do not paint terrain or define container contents.
-**Add… → Sleeping figure** also places the native sleeping-figure world object.
+On world maps, Gold and Food are direct **Add…** choices. Moonstone placement
+selects one of the eight buried stones; use **Positions** to move it or make it
+carried. Party starts and location entrances are also edited graphically there.
+Game Rules links to the party start and moonstones on their maps.
+
+See [the placement audit](workshop-placement-audit.md) for Add menu coverage,
+starting settings and remaining native-format limits.

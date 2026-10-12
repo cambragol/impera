@@ -95,7 +95,8 @@ QWidget *tableEditor(Project *project, const QString &resource, TextCommit commi
     auto kind = new QComboBox;
     kind->setObjectName("engineTableSelector");
     for (auto &spec : U5_EngineTables)
-        kind->addItem(QString::fromUtf8(spec.name), spec.id);
+        if (spec.id < 7)
+            kind->addItem(QString::fromUtf8(spec.name), spec.id);
     kind->setToolTip(
         "Choose a verified table. Each override has a typed, versioned runtime path in Impera.");
     el->addWidget(kind);
@@ -242,7 +243,7 @@ QWidget *tableEditor(Project *project, const QString &resource, TextCommit commi
     };
     QObject::connect(apply, &QPushButton::clicked, root, [=] { change(false); });
     QObject::connect(revert, &QPushButton::clicked, root, [=] { change(true); });
-    tabs->addTab(editor, "Shops and locations");
+    tabs->addTab(editor, "Shops");
     auto inventory = new QWidget;
     auto il = new QVBoxLayout(inventory);
     auto search = new QLineEdit;

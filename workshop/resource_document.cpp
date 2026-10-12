@@ -20,8 +20,7 @@ Capability capability(const QString &resource) {
                 n.endsWith(".HCS") ? "Legacy Hercules font — not used by the SDL color renderer"
                                     : "Editable game font", EditorKind::Fonts};
     if (n == "DATA.OVL" || n == "RULES.TBL")
-        return {n == "DATA.OVL" ? "Engine tables and coverage" : "Shops and locations",
-                "Engine tables",
+        return {n == "DATA.OVL" ? "Engine tables and coverage" : "Shops", "Engine tables",
                 "Verified concepts use RULES.TBL; raw overlay coverage is explicitly classified",
                 EditorKind::Tables};
     if (MOD_TilesetSheet(n.toLatin1().constData()))

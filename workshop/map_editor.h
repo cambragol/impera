@@ -81,7 +81,7 @@ class MapCanvas : public QWidget {
     int selectedNpc = -1;
     QPoint keyboardCell = {0, 0};
     std::function<bool(QPoint)> prepareSelection;
-    QVector<Actor> contextActors, contentsMarkers;
+    QVector<Actor> contextActors, contentsMarkers, positionMarkers;
     bool showContentsMarkers = true;
     std::function<int(const QList<int> &)> chooseActor;
     std::function<bool(int, QPoint)> moveNpc;
@@ -187,6 +187,11 @@ class MapWorkspace : public QWidget {
     bool flushLocationMode();
     std::function<void()> locationChanged;
     void centerOnCell(QPoint cell) { view->centerMap(QPointF(cell) + QPointF(0.5, 0.5)); }
+    void refreshTerrain() {
+        canvas->ids = document.terrain(currentPage());
+        minimap->refresh();
+        canvas->update();
+    }
 
   private:
     QTabBar *locationModes = nullptr;

@@ -1,3 +1,5 @@
+#include "inventory_names.h"
+#include "map_positions.h"
 #include "window.h"
 #include "map_entities.h"
 #include "mod/tileset_resources.h"
@@ -1278,19 +1280,35 @@ QWidget *WorkshopWindow::mapEditor(const QString &name) {
     else if (project.resources.contains(npc))
         modes.append("NPCs / Schedules");
     if (project.resources.contains("SIGNS.DAT") &&
-        QStringList{"BRIT.DAT", "TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT", "KEEP.DAT"}.contains(
-            name))
+        QStringList{"BRIT.DAT", "UNDER.DAT", "TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT", "KEEP.DAT"}
+            .contains(name))
         modes.append("Signs");
     if ((name == "BRIT.DAT" || name == "UNDER.DAT") && project.resources.contains("INIT.OOL") &&
         project.resources.contains("BRIT.OOL") && project.resources.contains("UNDER.OOL"))
         modes.append("Starting Objects");
     if (name.endsWith(".CBT"))
         modes.append("Encounter Details");
+    if (!name.endsWith(".CBT"))
+        modes.append("Positions");
     modes.append("Contents");
     workspace->enableLocationModes(
         modes,
         [this, name, workspace](const QString &mode, int page, MapCanvas *canvas,
                                 std::function<bool()> *flush) -> QWidget * {
+            if (mode == "Positions") {
+                *flush = [] { return true; };
+                MapDocument document(&project, name);
+                return Workshop::mapPositionEditor(
+                    &project, name, document.pages[page], canvas,
+                    [this, workspace, name](const auto &changes, const QString &title) {
+                        return guard([&] {
+                            edit(changes, title);
+                            if (changes.contains(name))
+                                workspace->refreshTerrain();
+                        });
+                    },
+                    &editorState, [workspace](QPoint cell) { workspace->centerOnCell(cell); });
+            }
             if (mode == "Contents") {
                 *flush = [] { return true; };
                 MapDocument document(&project, name);
@@ -1787,7 +1805,10 @@ QWidget *WorkshopWindow::stateEditor() {
                       : off == 0x2db                 ? 59
                       : off == 0x2e2                 ? 99
                       : off == 0x202 || off == 0x204 ? 9999
-                                                     : sp->maximum();
+                      : (off >= 0x206 && off <= 0x208) || off == 0x20a || off == 0x20b ||
+                              (off >= 0x21a && off <= 0x289) || (off >= 0x2aa && off <= 0x2b1)
+                          ? 99
+                          : sp->maximum();
         sp->setMaximum(qMax(maximum, sp->value())); // Preserve unusual inherited values.
         sp->setToolTip(help);
         form->addRow(label, sp);
@@ -1811,25 +1832,111 @@ QWidget *WorkshopWindow::stateEditor() {
     for (const auto &field : stateFields)
         numeric(form, values, QString::fromLatin1(field.name), field.offset, field.width,
                 QString::fromLatin1(field.help));
+    auto activeMember = new QComboBox;
+    activeMember->setObjectName("startingActiveMember");
+    activeMember->addItem("None", 255);
+    for (int i = 0; i < qMin(6, int(U5::byte(project.data("INIT.GAM"), 0x2b5))); ++i)
+        activeMember->addItem(
+            QString::fromLatin1(project.data("INIT.GAM").mid(2 + i * 32, 9).split(char(0)).first()),
+            i);
+    int active = U5::byte(project.data("INIT.GAM"), 0x2d5);
+    if (activeMember->findData(active) < 0)
+        activeMember->addItem("Unassigned (preserved)", active);
+    activeMember->setCurrentIndex(activeMember->findData(active));
+    activeMember->setToolTip("Party member selected when the new game starts.");
+    form->addRow("Active party member", activeMember);
+    connect(activeMember, &QComboBox::currentIndexChanged, values, [this, activeMember] {
+        auto b = project.data("INIT.GAM");
+        b[0x2d5] = char(activeMember->currentData().toInt());
+        edit({{"INIT.GAM", b}}, "Set active party member");
+    });
+    const QStringList phaseNames{"New moon",       "Waxing crescent", "First quarter",
+                                 "Waxing gibbous", "Full moon",       "Waning gibbous",
+                                 "Last quarter",   "Waning crescent"};
+    for (auto moon :
+         {qMakePair(QString("Trammel phase"), 0x2df), qMakePair(QString("Felucca phase"), 0x2e0)}) {
+        auto phase = new QComboBox;
+        phase->setObjectName(QString("startingMoonPhase_%1").arg(moon.second, 0, 16));
+        for (int i = 0; i < 8; ++i)
+            phase->addItem(phaseNames[i], 0x30 + i);
+        int inherited = U5::byte(project.data("INIT.GAM"), moon.second);
+        if (phase->findData(inherited) < 0)
+            phase->addItem("Unassigned (preserved)", inherited);
+        phase->setCurrentIndex(phase->findData(inherited));
+        phase->setToolTip("Initial moon phase; the game advances phases as time passes.");
+        form->addRow(moon.first, phase);
+        connect(phase, &QComboBox::currentIndexChanged, values, [this, phase, moon] {
+            auto b = project.data("INIT.GAM");
+            b[moon.second] = char(phase->currentData().toInt());
+            edit({{"INIT.GAM", b}}, "Set " + moon.first);
+        });
+    }
+    auto startMap = new QPushButton("Show party start on map");
+    startMap->setObjectName("showPartyStartMap");
+    startMap->setToolTip("Open the starting map and place or drag the party start marker.");
+    startMap->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    form->addRow("Starting location", startMap);
+    auto openPosition = [this](int id) {
+        guard([&] {
+            auto positions = Workshop::mapPositions(project);
+            auto pos = std::find_if(positions.begin(), positions.end(),
+                                    [id](auto p) { return p.id == id; });
+            require(pos != positions.end(), "Starting position is unavailable");
+            int map = pos->map, floor = pos->floor;
+            QString resource = map >= 33 && map <= 40 ? "DUNGEON.DAT"
+                               : map == 0             ? (floor == -1 ? "UNDER.DAT" : "BRIT.DAT")
+                               : map <= 32 ? QStringList{"TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT",
+                                                         "KEEP.DAT"}[(map - 1) / 8]
+                                           : QString();
+            require(!resource.isEmpty() && project.resources.contains(resource),
+                    "The starting map is not available in this project");
+            if (resource == "DUNGEON.DAT") {
+                editorState["DUNGEON.DAT/dungeon"] = map - 33;
+                editorState["DUNGEON.DAT/level"] = floor;
+                editorState["positions/selected"] = id;
+                selectResource(resource);
+                if (auto button =
+                        content->currentWidget()->findChild<QToolButton *>("mapPositions"))
+                    button->click();
+                return;
+            }
+            MapDocument doc(&project, resource);
+            int page = -1;
+            for (int i = 0; i < doc.pages.size(); ++i)
+                if ((map == 0 || doc.pages[i].settlement == (map - 1) % 8) &&
+                    (map == 0 || doc.pages[i].floor == floor)) {
+                    page = i;
+                    break;
+                }
+            require(page >= 0, "The starting floor is not available in this project");
+            editorState["positions/selected"] = id;
+            editorState[resource + "/map"] = page;
+            selectResource(resource);
+            if (auto mapView = dynamic_cast<MapWorkspace *>(
+                    content->currentWidget()->findChild<QWidget *>("mapWorkspace")))
+                mapView->centerOnCell(pos->cell);
+            auto workspace = content->currentWidget()->findChild<QTabBar *>("locationModes");
+            if (workspace)
+                for (int i = 0; i < workspace->count(); ++i)
+                    if (workspace->tabText(i) == "Positions")
+                        workspace->setCurrentIndex(i);
+        });
+    };
+    connect(startMap, &QPushButton::clicked, values, [openPosition] { openPosition(0); });
     tabs->addTab(makeScroll(values, true), "Party / time / supplies");
     auto quests = new QWidget;
     auto qform = new QFormLayout(quests);
+    auto moonstonesMap = new QPushButton("Show moonstones on map");
+    moonstonesMap->setObjectName("showMoonstonesMap");
+    moonstonesMap->setToolTip(
+        "Open the map editor to place buried moonstones or change which are carried.");
+    moonstonesMap->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    qform->addRow("Moonstones", moonstonesMap);
+    connect(moonstonesMap, &QPushButton::clicked, quests, [openPosition] { openPosition(1); });
     QStringList virtues = {"Honesty",   "Compassion", "Valor",        "Justice",
                            "Sacrifice", "Honor",      "Spirituality", "Humility"};
     QStringList dungeons = {"Deceit",   "Despise", "Destard",  "Wrong",
                             "Covetous", "Shame",   "Hythloth", "Doom"};
-    for (int i = 0; i < 8; i++) {
-        numeric(qform, quests, QString("Moonstone %1 X").arg(i + 1), 0x28a + i, 1, {});
-        numeric(qform, quests, QString("Moonstone %1 Y").arg(i + 1), 0x292 + i, 1, {});
-        numeric(qform, quests, QString("Moonstone %1 inventory flag").arg(i + 1), 0x29a + i, 1,
-                "0 = buried, 255 = carried");
-        numeric(qform, quests, QString("Moonstone %1 world").arg(i + 1), 0x2a2 + i, 1,
-                "0 = Britannia, 255 = Underworld");
-    }
-    QStringList reagents = {"Sulphurous ash", "Ginseng",     "Garlic",     "Spider silk",
-                            "Blood moss",     "Black pearl", "Nightshade", "Mandrake root"};
-    for (int i = 0; i < 8; i++)
-        numeric(qform, quests, reagents[i], 0x2aa + i, 1, {});
     for (int i = 0; i < 3; i++)
         numeric(qform, quests, QString("Prevent Shadowlord visits %1").arg(i + 1), 0x322 + i, 1,
                 "255 prevents visits");
@@ -1855,7 +1962,77 @@ QWidget *WorkshopWindow::stateEditor() {
         numeric(qform, quests, dungeons[i] + " open flags", 0x32a + i, 1, "Bit 7 = open");
         numeric(qform, quests, virtues[i] + " shrine status", 0x332 + i, 1, "Bit 7 = destroyed");
     }
-    tabs->addTab(makeScroll(quests, true), "Moonstones / quests");
+    for (auto item : QList<QPair<QString, int>>{{"Grapple", 0x209},
+                                                {"Lord British's amulet", 0x20d},
+                                                {"Lord British's crown", 0x20e},
+                                                {"Lord British's sceptre", 0x20f},
+                                                {"Shard of Falsehood", 0x210},
+                                                {"Shard of Hatred", 0x211},
+                                                {"Shard of Cowardice", 0x212},
+                                                {"HMS Cape plans", 0x215},
+                                                {"Pocket watch", 0x217},
+                                                {"Black badge", 0x218},
+                                                {"Sandalwood box", 0x219}}) {
+        auto owned = new QCheckBox;
+        owned->setObjectName(QString("startingOwned_%1").arg(item.second, 0, 16));
+        owned->setChecked(U5::byte(project.data("INIT.GAM"), item.second) != 0);
+        owned->setToolTip("Start with this item in the party's inventory.");
+        qform->addRow(item.first, owned);
+        connect(owned, &QCheckBox::toggled, quests, [this, item](bool on) {
+            auto b = project.data("INIT.GAM");
+            b[item.second] = on ? char(255) : 0;
+            edit({{"INIT.GAM", b}}, "Set " + item.first);
+        });
+    }
+    tabs->addTab(makeScroll(quests, true), "Quest items / progress");
+    auto inventory = new QWidget;
+    auto inventoryTabs = new QTabWidget;
+    auto inventoryLayout = new QVBoxLayout(inventory);
+    inventoryLayout->addWidget(inventoryTabs);
+    auto inventorySection = [inventoryTabs](const QString &title) {
+        auto body = new QWidget;
+        auto form = new QFormLayout(body);
+        inventoryTabs->addTab(makeScroll(body, true), title);
+        return form;
+    };
+    auto inventoryForm = inventorySection("Equipment");
+    for (int i = 0; i < 48; ++i) {
+        QString name = QString::fromUtf8(engineEquipmentNames[i]);
+        if (!name.isEmpty() && name != "x")
+            numeric(inventoryForm, inventory, name, 0x21a + i, 1, "Starting equipment quantity.");
+    }
+    inventoryForm = inventorySection("Spell mixtures");
+    for (int i = 0; i < 48; ++i) {
+        QStringList words;
+        for (char c : QByteArray(engineSpellCodes[i]))
+            if (c >= 'A' && c <= 'Z' && engineSpellSyllables[c - 'A']) {
+                QString word = QString::fromLatin1(engineSpellSyllables[c - 'A']).toLower();
+                word[0] = word[0].toUpper();
+                words.append(word);
+            }
+        numeric(inventoryForm, inventory, words.join(' ') + " mixtures", 0x24a + i, 1,
+                "Starting prepared spell mixtures.");
+    }
+    inventoryForm = inventorySection("Scrolls / potions");
+    const QStringList scrolls{"Vas Lor",     "Rel Hur", "In Sanct",   "In An",
+                              "In Quas Wis", "Kal Xen", "In Bet Xen", "An Tym"};
+    const QStringList potions{"Blue",   "Yellow", "Red",   "Green",
+                              "Orange", "Purple", "Black", "White"};
+    for (int i = 0; i < 8; ++i) {
+        numeric(inventoryForm, inventory, scrolls[i] + " scrolls", 0x27a + i, 1,
+                "Starting scroll quantity.");
+        numeric(inventoryForm, inventory, potions[i] + " potions", 0x282 + i, 1,
+                "Starting potion quantity.");
+    }
+    inventoryForm = inventorySection("Reagents / tools");
+    QStringList reagents = {"Sulphurous ash", "Ginseng",     "Garlic",     "Spider silk",
+                            "Blood moss",     "Black pearl", "Nightshade", "Mandrake root"};
+    for (int i = 0; i < 8; i++)
+        numeric(inventoryForm, inventory, reagents[i], 0x2aa + i, 1, {});
+    numeric(inventoryForm, inventory, "Magic carpets", 0x20a, 1, "Starting magic carpets.");
+    numeric(inventoryForm, inventory, "Spyglasses", 0x214, 1, "Starting spyglasses.");
+    numeric(inventoryForm, inventory, "Sextants", 0x216, 1, "Starting sextants.");
+    tabs->addTab(inventory, "Inventory");
     QVBoxLayout *characterLayout;
     auto characters = panel(&characterLayout);
     auto selector = new QComboBox;

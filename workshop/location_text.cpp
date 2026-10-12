@@ -399,6 +399,10 @@ QWidget *locationTextEditor(Project *project, const QString &resource, TextCommi
             pages->append({"BRIT.DAT", 0, 0, 0});
             location->addItem("Britannia");
         }
+        if (project->resources.contains("UNDER.DAT")) {
+            pages->append({"UNDER.DAT", 0, 0, -1});
+            location->addItem("Underworld");
+        }
         QStringList resources = {"TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT", "KEEP.DAT"};
         for (int group = 0; group < 4; group++) {
             auto name = resources[group];

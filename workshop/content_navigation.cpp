@@ -1,3 +1,4 @@
+#include "map_positions.h"
 #include "content_navigation.h"
 #include "shop_editor.h"
 #include "mod/tileset_resources.h"
@@ -194,8 +195,8 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
             if (name == "SIGNS.DAT") {
                 bool mapAvailable = false;
                 for (const QString &map :
-                     {QString("BRIT.DAT"), QString("TOWNE.DAT"), QString("DWELLING.DAT"),
-                      QString("CASTLE.DAT"), QString("KEEP.DAT")})
+                     {QString("BRIT.DAT"), QString("UNDER.DAT"), QString("TOWNE.DAT"),
+                      QString("DWELLING.DAT"), QString("CASTLE.DAT"), QString("KEEP.DAT")})
                     mapAvailable |= project.resources.contains(map);
                 if (mapAvailable)
                     continue;
@@ -250,8 +251,8 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
             break;
         case EditorKind::Tables:
             workspace = name == "DATA.OVL" ? "Mod Overview" : "Game Rules";
-            group = name == "DATA.OVL" ? "Compatibility details" : "Shops and locations";
-            title = name == "DATA.OVL" ? "Engine compatibility coverage" : "Prices, stock and location entrances";
+            group = name == "DATA.OVL" ? "Compatibility details" : "Shops";
+            title = name == "DATA.OVL" ? "Engine compatibility coverage" : "Prices and stock";
             break;
         case EditorKind::Scenes:
             for (int scene = 0; scene < SceneDocument::names().size(); ++scene) {
@@ -280,7 +281,8 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
                 QStringList{"QUESTION.DAT", "MISCMSG.DAT", "ENDMSG.DAT"}.contains(name)) continue;
             workspace = QStringList{"QUESTION.DAT", "SHOPPE.DAT"}.contains(name) ? "Game Rules" : "Cutscenes";
             group = name == "QUESTION.DAT" ? "Starting game"
-                    : name == "SHOPPE.DAT" ? "Shops and locations" : "Stories and messages";
+                    : name == "SHOPPE.DAT" ? "Shops"
+                                           : "Stories and messages";
             if (name == "SHOPPE.DAT") title = "Shop and service dialogue";
             if (name == "KARMA.DAT") title = "Dreams and virtue speeches";
             break;
@@ -365,6 +367,26 @@ QMap<QString, QStringList> contentChanges(const Project &project,
                             break;
                         }
                     }
+                if (!d.resource.endsWith(".CBT") && (changed("INIT.GAM") || changed("RULES.TBL"))) {
+                    auto nowPositions = mapPositions(project),
+                         oldPositions = mapPositions(original);
+                    const int mapId = positionMap(d.resource, map.pages[d.page]);
+                    const int floor = d.resource == "UNDER.DAT" ? -1 : map.pages[d.page].floor;
+                    auto belongs = [&](const MapPosition &p) {
+                        return !p.carried && p.map == mapId &&
+                               (d.settlement >= 0 || p.floor == floor);
+                    };
+                    for (auto pos : nowPositions) {
+                        auto old = std::find_if(oldPositions.begin(), oldPositions.end(),
+                                                [&](auto p) { return p.id == pos.id; });
+                        if (old != oldPositions.end() && (belongs(pos) || belongs(*old)) &&
+                            (pos.cell != old->cell || pos.map != old->map ||
+                             pos.floor != old->floor || pos.carried != old->carried)) {
+                            parts.append("Map positions");
+                            break;
+                        }
+                    }
+                }
                 if (changed("CONTENTS.OVR")) {
                     auto target = contentsTarget(d.resource, map.pages[d.page], d.page);
                     for (const auto &entry :
@@ -416,11 +438,11 @@ QMap<QString, QStringList> contentChanges(const Project &project,
                     if (changed(objects) || (world == 1 && changed("INIT.OOL") &&
                                              !WorldObjects::overridden(project, world)))
                         parts.append("Starting objects");
-                    if (d.resource == "BRIT.DAT" && changed("SIGNS.DAT")) {
-                        auto worldSigns = [](const Project &p) {
+                    if (changed("SIGNS.DAT")) {
+                        auto worldSigns = [world](const Project &p) {
                             QVector<SignRecord> signs;
                             for (auto sign : readSigns(p.data("SIGNS.DAT")))
-                                if (sign.map == 0)
+                                if (sign.map == 0 && sign.floor == (world ? -1 : 0))
                                     signs.append(sign);
                             return signs;
                         };

@@ -36,6 +36,14 @@ void WorldObjects::validate(const QString &name, const QByteArray &b, const QByt
         if (r == original.mid(i * 8, 8) || !uchar(r[0]))
             continue;
         require(i > 0, "World object slot 0 is reserved for the active party");
+        int shape = uchar(r[0]), property = uchar(r[5]);
+        if (r[0] != original[i * 8] || r[5] != original[i * 8 + 5]) {
+            require(shape != 3 || property < 8, "Potion color is invalid");
+            require(shape != 4 || property < 8 || property == 255, "Scroll type is invalid");
+            require(!(shape == 5 || shape == 6 || (shape >= 9 && shape <= 12)) || property < 48,
+                    "Equipment type is invalid");
+            require(shape != 25 || property < 8, "Moonstone phase is invalid");
+        }
         if (!QList<int>{1,  2,  15, 16, 17, 25, 27, 30, 32, 33,
                         34, 35, 36, 37, 38, 39, 40, 41, 42, 43}
                  .contains(uchar(r[0])))
@@ -50,7 +58,46 @@ void WorldObjects::validate(const QString &name, const QByteArray &b, const QByt
             require(uchar(r[5]) <= 100, "Ship hull condition must be between 0 and 100");
     }
 }
+static bool equipmentShape(int shape) {
+    return shape == 5 || shape == 6 || (shape >= 9 && shape <= 12);
+}
+static int defaultProperty(int shape) {
+    return shape == 32                                                            ? 99
+           : shape == 2 || shape == 7 || shape == 8 || shape == 13 || shape == 15 ? 1
+           : shape == 5                                                           ? 16
+           : shape == 6                                                           ? 4
+           : shape == 10                                                          ? 42
+           : shape == 11                                                          ? 9
+           : shape == 12                                                          ? 45
+                                                                                  : 0;
+}
 static QString objectName(int shape) {
+    if (shape == 5)
+        return "Weapon";
+    if (shape == 6)
+        return "Shield";
+    if (shape == 9)
+        return "Helm";
+    if (shape == 10)
+        return "Ring";
+    if (shape == 11)
+        return "Armour";
+    if (shape == 12)
+        return "Amulet";
+    if (shape == 3)
+        return "Potion";
+    if (shape == 4)
+        return "Scroll";
+    if (shape == 7)
+        return "Key";
+    if (shape == 8)
+        return "Gem";
+    if (shape == 13)
+        return "Torch";
+    if (shape == 14)
+        return "Sandalwood box";
+    if (shape == 31)
+        return "Corpse";
     if (shape == TILE_ACTOR_CHEST)
         return "Chest";
     if (shape == TILE_ACTOR_GOLD)
@@ -142,7 +189,8 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
     auto il = new QFormLayout(inspector);
     auto type = new QComboBox;
     type->setObjectName("worldObjectType");
-    for (int tile : {1, 2, 15, 16, 17, 25, 27, 30, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43})
+    for (int tile : {1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12, 13, 14, 15, 16, 17,
+                     25, 27, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43})
         type->addItem(objectName(tile), tile);
     for (int tile : Workshop::monsterShapes())
         type->addItem(objectName(tile), tile);
@@ -170,6 +218,16 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
     itemValue->setToolTip("Gold or food quantity; moonstone phase is 0–7.");
     auto itemLabel = new QLabel("Quantity");
     il->addRow(itemLabel, itemValue);
+    auto variant = new QComboBox;
+    variant->setObjectName("worldItemVariant");
+    variant->setToolTip(
+        "Choose the equipment, scroll, or potion received when this item is picked up.");
+    auto variantLabel = new QLabel("Type");
+    il->addRow(variantLabel, variant);
+    auto skeletonKey = new QCheckBox("Skeleton key");
+    skeletonKey->setObjectName("worldSkeletonKey");
+    skeletonKey->setToolTip("Use skeleton keys rather than ordinary keys.");
+    il->addRow(skeletonKey);
     auto details = new QLabel;
     details->setWordWrap(true);
     details->setToolTip("Animation frame and type-specific bytes are preserved. Unverified "
@@ -199,12 +257,33 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
             type->setCurrentIndex(index);
             x->setValue(uchar(r[2]));
             y->setValue(uchar(r[3]));
-            const bool item = tile == 2 || tile == 15 || tile == 25;
+            const bool item =
+                tile == 2 || tile == 15 || tile == 25 || tile == 7 || tile == 8 || tile == 13;
             itemValue->setVisible(item);
             itemLabel->setVisible(item);
             itemLabel->setText(tile == 25 ? "Moon phase" : "Quantity");
-            itemValue->setRange(tile == 25 ? 0 : 1, tile == 25 ? 7 : 255);
-            itemValue->setValue(uchar(r[5]));
+            int inheritedValue = tile == 7 ? uchar(r[5]) & 127 : uchar(r[5]);
+            itemValue->setRange(qMin(tile == 25 ? 0 : 1, inheritedValue), qMax(tile == 25  ? 7
+                                                                               : tile == 7 ? 127
+                                                                                           : 255,
+                                                                               inheritedValue));
+            itemValue->setValue(inheritedValue);
+            skeletonKey->setVisible(tile == 7);
+            skeletonKey->setChecked(uchar(r[5]) & 128);
+            variant->clear();
+            auto variants = Workshop::mapItemVariants(equipmentShape(tile) ? MapItemKind::Equipment
+                                                      : tile == 3          ? MapItemKind::Potion
+                                                                           : MapItemKind::Scroll);
+            const bool typed = equipmentShape(tile) || tile == 3 || tile == 4;
+            variant->setVisible(typed);
+            variantLabel->setVisible(typed);
+            if (typed) {
+                for (auto entry : variants)
+                    variant->addItem(entry.first, entry.second);
+                if (variant->findData(uchar(r[5])) < 0)
+                    variant->addItem("Unassigned (preserved)", uchar(r[5]));
+                variant->setCurrentIndex(variant->findData(uchar(r[5])));
+            }
             hull->setEnabled((tile & 0xf8) == 0x20);
             hull->setValue(qMin(100, int(uchar(r[5]))));
             details->setText(
@@ -304,8 +383,7 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
         int tile = type->currentData().toInt();
         if (tile != uchar(r[0])) {
             r[0] = r[1] = char(tile);
-            if ((tile & 0xf8) == 0x20)
-                r[5] = 99;
+            r[5] = char(defaultProperty(tile));
         }
         r[2] = char(x->value());
         r[3] = char(y->value());
@@ -313,12 +391,15 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
         if ((tile & 0xf8) == 0x20 &&
             tile == uchar(WorldObjects::effective(*project, world->currentIndex())[slot * 8]))
             r[5] = char(hull->value());
-        if (tile == 2 || tile == 15 || tile == 25)
-            r[5] = char(
-                tile == uchar(WorldObjects::effective(*project, world->currentIndex())[slot * 8])
-                    ? itemValue->value()
-                : tile == 25 ? 0
-                             : 1);
+        if (tile == uchar(WorldObjects::effective(*project, world->currentIndex())[slot * 8])) {
+            if (tile == 2 || tile == 15 || tile == 25 || tile == 7 || tile == 8 || tile == 13)
+                r[5] = char(itemValue->value() | (tile == 7 && skeletonKey->isChecked() ? 128 : 0));
+            if ((equipmentShape(tile) || tile == 3 || tile == 4) && variant->currentIndex() >= 0) {
+                r[5] = char(variant->currentData().toInt());
+                if (equipmentShape(tile))
+                    r[0] = r[1] = char(mapItemShape(MapItemKind::Equipment, uchar(r[5])));
+            }
+        }
         write(slot, r);
     };
     QObject::connect(list, &QListWidget::currentRowChanged, root, [=](int) {
@@ -331,6 +412,8 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
     });
     QObject::connect(type, qOverload<int>(&QComboBox::currentIndexChanged), root,
                      [=](int) { change(); });
+    QObject::connect(variant, &QComboBox::currentIndexChanged, root, [=] { change(); });
+    QObject::connect(skeletonKey, &QCheckBox::toggled, root, [=] { change(); });
     for (auto spin : {x, y, hull, itemValue})
         QObject::connect(spin, qOverload<int>(&QSpinBox::valueChanged), root,
                          [=](int) { change(); });

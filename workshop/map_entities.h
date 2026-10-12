@@ -13,8 +13,19 @@ enum class MapItemKind {
     Frigate,
     Carpet,
     Trigger,
-    Item,
-    SleepingFigure
+    SleepingFigure,
+    Gold,
+    Food,
+    Moonstone,
+    Gem,
+    Key,
+    SkeletonKey,
+    Torch,
+    Potion,
+    Scroll,
+    Equipment,
+    SandalwoodBox,
+    Corpse
 };
 struct MapItemEdit {
     QMap<QString, QByteArray> changes;
@@ -22,6 +33,8 @@ struct MapItemEdit {
     QString mode;
 };
 QString mapItemName(MapItemKind kind);
+int mapItemShape(MapItemKind kind, int variant = -1);
+QList<QPair<QString, int>> mapItemVariants(MapItemKind kind);
 QList<MapItemKind> availableMapItems(const Project &, const QString &resource);
 MapItemEdit addMapItem(const Project &, const QString &resource, int page, QPoint cell,
                        MapItemKind kind, int appearance = -1, int conversation = -1,

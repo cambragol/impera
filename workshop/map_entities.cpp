@@ -1,3 +1,5 @@
+#include "map_positions.h"
+#include "inventory_names.h"
 #include "map_entities.h"
 #include "actor_names.h"
 #include "contents_editor.h"
@@ -33,10 +35,32 @@ QList<int> monsterShapes() {
 }
 QString mapItemName(MapItemKind k) {
     switch (k) {
+    case MapItemKind::Gem:
+        return "Gem";
+    case MapItemKind::Key:
+        return "Key";
+    case MapItemKind::SkeletonKey:
+        return "Skeleton key";
+    case MapItemKind::Torch:
+        return "Torch";
+    case MapItemKind::Potion:
+        return "Potion";
+    case MapItemKind::Scroll:
+        return "Scroll";
+    case MapItemKind::Equipment:
+        return "Equipment";
+    case MapItemKind::SandalwoodBox:
+        return "Sandalwood box";
+    case MapItemKind::Corpse:
+        return "Corpse";
+    case MapItemKind::Gold:
+        return "Gold";
+    case MapItemKind::Food:
+        return "Food";
+    case MapItemKind::Moonstone:
+        return "Moonstone";
     case MapItemKind::SleepingFigure:
         return "Sleeping figure";
-    case MapItemKind::Item:
-        return "Item";
     case MapItemKind::Npc:
         return "NPC";
     case MapItemKind::Monster:
@@ -60,23 +84,100 @@ QString mapItemName(MapItemKind k) {
     }
     return {};
 }
+int mapItemShape(MapItemKind kind, int variant) {
+    switch (kind) {
+    case MapItemKind::Gold:
+        return 2;
+    case MapItemKind::Food:
+        return 15;
+    case MapItemKind::Moonstone:
+        return 25;
+    case MapItemKind::Gem:
+        return 8;
+    case MapItemKind::Key:
+    case MapItemKind::SkeletonKey:
+        return 7;
+    case MapItemKind::Torch:
+        return 13;
+    case MapItemKind::Potion:
+        return 3;
+    case MapItemKind::Scroll:
+        return 4;
+    case MapItemKind::Equipment:
+        variant = variant < 0 ? 16 : variant;
+        return variant < 4    ? 9
+               : variant < 9  ? 6
+               : variant < 16 ? 11
+               : variant < 42 ? 5
+               : variant < 45 ? 10
+                              : 12;
+    case MapItemKind::SandalwoodBox:
+        return 14;
+    case MapItemKind::Corpse:
+        return 31;
+    case MapItemKind::SleepingFigure:
+        return 30;
+    case MapItemKind::Horse:
+        return 16;
+    case MapItemKind::Skiff:
+        return 40;
+    case MapItemKind::Frigate:
+        return 32;
+    case MapItemKind::Carpet:
+        return 27;
+    default:
+        return variant < 0 ? 144 : variant;
+    }
+}
+QList<QPair<QString, int>> mapItemVariants(MapItemKind kind) {
+    QList<QPair<QString, int>> out;
+    if (kind == MapItemKind::Moonstone)
+        for (auto name :
+             QStringList{"New moon", "Waxing crescent", "First quarter", "Waxing gibbous",
+                         "Full moon", "Waning gibbous", "Last quarter", "Waning crescent"})
+            out.append({name, out.size()});
+    if (kind == MapItemKind::Equipment)
+        for (int i = 0; i < 48; ++i)
+            out.append({QString::fromUtf8(engineEquipmentNames[i]), i});
+    if (kind == MapItemKind::Potion)
+        for (auto name :
+             QStringList{"Blue", "Yellow", "Red", "Green", "Orange", "Purple", "Black", "White"})
+            out.append({name, out.size()});
+    if (kind == MapItemKind::Scroll) {
+        for (auto name : QStringList{"Vas Lor", "Rel Hur", "In Sanct", "In An", "In Quas Wis",
+                                     "Kal Xen", "In Bet Xen", "An Tym"})
+            out.append({name, out.size()});
+        out.append({"HMS Cape plans", 255});
+    }
+    return out;
+}
 QList<MapItemKind> availableMapItems(const Project &p, const QString &r) {
     QList<MapItemKind> out;
     if (!MapDocument::supported(r))
         return out;
     const auto npc = r.left(r.size() - 4) + ".NPC";
+    const bool worldObjectsAvailable =
+        (r == "BRIT.DAT" || r == "UNDER.DAT") && p.resources.contains("INIT.OOL") &&
+        p.resources.contains("BRIT.OOL") && p.resources.contains("UNDER.OOL");
     if (p.resources.contains(npc))
         out << MapItemKind::Npc;
-    if (r == "BRIT.DAT" || r == "UNDER.DAT" || r.endsWith(".CBT") || p.resources.contains(npc))
+    if (worldObjectsAvailable || r.endsWith(".CBT") || p.resources.contains(npc))
         out << MapItemKind::Monster;
     if (p.resources.contains("SIGNS.DAT") &&
-        QStringList{"BRIT.DAT", "TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT", "KEEP.DAT"}.contains(r))
+        QStringList{"BRIT.DAT", "UNDER.DAT", "TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT", "KEEP.DAT"}
+            .contains(r))
         out << MapItemKind::Sign;
     out << MapItemKind::Container << MapItemKind::HiddenContents;
-    if ((r == "BRIT.DAT" || r == "UNDER.DAT") && p.resources.contains("INIT.OOL") &&
-        p.resources.contains("BRIT.OOL") && p.resources.contains("UNDER.OOL"))
+    if (worldObjectsAvailable)
         out << MapItemKind::Horse << MapItemKind::Skiff << MapItemKind::Frigate
-            << MapItemKind::Carpet << MapItemKind::Item << MapItemKind::SleepingFigure;
+            << MapItemKind::Carpet << MapItemKind::Gold << MapItemKind::Food
+            << MapItemKind::SleepingFigure << MapItemKind::Gem << MapItemKind::Key
+            << MapItemKind::SkeletonKey << MapItemKind::Torch << MapItemKind::Potion
+            << MapItemKind::Scroll << MapItemKind::Equipment << MapItemKind::SandalwoodBox
+            << MapItemKind::Corpse;
+    if ((r == "BRIT.DAT" || r == "UNDER.DAT") && p.resources.contains("INIT.GAM") &&
+        p.data("INIT.GAM").size() == 4192)
+        out << MapItemKind::Moonstone;
     if (r == "DUNGEON.CBT")
         out << MapItemKind::Trigger;
     return out;
@@ -151,8 +252,14 @@ MapItemEdit addMapItem(const Project &p, const QString &r, int index, QPoint cel
             "Placement outside map");
     MapItemEdit out;
     auto target = contentsTarget(r, page, index);
-    if (kind == MapItemKind::Npc ||
-        (kind == MapItemKind::Monster && p.resources.contains(r.left(r.size() - 4) + ".NPC"))) {
+    if (kind == MapItemKind::Moonstone) {
+        int phase = appearance < 0 ? 0 : appearance;
+        require(phase >= 0 && phase < 8, "Choose a moonstone phase");
+        out.changes = moveMapPosition(p, phase + 1, 0, r == "UNDER.DAT" ? -1 : 0, cell);
+        out.slot = phase + 1;
+        out.mode = "Positions";
+    } else if (kind == MapItemKind::Npc || (kind == MapItemKind::Monster &&
+                                            p.resources.contains(r.left(r.size() - 4) + ".NPC"))) {
         const auto npc = r.left(r.size() - 4) + ".NPC", talk = r.left(r.size() - 4) + ".TLK";
         auto b = p.data(npc);
         require(b.size() == 4608 && page.settlement >= 0, "No valid NPC records on this map");
@@ -284,26 +391,25 @@ MapItemEdit addMapItem(const Project &p, const QString &r, int index, QPoint cel
         int world = r == "UNDER.DAT";
         out.slot = freeWorldSlot(p, world);
         QByteArray record(8, 0);
-        int shape = kind == MapItemKind::SleepingFigure ? 30
-                    : kind == MapItemKind::Horse        ? 16
-                    : kind == MapItemKind::Skiff        ? 40
-                    : kind == MapItemKind::Frigate      ? 32
-                    : kind == MapItemKind::Carpet       ? 27
-                                                        : (appearance < 0 ? 144 : appearance);
+        int shape = mapItemShape(kind, appearance);
         require(kind != MapItemKind::Monster || monsterShapes().contains(shape),
                 "Choose a supported monster");
-        if (kind == MapItemKind::Item) {
-            require(QList<int>{2, 15, 25}.contains(appearance),
-                    "Choose gold, food, or a moonstone");
-            shape = appearance;
-        }
+        auto variants = mapItemVariants(kind);
+        if (!variants.isEmpty() && appearance >= 0)
+            require(std::any_of(variants.begin(), variants.end(),
+                                [=](auto v) { return v.second == appearance; }),
+                    "Choose a supported item type");
         record[0] = record[1] = char(shape);
         record[2] = char(cell.x());
         record[3] = char(cell.y());
         record[4] = char(world ? 255 : 0);
-        record[5] = char(kind == MapItemKind::Frigate               ? 99
-                         : kind == MapItemKind::Item && shape != 25 ? 1
-                                                                    : 0);
+        record[5] =
+            char(kind == MapItemKind::Frigate       ? 99
+                 : kind == MapItemKind::SkeletonKey ? 129
+                 : kind == MapItemKind::Equipment   ? (appearance < 0 ? 16 : appearance)
+                 : kind == MapItemKind::Potion || kind == MapItemKind::Scroll ? qMax(0, appearance)
+                 : shape == 2 || shape == 15 || shape == 7 || shape == 8 || shape == 13 ? 1
+                                                                                        : 0);
         record[7] = char(255);
         out.changes[WorldObjects::resource(world)] =
             WorldObjects::change(p, world, out.slot, record);
