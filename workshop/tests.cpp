@@ -536,6 +536,21 @@ int main(int argc, char **argv) {
                 if (d.resource == "DATA.OVL") check(d.workspace == "Mod Overview", "Overlay coverage is not a rule editor");
             }
             check(scenes == 5 && underworld == 1, "Scene or effective-world routes missing");
+            Project consolidated = p;
+            consolidated.resources["BRIT.DAT"] = {QByteArray(256, 0), QByteArray(256, 0)};
+            consolidated.resources["UNDER.DAT"] = {QByteArray(65536, 0), QByteArray(65536, 0)};
+            consolidated.resources["BRIT.OOL"] = {QByteArray(256, 0), QByteArray(256, 0)};
+            consolidated.resources["SIGNS.DAT"] = {QByteArray(), QByteArray()};
+            consolidated.resources["LOOK2.DAT"] = {QByteArray(), QByteArray()};
+            const auto consolidatedRoutes = Workshop::contentDestinations(consolidated);
+            for (const auto &route : consolidatedRoutes) {
+                check(route.resource != "SIGNS.DAT" && route.resource != "BRIT.OOL" &&
+                          route.resource != "INIT.OOL" && route.resource != "UNDER.OOL",
+                      "Map-owned signs or objects retain duplicate navigation entries");
+                if (route.resource == "LOOK2.DAT")
+                    check(route.workspace == "Game Rules",
+                          "Look descriptions are not in Game Rules");
+            }
             p.resources["MISCMAPS.DAT"].edited = QByteArray(1, 0);
             routes = Workshop::contentDestinations(p);
             check(std::any_of(routes.begin(), routes.end(), [](const auto &d) { return d.resource == "MISCMSG.DAT"; }), "Damaged scenes hide independent messages");
@@ -1149,6 +1164,21 @@ int main(int argc, char **argv) {
                   "Shop editor still exposes preview or format controls");
             check(window.findChild<QComboBox *>("contentWorkspace")->currentText() == "NPCs",
                   "Shop dialogue is not in NPCs");
+            auto serviceFilter = window.findChild<QComboBox *>("characterLocationFilter");
+            check(serviceFilter && !serviceFilter->isHidden() &&
+                      serviceFilter->findData("Shops & Services") >= 0,
+                  "Shop dialogue filter choice is missing");
+            serviceFilter->setCurrentIndex(serviceFilter->findData("Shops & Services"));
+            auto library =
+                window.findChild<QWidget *>("resourceLibrary")->findChild<QTreeWidget *>();
+            int visibleGroups = 0;
+            for (int i = 0; i < library->topLevelItemCount(); ++i)
+                if (!library->topLevelItem(i)->isHidden()) {
+                    ++visibleGroups;
+                    check(library->topLevelItem(i)->text(0).startsWith("Shops & Services"),
+                          "Services filter includes location NPCs");
+                }
+            check(visibleGroups == 1, "Services filter hid its service entries");
             auto insert = editor->findChild<QPushButton *>("shopInsertValue0");
             insert->click();
             text->insertPlainText(QString(600, 'a'));
@@ -1935,6 +1965,7 @@ int main(int argc, char **argv) {
                                                       "Job<Entry>Bye<Entry><Any><Label 15>@")}}));
             WorkshopWindow window;
             check(window.openGame(dir.path()), "Open navigation fixture");
+            window.setProperty("overviewAdvanced", true);
             window.selectResource("INIT.OOL");
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             check(window.findChild<QListWidget *>("worldObjectList"), "Starting objects workspace missing");

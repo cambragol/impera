@@ -45,7 +45,7 @@ Graphics lists Tilesets first, followed by Illustrations and Fonts. Artwork coll
 
 Cutscenes lists the Blackthorn, Shrine, Codex and Final rescue scenes separately. Each route opens its matching scene and includes its message source in the tooltip. Character creation lives in Game Rules, with its backgrounds, questions and sequence in one editor. When scene data is absent, standalone message/creation-text routes remain available. Introduction, ending and virtue text remain dedicated destinations.
 
-Game Rules groups prices, stock and location entrances. Shop/service dialogue lives in NPCs under Shops & Services. Engine overlay coverage belongs to Mod Overview and opens its read-only coverage tab. Game Rules also groups starting party/world state and world objects; the effective Underworld object list appears once, with both initial and override sources recorded. Direct resource access remains available for diagnostics. Change markers aggregate related content at the destination level. Resource serializers and mod package formats are unchanged.
+Game Rules groups prices, stock and location entrances. Shop/service dialogue lives in NPCs under Shops & Services. Engine overlay coverage belongs to Mod Overview and opens its read-only coverage tab. Game Rules also groups starting party/world state and Look descriptions; starting objects are edited through Select / Move on the world maps; the effective Underworld object list appears once, with both initial and override sources recorded. Direct resource access remains available for diagnostics. Change markers aggregate related content at the destination level. Resource serializers and mod package formats are unchanged.
 
 ## Mod Overview and aggregate changes (phase 6)
 
@@ -89,8 +89,8 @@ bundled artwork remain untouched.
 In **NPCs → Shops & Services**, choose a service and then its greeting, refusal,
 farewell, item description or service response. These are shared templates, not
 individual NPC conversations. Shared variants remain one response; the compact
-scope label and its tooltip identify that shared use. Location filtering applies
-to individual NPCs and does not hide service dialogue.
+scope label and its tooltip identify that shared use. The NPC filter offers top-level locations and **Shops & Services**; selecting
+Shops & Services shows only the shared service templates.
 
 Edit one response in the normal application font. The right pane inserts shop,
 keeper, customer, time, price, quantity and item values as inline labels. Original
@@ -106,3 +106,8 @@ existing extended-text mod storage automatically. Invalid drafts stay in the
 editor with a concise error and block navigation/export until corrected. Original
 resources, shared offsets, token spacing, and unrelated narrative editors retain
 their existing behavior. Changed markers identify the affected services.
+
+Signs and starting objects are selected and edited in the map's right pane, with
+no duplicate entries in normal navigation. Look descriptions belong to Game Rules.
+If required maps or world-object companions are missing, direct resource recovery
+remains accessible through Mod Overview's Advanced compatibility details.

@@ -191,8 +191,20 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
             group = "Dungeons";
             break;
         case EditorKind::LocationText:
-            workspace = "World";
-            group = "Location text";
+            if (name == "SIGNS.DAT") {
+                bool mapAvailable = false;
+                for (const QString &map :
+                     {QString("BRIT.DAT"), QString("TOWNE.DAT"), QString("DWELLING.DAT"),
+                      QString("CASTLE.DAT"), QString("KEEP.DAT")})
+                    mapAvailable |= project.resources.contains(map);
+                if (mapAvailable)
+                    continue;
+                workspace = "Mod Overview";
+                group = "Compatibility details";
+            } else {
+                workspace = "Game Rules";
+                group = "Descriptions";
+            }
             break;
         case EditorKind::Conversation:
         case EditorKind::Schedule:
@@ -226,9 +238,14 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
             title = "Starting party and world state";
             break;
         case EditorKind::WorldObjects:
-            if (name == "INIT.OOL" && project.resources.contains("UNDER.OOL")) continue;
-            workspace = "Game Rules";
-            group = "Starting objects";
+            if (name == "INIT.OOL" && project.resources.contains("UNDER.OOL"))
+                continue;
+            if (project.resources.contains(name == "BRIT.OOL" ? "BRIT.DAT" : "UNDER.DAT") &&
+                project.resources.contains("INIT.OOL") && project.resources.contains("BRIT.OOL") &&
+                project.resources.contains("UNDER.OOL"))
+                continue; // Select / Move opens the shared world-object inspector on maps.
+            workspace = "Mod Overview";
+            group = "Compatibility details";
             title = name == "BRIT.OOL" ? "Britannia objects" : "Underworld objects";
             break;
         case EditorKind::Tables:

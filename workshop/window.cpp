@@ -345,8 +345,7 @@ WorkshopWindow::WorkshopWindow() {
     characterLocation = new QComboBox;
     characterLocation->setObjectName("characterLocationFilter");
     characterLocation->setToolTip(
-        "Show NPCs with editable dialogue across all dialogue banks at a top-level location, "
-        "including every floor and schedule time.");
+        "Filter dialogue by location, or choose Shops & Services for shared service dialogue.");
     lv->addWidget(characterLocation);
     connect(characterLocation, &QComboBox::currentIndexChanged, this, [this] { rebuildTree(); });
     connect(workspaceSelector, &QComboBox::currentTextChanged, this, [this](const QString &workspace) {
@@ -655,15 +654,15 @@ void WorkshopWindow::rebuildTree() {
     destinations = Workshop::contentDestinations(project);
     QMap<QString, QTreeWidgetItem *> groups;
     const bool characters = workspaceSelector->currentText() == "NPCs";
-    characterLocation->setVisible(characters && current != "SHOPPE.DAT");
+    characterLocation->setVisible(characters);
     const QString selectedLocation = characterLocation->currentData().toString();
     {
         QSignalBlocker filterBlock(characterLocation);
         characterLocation->clear();
-        characterLocation->addItem("All locations", QString());
+        characterLocation->addItem("All NPCs & services", QString());
         QSet<QString> locations;
         for (const auto &d : destinations)
-            if (d.workspace == "NPCs" && d.resource != "SHOPPE.DAT")
+            if (d.workspace == "NPCs")
                 locations.insert(d.group);
         QStringList sorted = locations.values();
         sorted.sort();
@@ -674,7 +673,7 @@ void WorkshopWindow::rebuildTree() {
     const auto query = contentSearch->text();
     if (workspaceSelector->currentText() == "World") {
         for (const auto &label :
-             {"World maps", "Settlements", "Dungeons", "Combat maps", "Location text"}) {
+             {"World maps", "Settlements", "Dungeons", "Combat maps"}) {
             groups[label] = new QTreeWidgetItem(assets, {label});
             groups[label]->setExpanded(QString(label) != "Combat maps");
         }
@@ -709,7 +708,7 @@ void WorkshopWindow::rebuildTree() {
         if (d.workspace == "Mod Overview" && d.id != "overview" &&
             !property("overviewAdvanced").toBool())
             continue;
-        if (characters && d.resource != "SHOPPE.DAT" &&
+        if (characters &&
             !characterLocation->currentData().toString().isEmpty() &&
             d.group != characterLocation->currentData().toString())
             continue;
@@ -805,13 +804,14 @@ void WorkshopWindow::selectResource(const QString &name) {
     current = name;
     destinations = Workshop::contentDestinations(project);
     for (const auto &d : destinations)
-        if (d.resource == name && Workshop::matchesSelection(d, editorState)) {
+        if ((d.resource == name || d.sources.contains(name)) &&
+            Workshop::matchesSelection(d, editorState)) {
             QSignalBlocker block(workspaceSelector);
             workspaceSelector->setCurrentText(d.workspace);
             break;
         }
     // Diagnostic links can still open companion resources hidden from normal navigation.
-    if (name == "INIT.OOL" || name == "QUESTION.DAT") {
+    if (name == "QUESTION.DAT") {
         QSignalBlocker block(workspaceSelector);
         workspaceSelector->setCurrentText("Game Rules");
     } else if (name == "MISCMSG.DAT" || name == "ENDMSG.DAT") {
