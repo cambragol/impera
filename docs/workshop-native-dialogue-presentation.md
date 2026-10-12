@@ -5,20 +5,19 @@ Restart, optional Setup and Close share the top row. Zoom, status and optional
 Actions share the bottom row. Diagnostics open separately from the issues link;
 the old Game preview action and snapshot tab are gone.
 
-## Exact frame and pixels
+## Exact text pixels
 
 `src/text/game_frame.c` contains the original frame drawing coordinates and
 operations, shared by Impera's `ULTIMA_637e_DrawFrame` adapter and Workshop.
-Workshop renders the EGA frame from the Project's normal font, then crops the
-conversation region at `(185,80)` with size **135x112**. The native **128x104**
-text surface sits at `(7,8)` within that crop. This preserves the actual blue and
-white top/left borders. There is no invented right or bottom border, padding or
-system-font substitution inside the game surface.
+Playtest displays only the native **128x104** text surface, without the surrounding
+blue frame. Removing that decorative crop does not change native text geometry,
+wrapping, fonts or input. The shared frame renderer remains available for engine
+parity checks; it is not displayed in the dialogue editor's Playtest window.
 
 The independent reference retains the original frame routine in
 `tests/native_frame_reference.inc`. Differential tests compare the complete
 320x200 initial frame and final framed conversation crop as well as the existing
-24-conversation pixel/input/state corpus. Font and conversation edits are copied
+expanded original-dialogue pixel/input/state corpus. Font and conversation edits are copied
 at Restart; a running session never switches resources underneath the interpreter.
 
 ## Zoom and input
@@ -60,5 +59,5 @@ starts a fresh execution.
   its original resources, and Restart uses the new resources. They also verify
   source-link invalidation, focus, scrolling, native Escape, close/reopen and
   cancellation on leaving the editor.
-- The standalone Qt-only build remains supported. Broad platform/package smoke
-  tests and the expanded original-dialogue corpus remain phase 6 work.
+- The standalone Qt-only build remains supported. Phase 6 adds the expanded
+  original-dialogue corpus and four-platform packaged native runtime smoke checks.

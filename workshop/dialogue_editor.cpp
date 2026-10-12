@@ -1,5 +1,4 @@
 #include "dialogue_editor.h"
-#include "native_dialogue_frame.h"
 #include "native_text_viewport.h"
 #include "native_dialogue_session.h"
 #include "dialogue_surface.h"
@@ -1206,10 +1205,11 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
             auto paragraph = new QWidget;
             auto row = new QHBoxLayout(paragraph);
             row->setContentsMargins(0, 0, 0, 0);
-            auto kindLabel = new QLabel(speech ? "Speech" : "Narration");
-            kindLabel->setObjectName("conversationTextKind");
-            row->addWidget(kindLabel, 0, Qt::AlignTop);
+            if (speech)
+                row->addWidget(new QLabel("\""), 0, Qt::AlignTop);
             row->addWidget(surface, 1);
+            if (speech)
+                row->addWidget(new QLabel("\""), 0, Qt::AlignBottom);
             sectionLayout->addWidget(paragraph);
             index = end - 1;
             continue;
@@ -1322,10 +1322,11 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
             }
             edit->fit();
             auto paragraphRow = new QHBoxLayout;
-            auto kindLabel = new QLabel(speech ? "Speech" : "Narration");
-            kindLabel->setObjectName("conversationTextKind");
-            paragraphRow->addWidget(kindLabel, 0, Qt::AlignTop);
+            if (speech)
+                paragraphRow->addWidget(new QLabel("\""), 0, Qt::AlignTop);
             paragraphRow->addWidget(edit, 1);
+            if (speech)
+                paragraphRow->addWidget(new QLabel("\""), 0, Qt::AlignBottom);
             paragraphRow->addWidget(more, 0, Qt::AlignTop);
             layout->addLayout(paragraphRow);
             auto original = edit->toPlainText();
@@ -1977,7 +1978,7 @@ void ConversationEditor::resetSimulation() {
     const QByteArray normal =
         project->resources.contains("IBM.CH") ? project->data("IBM.CH") : QByteArray();
     try {
-        playtestImage->setConversationFrame(nativeConversationFrame(normal));
+        U5::require(normal.size() == 1024, "Preview requires IBM.CH");
     } catch (const std::exception &error) {
         status->setText(QString::fromUtf8(error.what()));
         playtestStatus->setText(QString::fromUtf8(error.what()));

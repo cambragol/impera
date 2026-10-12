@@ -4085,15 +4085,16 @@ int main(int argc, char **argv) {
             auto matches = [&](const Dialogue::NativeResult &result,
                                const QByteArray &currentFont) {
                 const auto &image = viewport->logicalImage();
-                if (image.size() != QSize(135, 112))
+                if (image.size() != QSize(128, 104))
                     return false;
-                auto pixels = Dialogue::nativeFramedPixels(currentFont, result.pixels);
-                QRect cursor(7 + result.x * 8, 8 + result.y * 8, 8, 8);
-                for (int y = 0; y < 112; ++y)
-                    for (int x = 0; x < 135; ++x)
+                Q_UNUSED(currentFont);
+                const auto &pixels = result.pixels;
+                QRect cursor(result.x * 8, result.y * 8, 8, 8);
+                for (int y = 0; y < 104; ++y)
+                    for (int x = 0; x < 128; ++x)
                         if (!cursor.contains(x, y) &&
                             image.pixel(x, y) !=
-                                (0xff000000u | IMPERA_TextPalette[uint8_t(pixels[y * 135 + x])]))
+                                (0xff000000u | IMPERA_TextPalette[uint8_t(pixels[y * 128 + x])]))
                             return false;
                 return true;
             };
@@ -4108,7 +4109,7 @@ int main(int argc, char **argv) {
                 return scroll->horizontalScrollBar()->maximum() > 0 &&
                        scroll->verticalScrollBar()->maximum() > 0;
             });
-            check(viewport->displayRect().size() == QSize(675, 672),
+            check(viewport->displayRect().size() == QSize(640, 624),
                   "Fixed zoom was reduced to fit");
             zoom->setCurrentIndex(0);
             await("Fit", [&] { return viewport->hasFocus() && matches(greeting, font); });
@@ -4610,6 +4611,12 @@ int main(int argc, char **argv) {
                       speechField->property("dialogueTextKind") == "speech" &&
                       narrationField->property("dialogueTextKind") == "narration",
                   "Typed paragraphs were merged or expose their generated quote boundaries");
+            for (auto label : editor.findChildren<QLabel *>())
+                check(label->text() != "Speech" && label->text() != "Narration",
+                      "Paragraph kind labels remain visible");
+            check(speechField->parentWidget()->findChildren<QLabel *>().size() >= 2 &&
+                      narrationField->parentWidget()->findChildren<QLabel *>().isEmpty(),
+                  "Speech quotation marks or unquoted narration presentation missing");
             speechField->setPlainText("Listen carefully.");
             narrationField->setPlainText("He gestures.");
             check(editor.flush(), "Cannot edit mixed text paragraphs");

@@ -22,14 +22,14 @@ Phases 1–5 are implemented: the
 [native execution and input](workshop-native-dialogue-runtime.md). Interactive
 Playtest now uses the shared interpreter and a native pixel viewport.
 The [isolated game context](workshop-native-dialogue-context.md) now supplies native action outcomes.
-The [Playtest presentation](workshop-native-dialogue-presentation.md) uses the native frame crop and zoom controls.
+The [Playtest presentation](workshop-native-dialogue-presentation.md) uses the native text surface and zoom controls, without the surrounding blue frame.
 
 ## Findings in the current implementation
 
 | Component | Current behavior | Accuracy gap |
 | --- | --- | --- |
 | Playtest | Shared native C interpreter and dialogue game actions | Movement and combat consequences require full-game Test Mod |
-| Playtest display | Native frame crop, pixel viewport, cursor, echo and shared input editor | Four-platform CI checks standalone builds and deployed native Playtest startup |
+| Playtest display | Native text pixels, cursor, echo and shared input editor; decorative frame omitted | Four-platform CI checks standalone builds and deployed native Playtest startup |
 | Game preview | Retired from the UI; Playtest is the single game presentation | The old decoder remains only as a test oracle |
 | Word layout | Shared native C word buffer and character renderer | Native 18-column word threshold and 16-column hard wrap preserved; old unlimited layout retained only as a compatibility oracle |
 | Fonts | Private copies of current Project IBM.CH and RUNES.CH | Missing/corrupt fonts fail explicitly |
