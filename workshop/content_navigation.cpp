@@ -250,9 +250,11 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
             title = name == "BRIT.OOL" ? "Britannia objects" : "Underworld objects";
             break;
         case EditorKind::Tables:
-            workspace = name == "DATA.OVL" ? "Mod Overview" : "Game Rules";
-            group = name == "DATA.OVL" ? "Compatibility details" : "Shops";
-            title = name == "DATA.OVL" ? "Engine compatibility coverage" : "Prices and stock";
+            if (name == "DATA.OVL")
+                continue; // Edited through the Britannia map.
+            workspace = "Game Rules";
+            group = "Shops";
+            title = "Prices and stock";
             break;
         case EditorKind::Scenes:
             for (int scene = 0; scene < SceneDocument::names().size(); ++scene) {

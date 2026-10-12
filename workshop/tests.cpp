@@ -831,9 +831,9 @@ int main(int argc, char **argv) {
             w.selectResource("RULES.TBL");
             auto table = w.findChild<QTableWidget *>("engineTableEntries");
             check(table && table->rowCount() == 48, "Equipment table workspace missing");
-            auto inventory = w.findChild<QTreeWidget *>("overlayCoverage");
-            check(inventory && inventory->topLevelItemCount() > 1000,
-                  "Overlay inventory incomplete");
+            check(!w.findChild<QTreeWidget *>("overlayCoverage") &&
+                      !w.findChild<QLineEdit *>("overlayInventorySearch"),
+                  "Developer overlay inventory is still exposed");
             w.findChild<QSpinBox *>("engineTableValue")->setValue(345);
             w.findChild<QPushButton *>("applyEngineTable")->click();
             check(Workshop::TableDocument::value(w.projectForTests().data("RULES.TBL"), 1, 0) ==

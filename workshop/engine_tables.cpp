@@ -2,7 +2,6 @@
 #include "engine_table_names.h"
 #include "inventory_names.h"
 #include "mod/engine_tables.h"
-#include "overlay_inventory.h"
 #include <QtWidgets>
 using U5::require;
 namespace Workshop {
@@ -83,13 +82,11 @@ static bool overridden(const QByteArray &b, int table, int index) {
             return true;
     return false;
 }
-QWidget *tableEditor(Project *project, const QString &resource, TextCommit commit,
+QWidget *tableEditor(Project *project, const QString &, TextCommit commit,
                      QMap<QString, int> *state, std::function<bool()> *flush) {
     auto root = new QWidget;
     root->setObjectName("engineTableEditor");
     auto layout = new QVBoxLayout(root);
-    auto tabs = new QTabWidget;
-    layout->addWidget(tabs);
     auto editor = new QWidget;
     auto el = new QVBoxLayout(editor);
     auto kind = new QComboBox;
@@ -243,66 +240,7 @@ QWidget *tableEditor(Project *project, const QString &resource, TextCommit commi
     };
     QObject::connect(apply, &QPushButton::clicked, root, [=] { change(false); });
     QObject::connect(revert, &QPushButton::clicked, root, [=] { change(true); });
-    tabs->addTab(editor, "Shops");
-    auto inventory = new QWidget;
-    auto il = new QVBoxLayout(inventory);
-    auto search = new QLineEdit;
-    search->setObjectName("overlayInventorySearch");
-    search->setPlaceholderText("Search table, consumer or classification…");
-    search->setToolTip(
-        "Filter the complete compiled-symbol, encoded-string and unresolved-span inventory.");
-    il->addWidget(search);
-    auto coverage = new QTreeWidget;
-    coverage->setObjectName("overlayCoverage");
-    coverage->setHeaderLabels({"Table / span", "Classification", "Advanced details / consumers"});
-    coverage->header()->setSectionResizeMode(2, QHeaderView::Stretch);
-    QByteArray inventoryBytes;
-    for (auto part : overlayInventoryParts)
-        inventoryBytes += part;
-    auto manifest = QJsonDocument::fromJson(inventoryBytes).object();
-    for (auto value : manifest["entries"].toArray()) {
-        auto e = value.toObject();
-        QStringList refs;
-        for (auto ref : e["references"].toArray()) {
-            auto r = ref.toObject();
-            QStringList lines;
-            for (auto v : r["lines"].toArray())
-                lines.append(QString::number(v.toInt()));
-            refs.append(r["file"].toString() + ":" + lines.join(','));
-        }
-        QString detail =
-            QString("%1 · candidate file offset 0x%2 · %3 bytes · %4\n%5")
-                .arg(e["type"].toString())
-                .arg(e["offset"].toInt(), 0, 16)
-                .arg(e["length"].isNull() ? "unresolved" : QString::number(e["length"].toInt()))
-                .arg(e["purpose"].toString())
-                .arg(refs.join("; "));
-        auto item = new QTreeWidgetItem(coverage,
-                                        {e["symbol"].toString(), e["category"].toString(), detail});
-        item->setToolTip(
-            2, detail + (e["verifiedSpan"].toBool()
-                             ? "\nVerified DOS span"
-                             : "\nSpan/address-space unverified; not an editable runtime promise"));
-    }
-    for (auto value : manifest["unresolvedSpans"].toArray()) {
-        auto e = value.toObject();
-        new QTreeWidgetItem(
-            coverage,
-            {QString("Gap at 0x%1").arg(e["offset"].toInt(), 0, 16), "unresolved",
-             QString("%1 bytes: unknown code, padding, aliases or data").arg(e["length"].toInt())});
-    }
-    coverage->setToolTip("Runtime coverage inventory. Native literals/tables are not loaded from "
-                         "arbitrary overlay bytes.");
-    il->addWidget(coverage, 1);
-    QObject::connect(search, &QLineEdit::textChanged, root, [=](const QString &s) {
-        for (int i = 0; i < coverage->topLevelItemCount(); ++i) {
-            auto item = coverage->topLevelItem(i);
-            item->setHidden(
-                !(item->text(0) + item->text(1) + item->text(2)).contains(s, Qt::CaseInsensitive));
-        }
-    });
-    tabs->addTab(inventory, "Overlay coverage inventory");
-    tabs->setCurrentIndex(resource == "DATA.OVL" ? 1 : 0);
+    layout->addWidget(editor);
     kind->setCurrentIndex(qBound(0, state->value("tables/kind", 1) - 1, 7));
     load();
     *flush = [] { return true; };

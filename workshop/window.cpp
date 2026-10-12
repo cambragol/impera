@@ -795,6 +795,11 @@ void WorkshopWindow::edit(const QMap<QString, QByteArray> &changes, const QStrin
     }, inclusion));
 }
 void WorkshopWindow::selectResource(const QString &name) {
+    if (name == "DATA.OVL") {
+        if (project.resources.contains("BRIT.DAT")) selectResource("BRIT.DAT");
+        else navigateContent("overview");
+        return;
+    }
     if (flushDraft && !flushDraft()) {
         rebuildTree();
         return;
