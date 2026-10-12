@@ -29,6 +29,22 @@ static int actionAfterStateActions(const QVector<Block> &entryBlocks, int index)
         ++index;
     return index < entryBlocks.size() ? entryBlocks[index].opcode : -1;
 }
+static int handoffSpacing(int opcode) {
+    if (opcode == 130)
+        return 1;
+    return opcode == 132 || opcode == 136 || opcode == 143 || opcode == 255 ||
+                   (opcode >= 145 && opcode <= 159)
+               ? 2
+               : 0;
+}
+static QByteArray managedSpacing(const QByteArray &textBytes, int followingAction) {
+    if ((followingAction == 131 || handoffSpacing(followingAction)) &&
+        textBytes.endsWith(QByteArray::fromHex("8d8d")))
+        return QByteArray::fromHex("8d8d");
+    if (followingAction == 130 && textBytes.endsWith(char(141)))
+        return QByteArray(1, char(141));
+    return {};
+}
 static bool paragraphSpacingBefore(const QVector<Block> &entryBlocks, int actionIndex) {
     int textBlock = actionIndex - 1;
     while (textBlock >= 0 &&
@@ -992,10 +1008,9 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
             auto displayed = entryBlocks.mid(index, end - index);
             QByteArray spacing;
             const int followingAction = actionAfterStateActions(entryBlocks, end);
-            if ((followingAction == 131 || followingAction == 143) && displayed.last().opcode < 0 &&
-                displayed.last().bytes.endsWith(QByteArray::fromHex("8d8d"))) {
-                spacing = QByteArray::fromHex("8d8d");
-                displayed.last().bytes.chop(2);
+            if (displayed.last().opcode < 0) {
+                spacing = managedSpacing(displayed.last().bytes, followingAction);
+                displayed.last().bytes.chop(spacing.size());
             }
             auto surface = new DialogueTextSurface(displayed);
             surface->setProperty("dialogueEntry", entry);
@@ -1034,8 +1049,6 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
             summary->setParent(group);
         if (b.opcode < 0)
             summary->hide();
-        if (b.opcode < 0)
-            tools->addStretch();
         auto more = new QToolButton;
         more->setText("⋯");
         more->setAccessibleName("Paragraph or action menu");
@@ -1079,16 +1092,17 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
         menu->addAction(b.opcode < 0 ? "Remove paragraph" : "Remove action", this,
                         [this, entry, index] { mutateBlocks(entry, index, 0, true); });
         more->setMenu(menu);
-        tools->addWidget(more);
-        layout->addLayout(tools);
+        if (b.opcode >= 0) {
+            tools->addWidget(more);
+            layout->addLayout(tools);
+        } else {
+            delete tools;
+        }
         if (b.opcode < 0) {
             QByteArray visible = b.bytes, spacing;
             const int followingAction = actionAfterStateActions(entryBlocks, index + 1);
-            if ((followingAction == 131 || followingAction == 143) &&
-                visible.endsWith(QByteArray::fromHex("8d8d"))) {
-                spacing = QByteArray::fromHex("8d8d");
-                visible.chop(2);
-            }
+            spacing = managedSpacing(visible, followingAction);
+            visible.chop(spacing.size());
             auto edit = new DialogueParagraph(plain(visible), group);
             if (visible.isEmpty() && !spacing.isEmpty())
                 group->hide();
@@ -1102,7 +1116,10 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
                 layout->addWidget(runeLabel);
             }
             edit->fit();
-            layout->addWidget(edit);
+            auto paragraphRow = new QHBoxLayout;
+            paragraphRow->addWidget(edit, 1);
+            paragraphRow->addWidget(more, 0, Qt::AlignTop);
+            layout->addLayout(paragraphRow);
             auto original = edit->toPlainText();
             readers[entry].append([b, edit, original, spacing] {
                 return edit->toPlainText() == original ? b.bytes
@@ -1483,15 +1500,15 @@ void ConversationEditor::mutateBlocks(int entry, int block, int delta, bool remo
     attempt([&] {
         auto bs = blocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
         U5::require(block >= 0 && block < bs.size(), "This block no longer exists");
-        if (bs[block].opcode == 131 || bs[block].opcode == 143) {
+        if (bs[block].opcode == 131 || handoffSpacing(bs[block].opcode)) {
             int textBlock = block - 1;
             while (textBlock >= 0 &&
                    (bs[textBlock].opcode == 134 || bs[textBlock].opcode == 140))
                 --textBlock;
-            if (textBlock >= 0 && bs[textBlock].opcode < 0 &&
-                bs[textBlock].bytes.endsWith(QByteArray::fromHex("8d8d"))) {
-                bs[textBlock].bytes.chop(2);
-                bs[block].bytes.prepend(QByteArray::fromHex("8d8d"));
+            if (textBlock >= 0 && bs[textBlock].opcode < 0) {
+                const auto spacing = managedSpacing(bs[textBlock].bytes, bs[block].opcode);
+                bs[textBlock].bytes.chop(spacing.size());
+                bs[block].bytes.prepend(spacing);
             }
         }
         if (remove)
@@ -1524,18 +1541,30 @@ void ConversationEditor::insertBlock(int entry, int before, const QByteArray &by
         auto bs = blocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
         const int at = before < 0 ? int(bs.size()) : before;
         U5::require(at >= 0 && at <= bs.size(), "Insertion position no longer exists");
+        if (addition.size() == 1 && handoffSpacing(addition[0].opcode)) {
+            int textBlock = at - 1;
+            while (textBlock >= 0 && (bs[textBlock].opcode == 134 || bs[textBlock].opcode == 140))
+                --textBlock;
+            if (textBlock >= 0 && bs[textBlock].opcode < 0 &&
+                !plain(bs[textBlock].bytes).remove('"').trimmed().isEmpty()) {
+                int existing = 0;
+                const auto &textBytes = bs[textBlock].bytes;
+                while (existing < textBytes.size() &&
+                       U5::byte(textBytes, textBytes.size() - 1 - existing) == 141)
+                    ++existing;
+                const int required = handoffSpacing(addition[0].opcode);
+                if (existing < required)
+                    bs[textBlock].bytes += QByteArray(required - existing, char(141));
+            } else if (textBlock >= 0 &&
+                       (bs[textBlock].opcode == 129 || bs[textBlock].opcode == 142)) {
+                addition.prepend({QByteArray(handoffSpacing(addition[0].opcode), char(141)), -1});
+            }
+        }
         for (int i = 0; i < addition.size(); ++i)
             bs.insert(at + i, addition[i]);
         auto next = doc;
         QByteArray result = next.entries[entry].bytes.left(entryPrefix(entry));
-        for (int i = 0; i < bs.size(); ++i) {
-            const auto &b = bs[i];
-            if (bytes == QByteArray(1, char(143)) && i == at) {
-                if (!result.endsWith(char(141)))
-                    result += char(141);
-                if (!result.endsWith(QByteArray::fromHex("8d8d")))
-                    result += char(141);
-            }
+        for (const auto &b : bs) {
             result += b.bytes;
         }
         next.entries[entry].bytes = result;

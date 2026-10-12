@@ -3989,6 +3989,131 @@ int main(int argc, char **argv) {
             check(doc.entries[4].bytes.endsWith(QByteArray::fromHex("8d8d8383")),
                   "Brief pause unexpectedly inserted line spacing");
         });
+        test("Dialogue handoffs manage layout without altering speech or narration", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            auto bytes =
+                U5::encodeText("Name<Entry>Description<Entry>Greeting<Entry>Work<Entry>Bye<Entry>"
+                               "<Any><Label 1>Question?<Entry>No.<Byte 255><Entry>"
+                               "yes<Entry>Yes.<Byte 255><Entry><Any><Label 15>@");
+            file(dir.path() + "/TOWNE.TLK", U5::writeDialogue({{1, bytes}}));
+            p.openGame(dir.path());
+            ConversationEditor editor(
+                &p, "TOWNE.TLK",
+                [&](const QByteArray &data, const QString &) {
+                    p.resources["TOWNE.TLK"].edited = data;
+                },
+                {}, 0, 3, [](int, int) {});
+            auto outline = editor.findChild<QTreeWidget *>("conversationOutline");
+            auto insert = [&](const QString &name) {
+                auto actions = editor.findChild<QListWidget *>("conversationAvailableActions");
+                QListWidgetItem *item = nullptr;
+                for (int i = 0; i < actions->count(); ++i)
+                    if (actions->item(i)->text() == name)
+                        item = actions->item(i);
+                check(item, "Handoff action missing");
+                actions->itemClicked(item);
+            };
+            auto read = [&] {
+                return Dialogue::parse(U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes);
+            };
+            outline->setCurrentItem(treeItem(outline, "Job / Work"));
+            insert("Enter question");
+            check(read().entries[3].bytes == Dialogue::text("Work") + QByteArray::fromHex("8d8d91"),
+                  "Question after speech omitted paragraph spacing");
+            auto field = editor.findChild<QPlainTextEdit *>("conversationBlockText");
+            check(field && field->toPlainText() == "Work",
+                  "Question layout appears as editable blank lines");
+            auto menu = field->parentWidget()->findChildren<QToolButton *>();
+            QToolButton *more = nullptr;
+            for (auto b : menu)
+                if (b->text() == "⋯")
+                    more = b;
+            editor.resize(1100, 760);
+            editor.show();
+            app.processEvents();
+            check(more && more->geometry().top() >= field->geometry().top() &&
+                      more->geometry().top() < field->geometry().bottom(),
+                  "Paragraph menu still occupies a row above the text");
+            field->setPlainText("Changed speech\"");
+            check(editor.flush(), "Cannot edit speech before question");
+            check(read().entries[3].bytes ==
+                      Dialogue::text("Changed speech\"") + QByteArray::fromHex("8d8d91"),
+                  "Question editing changed quotes or lost managed spacing");
+            outline->setCurrentItem(treeItem(outline, "Name"));
+            insert("Ask player's name");
+            check(read().entries[0].bytes.endsWith(QByteArray::fromHex("8d8d88")),
+                  "Name prompt omitted paragraph spacing");
+            outline->setCurrentItem(treeItem(outline, "Description"));
+            insert("Attempt party joining");
+            check(read().entries[1].bytes.endsWith(QByteArray::fromHex("8d8d84")),
+                  "Party-joining handoff omitted paragraph spacing");
+            outline->setCurrentItem(treeItem(outline, "Greeting (introduced)"));
+            insert("Return to ordinary topics");
+            check(read().entries[2].bytes.endsWith(QByteArray::fromHex("8d8dff")),
+                  "Topic handoff omitted paragraph spacing");
+            outline->setCurrentItem(treeItem(outline, "Farewell"));
+            insert("End conversation");
+            check(read().entries[4].bytes == Dialogue::text("Bye") + QByteArray::fromHex("8d82"),
+                  "Conversation ending omitted its single line break");
+        });
+        test("Handoffs reuse boundaries and preserve imported narration", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            const auto bytes = U5::encodeText(
+                "Name<Avatar><Entry><Label 1><Entry>\"<Entry>Work<New Line><New Line><Key Wait>"
+                "<Entry>Bye<New Line><Entry><Any><Label 1>Prompt?<Entry>"
+                "Narration!<Key Wait><New Line><New Line>\"Speech\"<Byte 255><Entry>"
+                "yes<Entry>Yes.<Byte 255><Entry><Any><Label 15>@");
+            file(dir.path() + "/TOWNE.TLK", U5::writeDialogue({{1, bytes}}));
+            p.openGame(dir.path());
+            ConversationEditor editor(
+                &p, "TOWNE.TLK",
+                [&](const QByteArray &data, const QString &) {
+                    p.resources["TOWNE.TLK"].edited = data;
+                },
+                {}, 0, 3, [](int, int) {});
+            auto outline = editor.findChild<QTreeWidget *>("conversationOutline");
+            auto insert = [&](const QString &name) {
+                auto actions = editor.findChild<QListWidget *>("conversationAvailableActions");
+                for (int i = 0; i < actions->count(); ++i)
+                    if (actions->item(i)->text() == name) {
+                        actions->itemClicked(actions->item(i));
+                        return;
+                    }
+                throw std::runtime_error("Handoff action missing");
+            };
+            auto read = [&] {
+                return Dialogue::parse(U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes);
+            };
+            outline->setCurrentItem(treeItem(outline, "Otherwise / fallback"));
+            check(editor.flush() && read().bytes() == bytes,
+                  "Imported narration or post-wait spacing changed on opening");
+            const auto narration = read().entries[6].bytes;
+            outline->setCurrentItem(treeItem(outline, "Name"));
+            insert("Ask player's name");
+            check(read().entries[0].bytes.endsWith(QByteArray::fromHex("818d8d88")),
+                  "Handoff after inline Avatar name omitted spacing");
+            outline->setCurrentItem(treeItem(outline, "Description"));
+            insert("End conversation");
+            check(read().entries[1].bytes == QByteArray::fromHex("8291"),
+                  "Branch-only response acquired an artificial line break");
+            outline->setCurrentItem(treeItem(outline, "Greeting (introduced)"));
+            insert("Ask player's name");
+            check(read().entries[2].bytes == QByteArray::fromHex("a288"),
+                  "A lone quote acquired an artificial blank paragraph");
+            outline->setCurrentItem(treeItem(outline, "Job / Work"));
+            insert("Enter question");
+            check(read().entries[3].bytes ==
+                      Dialogue::text("Work") + QByteArray::fromHex("8d8d8f91"),
+                  "Question after Wait added redundant paragraph spacing");
+            outline->setCurrentItem(treeItem(outline, "Farewell"));
+            insert("End conversation");
+            check(read().entries[4].bytes == Dialogue::text("Bye") + QByteArray::fromHex("8d82"),
+                  "Existing final newline was duplicated");
+            check(read().entries[6].bytes == narration,
+                  "Unrelated edits changed narration quotes or post-wait spacing");
+        });
         test("Conversation surface, unified questions and source-linked playtest", [&] {
             QTemporaryDir dir;
             auto p = fixture(dir.path());
