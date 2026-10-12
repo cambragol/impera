@@ -1006,6 +1006,7 @@ MapWorkspace::MapWorkspace(
                     0, QString("%1 · %2 · floor %3").arg(name).arg(mp.name).arg(mp.floor));
             }
         }
+    towns->sortChildren(0, Qt::AscendingOrder);
     maps->expandToDepth(0);
     left->setMinimumWidth(170);
     split->addWidget(left);

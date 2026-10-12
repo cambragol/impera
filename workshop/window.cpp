@@ -14,6 +14,7 @@
 #include "text_preview.h"
 #include "world_objects.h"
 #include <QMouseEvent>
+#include <QCollator>
 #include <QPainter>
 #include <QtWidgets>
 #include <memory>
@@ -692,7 +693,17 @@ void WorkshopWindow::rebuildTree() {
         }
     }
     const auto changes = Workshop::contentChanges(project, destinations);
-    for (const auto &d : destinations) {
+    auto displayed = destinations;
+    if (workspaceSelector->currentText() == "World" || characters) {
+        QCollator alphabetical(QLocale(QLocale::English));
+        alphabetical.setCaseSensitivity(Qt::CaseInsensitive);
+        alphabetical.setNumericMode(true);
+        std::stable_sort(displayed.begin(), displayed.end(), [&](const auto &a, const auto &b) {
+            int group = alphabetical.compare(a.group, b.group);
+            return group ? group < 0 : alphabetical.compare(a.title, b.title) < 0;
+        });
+    }
+    for (const auto &d : displayed) {
         if (d.workspace != workspaceSelector->currentText())
             continue;
         if (d.workspace == "Mod Overview" && d.id != "overview" &&
