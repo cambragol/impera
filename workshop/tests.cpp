@@ -2315,6 +2315,47 @@ int main(int argc, char **argv) {
             p.resources["UNDER.DAT"] = {QByteArray(65536, 1), QByteArray(65536, 1)};
             for (auto r : {"INIT.OOL", "BRIT.OOL", "UNDER.OOL"})
                 p.resources[r] = {QByteArray(256, 0), QByteArray(256, 0)};
+            check(Workshop::availableMapItems(p, "UNDER.DAT").contains(Workshop::MapItemKind::Item),
+                  "World Add menu is missing Item");
+            for (int shape : {2, 15, 25}) {
+                auto item = Workshop::addMapItem(p, "UNDER.DAT", 0, {4, 5},
+                                                 Workshop::MapItemKind::Item, shape);
+                auto record = item.changes["UNDER.OOL"].mid(item.slot * 8, 8);
+                check(item.mode == "Starting Objects" && U5::byte(record, 0) == shape &&
+                          U5::byte(record, 1) == shape && U5::byte(record, 2) == 4 &&
+                          U5::byte(record, 3) == 5 && U5::byte(record, 4) == 255 &&
+                          U5::byte(record, 5) == (shape == 25 ? 0 : 1) &&
+                          !item.changes.contains("UNDER.DAT"),
+                      "Loose item placement corrupted type, properties, or terrain");
+                Project edited = p;
+                edited.resources["UNDER.OOL"].edited = item.changes["UNDER.OOL"];
+                edited.resources["UNDER.OOL"].included = true;
+                QMap<QString, int> state;
+                std::function<bool()> flush;
+                std::unique_ptr<QWidget> inspector(Workshop::worldObjectEditor(
+                    &edited, 1,
+                    [&](const QString &r, const QByteArray &bytes, bool included) {
+                        edited.resources[r].edited = bytes;
+                        edited.resources[r].included = included;
+                        return true;
+                    },
+                    &state, &flush));
+                auto value = inspector->findChild<QSpinBox *>("worldItemValue");
+                check(value && !value->isHidden() && value->maximum() == (shape == 25 ? 7 : 255),
+                      "Item property inspector has the wrong range");
+                value->setValue(shape == 25 ? 7 : 42);
+                check(U5::byte(edited.data("UNDER.OOL"), item.slot * 8 + 5) ==
+                          (shape == 25 ? 7 : 42),
+                      "Item property edit was not saved");
+            }
+            rejects([&] {
+                Workshop::addMapItem(p, "UNDER.DAT", 0, {4, 5}, Workshop::MapItemKind::Item, 144);
+            });
+            auto sleeper = Workshop::addMapItem(p, "UNDER.DAT", 0, {4, 5},
+                                                Workshop::MapItemKind::SleepingFigure);
+            check(U5::byte(sleeper.changes["UNDER.OOL"], 8) == 30 &&
+                      sleeper.mode == "Starting Objects",
+                  "Sleeping figure uses the wrong world object shape");
             auto horse =
                 Workshop::addMapItem(p, "UNDER.DAT", 0, {2, 3}, Workshop::MapItemKind::Horse);
             check(horse.slot == 1 && U5::byte(horse.changes["UNDER.OOL"], 8) == 16 &&

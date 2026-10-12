@@ -3067,7 +3067,7 @@ void MapWorkspace::beginAdd(int value) {
         auto kind = Workshop::MapItemKind(value);
         int appearance = -1, conversation = -1;
         QString name = "New NPC";
-        if (kind == Workshop::MapItemKind::Npc ||
+        if (kind == Workshop::MapItemKind::Item || kind == Workshop::MapItemKind::Npc ||
             (kind == Workshop::MapItemKind::Monster && resource != "BRIT.CBT")) {
             QDialog dialog(this);
             dialog.setWindowTitle("Add " + Workshop::mapItemName(kind));
@@ -3096,12 +3096,20 @@ void MapWorkspace::beginAdd(int value) {
                 conversations->setToolTip("Create a conversation or share an existing one.");
                 connect(conversations, &QComboBox::currentIndexChanged, &dialog,
                         [=] { names->setEnabled(conversations->currentData().toInt() < 0); });
+            } else if (kind == Workshop::MapItemKind::Item) {
+                for (auto item : {qMakePair(2, QString("Gold")), qMakePair(15, QString("Food")),
+                                  qMakePair(25, QString("Moonstone"))})
+                    shapes->addItem(
+                        QIcon(QPixmap::fromImage(canvas->tiles.value(256 + item.first))),
+                        item.second, item.first);
             } else
                 for (int shape : Workshop::monsterShapes())
                     shapes->addItem(QIcon(QPixmap::fromImage(canvas->tiles.value(256 + shape))),
                                     Workshop::actorName(shape), shape);
-            shapes->setToolTip("Choose the artwork and native creature type.");
-            layout->addRow("Appearance", shapes);
+            shapes->setToolTip(kind == Workshop::MapItemKind::Item
+                                   ? "Choose the item to place on the world map."
+                                   : "Choose the artwork and native creature type.");
+            layout->addRow(kind == Workshop::MapItemKind::Item ? "Item" : "Appearance", shapes);
             auto buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
             layout->addRow(buttons);
             connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
@@ -3115,14 +3123,15 @@ void MapWorkspace::beginAdd(int value) {
             if (name.isEmpty())
                 name = "New NPC";
         }
-        int tile = kind == Workshop::MapItemKind::Sign        ? 0xf8
-                   : kind == Workshop::MapItemKind::Container ? 257
-                   : kind == Workshop::MapItemKind::Horse     ? 272
-                   : kind == Workshop::MapItemKind::Skiff     ? 296
-                   : kind == Workshop::MapItemKind::Frigate   ? 288
-                   : kind == Workshop::MapItemKind::Carpet    ? 283
-                   : appearance >= 0                          ? 256 + appearance
-                                                              : -1;
+        int tile = kind == Workshop::MapItemKind::SleepingFigure ? 286
+                   : kind == Workshop::MapItemKind::Sign         ? 0xf8
+                   : kind == Workshop::MapItemKind::Container    ? 257
+                   : kind == Workshop::MapItemKind::Horse        ? 272
+                   : kind == Workshop::MapItemKind::Skiff        ? 296
+                   : kind == Workshop::MapItemKind::Frigate      ? 288
+                   : kind == Workshop::MapItemKind::Carpet       ? 283
+                   : appearance >= 0                             ? 256 + appearance
+                                                                 : -1;
         canvas->beginPlacement(
             tile, kind != Workshop::MapItemKind::Npc && kind != Workshop::MapItemKind::Sign,
             [this, value, appearance, conversation, name](QPoint cell) {

@@ -165,6 +165,11 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
     hull->setToolTip("Frigate hull condition. 99 is the engine's usual initial condition; rough "
                      "seas and combat can damage it.");
     il->addRow("Ship condition", hull);
+    auto itemValue = new QSpinBox;
+    itemValue->setObjectName("worldItemValue");
+    itemValue->setToolTip("Gold or food quantity; moonstone phase is 0–7.");
+    auto itemLabel = new QLabel("Quantity");
+    il->addRow(itemLabel, itemValue);
     auto details = new QLabel;
     details->setWordWrap(true);
     details->setToolTip("Animation frame and type-specific bytes are preserved. Unverified "
@@ -194,6 +199,12 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
             type->setCurrentIndex(index);
             x->setValue(uchar(r[2]));
             y->setValue(uchar(r[3]));
+            const bool item = tile == 2 || tile == 15 || tile == 25;
+            itemValue->setVisible(item);
+            itemLabel->setVisible(item);
+            itemLabel->setText(tile == 25 ? "Moon phase" : "Quantity");
+            itemValue->setRange(tile == 25 ? 0 : 1, tile == 25 ? 7 : 255);
+            itemValue->setValue(uchar(r[5]));
             hull->setEnabled((tile & 0xf8) == 0x20);
             hull->setValue(qMin(100, int(uchar(r[5]))));
             details->setText(
@@ -302,6 +313,12 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
         if ((tile & 0xf8) == 0x20 &&
             tile == uchar(WorldObjects::effective(*project, world->currentIndex())[slot * 8]))
             r[5] = char(hull->value());
+        if (tile == 2 || tile == 15 || tile == 25)
+            r[5] = char(
+                tile == uchar(WorldObjects::effective(*project, world->currentIndex())[slot * 8])
+                    ? itemValue->value()
+                : tile == 25 ? 0
+                             : 1);
         write(slot, r);
     };
     QObject::connect(list, &QListWidget::currentRowChanged, root, [=](int) {
@@ -314,7 +331,7 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
     });
     QObject::connect(type, qOverload<int>(&QComboBox::currentIndexChanged), root,
                      [=](int) { change(); });
-    for (auto spin : {x, y, hull})
+    for (auto spin : {x, y, hull, itemValue})
         QObject::connect(spin, qOverload<int>(&QSpinBox::valueChanged), root,
                          [=](int) { change(); });
     QObject::connect(add, &QPushButton::clicked, root, [=] {

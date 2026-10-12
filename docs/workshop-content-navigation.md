@@ -111,3 +111,9 @@ Signs and starting objects are selected and edited in the map's right pane, with
 no duplicate entries in normal navigation. Look descriptions belong to Game Rules.
 If required maps or world-object companions are missing, direct resource recovery
 remains accessible through Mod Overview's Advanced compatibility details.
+
+On Britannia and Underworld, **Add… → Item** places loose gold, food, or a
+moonstone. Select the placed item to change its quantity (gold/food) or moon
+phase (0–7). Items share the world-object slot limits with mounts, vessels,
+and monsters; they do not paint terrain or define container contents.
+**Add… → Sleeping figure** also places the native sleeping-figure world object.

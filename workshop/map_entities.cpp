@@ -33,6 +33,10 @@ QList<int> monsterShapes() {
 }
 QString mapItemName(MapItemKind k) {
     switch (k) {
+    case MapItemKind::SleepingFigure:
+        return "Sleeping figure";
+    case MapItemKind::Item:
+        return "Item";
     case MapItemKind::Npc:
         return "NPC";
     case MapItemKind::Monster:
@@ -72,7 +76,7 @@ QList<MapItemKind> availableMapItems(const Project &p, const QString &r) {
     if ((r == "BRIT.DAT" || r == "UNDER.DAT") && p.resources.contains("INIT.OOL") &&
         p.resources.contains("BRIT.OOL") && p.resources.contains("UNDER.OOL"))
         out << MapItemKind::Horse << MapItemKind::Skiff << MapItemKind::Frigate
-            << MapItemKind::Carpet;
+            << MapItemKind::Carpet << MapItemKind::Item << MapItemKind::SleepingFigure;
     if (r == "DUNGEON.CBT")
         out << MapItemKind::Trigger;
     return out;
@@ -280,18 +284,26 @@ MapItemEdit addMapItem(const Project &p, const QString &r, int index, QPoint cel
         int world = r == "UNDER.DAT";
         out.slot = freeWorldSlot(p, world);
         QByteArray record(8, 0);
-        int shape = kind == MapItemKind::Horse     ? 16
-                    : kind == MapItemKind::Skiff   ? 40
-                    : kind == MapItemKind::Frigate ? 32
-                    : kind == MapItemKind::Carpet  ? 27
-                                                   : (appearance < 0 ? 144 : appearance);
+        int shape = kind == MapItemKind::SleepingFigure ? 30
+                    : kind == MapItemKind::Horse        ? 16
+                    : kind == MapItemKind::Skiff        ? 40
+                    : kind == MapItemKind::Frigate      ? 32
+                    : kind == MapItemKind::Carpet       ? 27
+                                                        : (appearance < 0 ? 144 : appearance);
         require(kind != MapItemKind::Monster || monsterShapes().contains(shape),
                 "Choose a supported monster");
+        if (kind == MapItemKind::Item) {
+            require(QList<int>{2, 15, 25}.contains(appearance),
+                    "Choose gold, food, or a moonstone");
+            shape = appearance;
+        }
         record[0] = record[1] = char(shape);
         record[2] = char(cell.x());
         record[3] = char(cell.y());
         record[4] = char(world ? 255 : 0);
-        record[5] = char(kind == MapItemKind::Frigate ? 99 : 0);
+        record[5] = char(kind == MapItemKind::Frigate               ? 99
+                         : kind == MapItemKind::Item && shape != 25 ? 1
+                                                                    : 0);
         record[7] = char(255);
         out.changes[WorldObjects::resource(world)] =
             WorldObjects::change(p, world, out.slot, record);

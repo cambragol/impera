@@ -12,7 +12,9 @@ enum class MapItemKind {
     Skiff,
     Frigate,
     Carpet,
-    Trigger
+    Trigger,
+    Item,
+    SleepingFigure
 };
 struct MapItemEdit {
     QMap<QString, QByteArray> changes;
