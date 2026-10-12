@@ -1,5 +1,6 @@
 #include "dialogue_editor.h"
 #include "dialogue_preview.h"
+#include "native_text_viewport.h"
 #include "dialogue_surface.h"
 #include <memory>
 using namespace Dialogue;
@@ -428,12 +429,8 @@ ConversationEditor::ConversationEditor(
     previewNotes->setWordWrap(true);
     previewNotes->setObjectName("conversationPreviewNotes");
     dosLayout->addWidget(previewNotes);
-    dosImage = new QLabel;
-    dosImage->setAlignment(Qt::AlignTop | Qt::AlignLeft);
-    auto dosScroll = new QScrollArea;
-    dosScroll->setWidgetResizable(true);
-    dosScroll->setWidget(dosImage);
-    dosLayout->addWidget(dosScroll, 1);
+    dosImage = new NativeTextViewport;
+    dosLayout->addWidget(dosImage, 1);
     previewTabs->addTab(dos, "Game preview");
     diagnostics = new QListWidget;
     diagnostics->setObjectName("conversationDiagnostics");
@@ -1566,9 +1563,7 @@ void ConversationEditor::updateDiagnostics() {
                 project->resources.contains("IBM.CH") ? project->data("IBM.CH") : QByteArray(),
                 project->resources.contains("RUNES.CH") ? project->data("RUNES.CH") : QByteArray(),
                 state);
-            dosImage->setPixmap(QPixmap::fromImage(
-                preview.image.scaled(preview.image.width() * 3, preview.image.height() * 3,
-                                     Qt::IgnoreAspectRatio, Qt::FastTransformation)));
+            dosImage->setImage(preview.image);
             previewNotes->setText(preview.notes.join("\n"));
         } catch (const std::exception &error) {
             dosImage->clear();

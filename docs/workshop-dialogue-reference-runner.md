@@ -4,6 +4,13 @@ Phase 1 is implemented as `impera_dialogue_reference`, a headless test/developer
 executable built with the engine's native sources. Workshop's Playtest UI and
 simulator have not been replaced yet.
 
+After phase 2, the reference keeps test-only copies of the original character,
+string, word-buffer, backspace and raster/scroll functions from `df25c19`.
+`impera_dialogue_shared_reference` runs the same conversations through the
+extracted production renderer. The `dialogue_renderer_parity` test compares their
+complete artifacts, including per-render events and framebuffer snapshots.
+The fixtures' hashes are included in reference provenance.
+
 ## What executes
 
 The runner stages a conversation in the native scratch buffer and enters the

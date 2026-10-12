@@ -1,12 +1,9 @@
 #pragma once
 #include "dialogue.h"
 #include <QImage>
+#include "native_text_viewport.h"
 namespace Dialogue {
-struct PreviewGlyph {
-    int x = 0, y = 0, character = 0;
-    bool runic = false;
-};
-// Styled bytes use the same high-bit font selection as TALK_04e2_PrintWord.
+// Legacy 18-column layout oracle. Pixel output uses the real 16x13 renderer.
 QVector<PreviewGlyph> layoutTalkWords(const QByteArray &styled);
 struct GamePreview {
     QImage image;

@@ -3,52 +3,35 @@
 namespace Dialogue {
 QVector<PreviewGlyph> layoutTalkWords(const QByteArray &styled) {
     U5::require(styled.size() <= 16384, "Dialogue preview exceeds supported bounds");
-    QVector<PreviewGlyph> result;
-    QByteArray word;
-    int x = 0, y = 0, lastColumn = 0;
-    auto print = [&](int character, bool runic) {
-        if (character == '\n') {
-            x = 0;
-            ++y;
+    struct Layout {
+        QVector<PreviewGlyph> result;
+        int x = 0, y = 0, font = 0;
+        uint8_t word[16]{}, length = 0, last = 0;
+    } layout;
+    ImperaWords words{};
+    words.buffer = layout.word;
+    words.length = &layout.length;
+    words.lastColumn = &layout.last;
+    words.host = &layout;
+    words.column = [](void *host) { return static_cast<Layout *>(host)->x; };
+    words.font = [](void *host, int index) { static_cast<Layout *>(host)->font = index; };
+    words.print = [](void *host, uint16_t ch) {
+        auto &s = *static_cast<Layout *>(host);
+        if (ch == '\n') {
+            s.x = 0;
+            ++s.y;
         } else {
-            result.append({x, y, character, runic});
-            if (++x > 17) {
-                x = 0;
-                ++y;
+            s.result.append({s.x, s.y, ch, s.font != 0});
+            if (++s.x > 17) {
+                s.x = 0;
+                ++s.y;
             }
         }
     };
-    auto flush = [&] {
-        for (unsigned char byte : word) {
-            const int character = byte & 127;
-            if (x != 0 || character != ' ') {
-                if (lastColumn < 15 || character != '\n') {
-                    if (character != '\n')
-                        lastColumn = x;
-                    print(character, !(byte & 128));
-                } else
-                    lastColumn = 0;
-            }
-        }
-        word.clear();
-    };
-    // Port of TALK_0574_BuildOrPrintWord and TALK_04e2_PrintWord. In
-    // particular, a full 16-byte word flushes before consuming the next byte.
-    // This unusual behavior is tested against the extracted engine functions.
-    for (unsigned char byte : styled) {
-        if (word.size() == 16)
-            flush();
-        if (word.size() != 16) {
-            word.append(char(byte));
-            if (byte != 0x8a && byte != 0xa0)
-                continue;
-            if (x + word.size() >= 18)
-                print('\n', false);
-        }
-        flush();
-    }
-    flush();
-    return result;
+    for (unsigned char ch : styled)
+        IMPERA_WordAppend(&words, ch);
+    IMPERA_WordFlush(&words);
+    return layout.result;
 }
 GamePreview previewResponse(const QByteArray &bytes, int entry, const QByteArray &font,
                             const QByteArray &runes, const Sandbox &state) {
@@ -140,24 +123,13 @@ GamePreview previewResponse(const QByteArray &bytes, int entry, const QByteArray
     }
     if (!stopped && !description)
         appendLiteral("\"");
-    result.glyphs = layoutTalkWords(styled);
-    int rows = 1;
-    for (const auto &glyph : result.glyphs)
-        rows = qMax(rows, glyph.y + 1);
-    result.image = QImage(144, rows * 8, QImage::Format_RGB32);
-    result.image.fill(Qt::black);
-    for (const auto &glyph : result.glyphs) {
-        const bool missingRunes = glyph.runic && runes.size() != 1024;
-        const auto &charset = glyph.runic && !missingRunes ? runes : font;
-        if (missingRunes &&
-            !result.notes.contains("RUNES.CH unavailable; runic text is shown in the normal font."))
-            result.notes.append("RUNES.CH unavailable; runic text is shown in the normal font.");
-        for (int y = 0; y < 8; ++y)
-            for (int x = 0; x < 8; ++x)
-                if (U5::byte(charset, glyph.character * 8 + y) & (128 >> x))
-                    result.image.setPixel(glyph.x * 8 + x, glyph.y * 8 + y,
-                                          missingRunes ? qRgb(255, 180, 80) : qRgb(255, 255, 255));
-    }
+    // A selected response starts in a cleared window, unlike a full session.
+    NativeTextWindow window(font, runes, 0);
+    for (unsigned char ch : styled)
+        window.append(ch);
+    window.flush();
+    result.glyphs = window.glyphs();
+    result.image = window.image();
     return result;
 }
 } // namespace Dialogue

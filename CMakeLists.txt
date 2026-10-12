@@ -54,6 +54,7 @@ set(SOURCES
 	src/ultima.c
 	src/0000.c
 	src/1000.c
+	src/text/text_window.c
 	src/2000.c
 	src/3000.c
 	src/4000.c
@@ -100,6 +101,9 @@ option(U5D_BUILD_TESTS "Build native savegame regression tests" OFF)
 set(U5D_TARGETS ultima5)
 if(U5D_BUILD_TESTS)
     enable_testing()
+    add_executable(impera_text_window_test tests/text_window_test.c src/text/text_window.c)
+    target_include_directories(impera_text_window_test PRIVATE src tests)
+    add_test(NAME text_window COMMAND impera_text_window_test)
     add_executable(impera_contents_test tests/contents_test.c src/mod/contents.c src/mod/package.c)
     target_include_directories(impera_contents_test PRIVATE src)
     add_test(NAME map_contents COMMAND impera_contents_test)
@@ -174,7 +178,46 @@ if(U5D_BUILD_TESTS)
         add_test(NAME dialogue_runtime COMMAND impera_dialogue_test)
         set_tests_properties(dialogue_runtime PROPERTIES TIMEOUT 10)
         # Independent reference: full native dispatch and framebuffer, observed without a port.
+        # Keep df25c19 rendering/buffering independent of the extracted implementation.
+        file(READ "${CMAKE_SOURCE_DIR}/tests/native_words_reference.inc" reference_words)
         file(READ "${CMAKE_SOURCE_DIR}/src/talk.c" reference_talk_source)
+        string(FIND "${reference_talk_source}" "static int wordColumn(" words_start)
+        string(FIND "${reference_talk_source}" "static int TALK_0b04(void);" words_end)
+        math(EXPR words_length "${words_end}-${words_start}")
+        string(SUBSTRING "${reference_talk_source}" ${words_start} ${words_length} words_adapter)
+        string(REPLACE "${words_adapter}" "${reference_words}\n" reference_talk_source "${reference_talk_source}")
+        foreach(unit 1000 graphics/grap_buf)
+            file(READ "${CMAKE_SOURCE_DIR}/src/${unit}.c" reference_unit)
+            if(unit STREQUAL "1000")
+                file(READ "${CMAKE_SOURCE_DIR}/tests/native_text_reference.inc" original_renderer)
+                file(READ "${CMAKE_SOURCE_DIR}/tests/native_backspace_reference.inc" original_backspace)
+                string(FIND "${reference_unit}" "/* Native globals remain" renderer_start)
+                string(FIND "${reference_unit}" "// CHECKED (NOT MATCHING: register" renderer_end)
+                math(EXPR renderer_length "${renderer_end}-${renderer_start}")
+                string(SUBSTRING "${reference_unit}" ${renderer_start} ${renderer_length} renderer_adapter)
+                string(REPLACE "${renderer_adapter}"
+                    "static void ULTIMA_17f4_ApplyCharEffects(byte*, int);\n${original_renderer}\n"
+                    reference_unit "${reference_unit}")
+                string(FIND "${reference_unit}" "void ULTIMA_1fa0_Backspace(" backspace_start)
+                string(SUBSTRING "${reference_unit}" ${backspace_start} -1 backspace_adapter)
+                string(REPLACE "${backspace_adapter}" "${original_backspace}" reference_unit "${reference_unit}")
+                file(READ "${CMAKE_SOURCE_DIR}/tests/native_string_reference.inc" original_string)
+                string(FIND "${reference_unit}" "void ULTIMA_1850_PrintString(" string_start)
+                string(FIND "${reference_unit}" "// CHECKED (NOT MATCHING: optimization)" string_end)
+                math(EXPR string_length "${string_end}-${string_start}")
+                string(SUBSTRING "${reference_unit}" ${string_start} ${string_length} string_adapter)
+                string(REPLACE "${string_adapter}" "${original_string}\n" reference_unit "${reference_unit}")
+            else()
+                file(READ "${CMAKE_SOURCE_DIR}/tests/native_graphics_reference.inc" original_renderer)
+                string(FIND "${reference_unit}" "static void textPixel(" renderer_start)
+                string(FIND "${reference_unit}" "// 0x3f" renderer_end)
+                math(EXPR renderer_length "${renderer_end}-${renderer_start}")
+                string(SUBSTRING "${reference_unit}" ${renderer_start} ${renderer_length} renderer_adapter)
+                string(REPLACE "${renderer_adapter}" "${original_renderer}\n" reference_unit "${reference_unit}")
+            endif()
+            string(REPLACE "/" "_" reference_unit_name "${unit}")
+            file(WRITE "${CMAKE_BINARY_DIR}/reference_${reference_unit_name}.c" "${reference_unit}")
+        endforeach()
         set(reference_dispatch "if (TALK_0f32_ProcessChar(*D_bcde++) != 0)")
         string(FIND "${reference_talk_source}" "${reference_dispatch}" reference_dispatch_position)
         if(reference_dispatch_position LESS 0)
@@ -206,10 +249,20 @@ if(U5D_BUILD_TESTS)
             file(SHA256 "${header}" header_hash)
             string(APPEND reference_source_hashes "${header_name}:${header_hash}\n")
         endforeach()
+        foreach(fixture text words graphics backspace string)
+            configure_file("${CMAKE_SOURCE_DIR}/tests/native_${fixture}_reference.inc"
+                "${CMAKE_BINARY_DIR}/reference-source-snapshot/native_${fixture}_reference.inc" COPYONLY)
+            file(SHA256 "${CMAKE_SOURCE_DIR}/tests/native_${fixture}_reference.inc" fixture_hash)
+            string(APPEND reference_source_hashes "native_${fixture}_reference.inc:${fixture_hash}\n")
+        endforeach()
         string(SHA256 reference_source_id "${reference_source_hashes}")
         file(WRITE "${CMAKE_BINARY_DIR}/reference_provenance.h"
             "#define REFERENCE_SOURCE_ID \"${reference_source_id}\"\n")
-        add_executable(impera_dialogue_reference tests/dialogue_reference.c ${DIALOGUE_TEST_SOURCES})
+        set(REFERENCE_SOURCES ${DIALOGUE_TEST_SOURCES})
+        list(REMOVE_ITEM REFERENCE_SOURCES src/1000.c src/graphics/grap_buf.c)
+        add_executable(impera_dialogue_reference tests/dialogue_reference.c ${REFERENCE_SOURCES}
+            "${CMAKE_BINARY_DIR}/reference_1000.c" "${CMAKE_BINARY_DIR}/reference_graphics_grap_buf.c")
+        target_include_directories(impera_dialogue_reference PRIVATE "${CMAKE_SOURCE_DIR}/src/graphics")
         list(APPEND U5D_TARGETS impera_dialogue_reference)
         target_include_directories(impera_dialogue_reference PRIVATE "${CMAKE_BINARY_DIR}")
         target_compile_definitions(impera_dialogue_reference PRIVATE
@@ -223,6 +276,29 @@ if(U5D_BUILD_TESTS)
         add_test(NAME dialogue_reference COMMAND impera_dialogue_reference
             --output "${CMAKE_BINARY_DIR}/dialogue-reference-runtime")
         set_tests_properties(dialogue_reference PROPERTIES TIMEOUT 30)
+        file(READ "${CMAKE_SOURCE_DIR}/src/talk.c" shared_talk_source)
+        string(REPLACE "${reference_dispatch}"
+            "REFERENCE_TraceOpcode(D_bcde);\n        ${reference_dispatch}"
+            shared_talk_source "${shared_talk_source}")
+        string(REPLACE "local_4 = *D_bcde++;"
+            "REFERENCE_CheckCursor(D_bcde);\n        local_4 = *D_bcde++;"
+            shared_talk_source "${shared_talk_source}")
+        file(WRITE "${CMAKE_BINARY_DIR}/shared_reference_talk.c" "${shared_talk_source}")
+        add_executable(impera_dialogue_shared_reference tests/dialogue_reference.c ${DIALOGUE_TEST_SOURCES})
+        list(APPEND U5D_TARGETS impera_dialogue_shared_reference)
+        target_include_directories(impera_dialogue_shared_reference PRIVATE "${CMAKE_BINARY_DIR}")
+        target_compile_definitions(impera_dialogue_shared_reference PRIVATE
+            DIALOGUE_REFERENCE_TALK="shared_reference_talk.c" TEST_GAME_DIR="${CMAKE_SOURCE_DIR}/Ultima 5")
+        get_target_property(reference_wraps impera_dialogue_reference LINK_OPTIONS)
+        target_link_options(impera_dialogue_shared_reference PRIVATE ${reference_wraps})
+        add_test(NAME dialogue_renderer_parity COMMAND "${CMAKE_COMMAND}"
+            "-DREFERENCE=$<TARGET_FILE:impera_dialogue_reference>"
+            "-DSHARED=$<TARGET_FILE:impera_dialogue_shared_reference>"
+            "-DOUTPUT=${CMAKE_BINARY_DIR}/dialogue-renderer-parity"
+            "-DGAME=${CMAKE_SOURCE_DIR}/Ultima 5"
+            "-DSCRIPT=${CMAKE_SOURCE_DIR}/tests/dialogue_reference_bye.tsv"
+            -P "${CMAKE_SOURCE_DIR}/tests/dialogue_renderer_parity.cmake")
+        set_tests_properties(dialogue_renderer_parity PROPERTIES TIMEOUT 30)
         add_test(NAME dialogue_reference_tlk COMMAND impera_dialogue_reference
             --output "${CMAKE_BINARY_DIR}/dialogue-reference-tlk-runtime"
             --tlk "${CMAKE_SOURCE_DIR}/Ultima 5/TOWNE.TLK" --npc 1

@@ -10,6 +10,7 @@
 #include "reveal.h"
 #include "widescreen.h"
 #include "tileset.h"
+#include "text/text_window.h"
 
 #if defined(ENABLE_GRAP_OVERLAY_DEBUG)
 #include "common/dbg_font_data.h"
@@ -305,56 +306,24 @@ void GRAP_BUF_SetTextPixelOffset(int y)
     s_textPixelOffset = y;
 }
 
+static void textPixel(void *host, int x, int y, byte color) {
+    (void)host;
+    GrPutPixel(D_52ba_vdp._52d8_page, x, y, color);
+}
 void GRAP_BUF_PrintChar(byte* ptr, int offset, byte fgColor, byte bgColor, int penX, int penY)
 {
-    byte* p = &ptr[offset];
-    for (int y = 0; y < 8; y++)
-    {
-        byte b = p[y];
-        for (int x = 0; x < 8; x++)
-        {
-            byte col = b & s_bitMask[x] ? s_colorTable[fgColor] : s_colorTable[bgColor];
-
-            GrPutPixel(D_52ba_vdp._52d8_page, penX * 8 + x, penY * 8 + y + s_textPixelOffset, col);
-        }
-    }
-
+    IMPERA_TextGlyph(ptr, offset, s_colorTable[fgColor], s_colorTable[bgColor], penX * 8,
+                     penY * 8 + s_textPixelOffset, NULL, textPixel);
     s_dirty = true;
 }
-
-// 0x27
+static void textCopy(void *host, byte *dst, const byte *src, size_t size) {
+    (void)host;
+    TILESET_Copy(dst, src, (int)size);
+}
 void GRAP_BUF_ScrollWindow(int left, int top, int right, int bottom, int amount)
 {
-    if (amount < 0)
-    {
-        amount = -amount;
-        for (int y = top; y <= bottom - amount; y++)
-        {
-            TILESET_Copy(&g_linearEgaBuffer0[y * loresWidth + left], &g_linearEgaBuffer0[(y + amount) * loresWidth + left], right - left + 1);
-            memcpy(&g_linearEgaBuffer0[y * loresWidth + left], &g_linearEgaBuffer0[(y + amount) * loresWidth + left], right - left + 1);
-        }
-
-        for (int y = bottom - amount + 1; y <= bottom; y++)
-        {
-            TILESET_Copy(&g_linearEgaBuffer0[y * loresWidth + left], NULL, right-left+1);
-            memset(&g_linearEgaBuffer0[y * loresWidth + left], 0, right - left + 1);
-        }
-    }
-    else
-    {
-        for (int y = bottom; y >= top + amount; y--)
-        {
-            TILESET_Copy(&g_linearEgaBuffer0[y * loresWidth + left], &g_linearEgaBuffer0[(y - amount) * loresWidth + left], right-left+1);
-            memcpy(&g_linearEgaBuffer0[y * loresWidth + left], &g_linearEgaBuffer0[(y - amount) * loresWidth + left], right - left + 1);
-        }
-
-        for (int y = top; y < top + amount; y++)
-        {
-            TILESET_Copy(&g_linearEgaBuffer0[y * loresWidth + left], NULL, right-left+1);
-            memset(&g_linearEgaBuffer0[y * loresWidth + left], 0, right - left + 1);
-        }
-    }
-
+    IMPERA_TextScroll(g_linearEgaBuffer0, loresWidth, left, top, right, bottom, amount, NULL,
+                      textCopy);
     s_dirty = true;
 }
 

@@ -3887,6 +3887,62 @@ int main(int argc, char **argv) {
             check(terminal.glyphs.size() == 2 && !terminal.notes.isEmpty(),
                   "Game preview displayed unreachable text after end conversation");
         });
+        test("Native pixel viewport keeps DOS geometry, scrolling and isolated fonts", [&] {
+            QByteArray normal(1024, 0), runes(1024, 0);
+            for (int row = 0; row < 8; ++row) {
+                normal['A' * 8 + row] = char(128);
+                runes['A' * 8 + row] = char(1);
+            }
+            const auto original = normal;
+            Dialogue::NativeTextWindow window(normal, runes), other(normal, runes);
+            check(window.cursor().currentY == 12 && window.image().size() == QSize(128, 104),
+                  "Native session does not start at the bottom of the real window");
+            window.print('A');
+            check(window.image().pixel(0, 96) == qRgb(255, 255, 255),
+                  "Native font bit order or starting row changed");
+            window.paintCursor('A');
+            check(window.cursor().currentX == 1 && window.cursor().currentY == 12,
+                  "Cursor painting advanced the native cursor");
+            window.print('\n');
+            check(window.image().pixel(0, 88) == qRgb(255, 255, 255) &&
+                      window.image().pixel(0, 96) == qRgb(0, 0, 0),
+                  "Native window failed to scroll by exactly one glyph row");
+            window.print(254);
+            window.print(253);
+            window.print('A');
+            check(normal == original && other.cursor().currentX == 0 &&
+                      other.image().pixel(0, 96) == qRgb(0, 0, 0),
+                  "Glyph effects mutated project fonts or another session");
+            window.print(254);
+            window.print(253);
+            window.selectFont(1);
+            window.print('A');
+            check(window.image().pixel(15, 96) == qRgb(255, 255, 255),
+                  "Native rune font was substituted or mirrored");
+            window.print(255);
+            check(window.cursor().currentX == 0 && window.cursor().currentY == 0,
+                  "Clear did not reset native cursor");
+            Dialogue::NativeTextWindow missing(normal, {});
+            bool rejected = false;
+            try {
+                missing.selectFont(1);
+            } catch (const std::exception &) {
+                rejected = true;
+            }
+            check(rejected, "Missing rune font silently used replacement artwork");
+            Dialogue::NativeTextViewport viewport;
+            viewport.resize(640, 480);
+            viewport.setImage(other.image());
+            const auto pixels = other.indexedPixels();
+            for (const QSize size : {QSize(640, 480), QSize(300, 700), QSize(1000, 200)}) {
+                viewport.resize(size);
+                const QRect area = viewport.displayRect();
+                check(viewport.rect().contains(area) &&
+                          qAbs(area.width() / double(area.height()) - 128.0 / (104 * 1.2)) < 0.01 &&
+                          other.indexedPixels() == pixels,
+                      "Resizing reflowed native pixels or lost DOS aspect");
+            }
+        });
         test("Wait actions hide conventional spacing and insert it automatically", [&] {
             QTemporaryDir dir;
             auto p = fixture(dir.path());

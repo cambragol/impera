@@ -1,0 +1,30 @@
+# Run full native conversations with independent and shared renderers.
+file(REMOVE_RECURSE "${OUTPUT}")
+foreach(variant REFERENCE SHARED)
+    string(TOLOWER "${variant}" name)
+    execute_process(COMMAND "${${variant}}" --output "${OUTPUT}/${name}"
+        RESULT_VARIABLE status OUTPUT_VARIABLE log ERROR_VARIABLE errors)
+    if(NOT status EQUAL 0)
+        message(FATAL_ERROR "${variant}: ${log}\n${errors}")
+    endif()
+    execute_process(COMMAND "${${variant}}" --output "${OUTPUT}/${name}"
+        --tlk "${GAME}/TOWNE.TLK" --npc 1 --script "${SCRIPT}"
+        RESULT_VARIABLE status OUTPUT_VARIABLE log ERROR_VARIABLE errors)
+    if(NOT status EQUAL 0)
+        message(FATAL_ERROR "${variant} original TLK: ${log}\n${errors}")
+    endif()
+endforeach()
+file(GLOB_RECURSE reference_files RELATIVE "${OUTPUT}/reference" "${OUTPUT}/reference/*")
+file(GLOB_RECURSE shared_files RELATIVE "${OUTPUT}/shared" "${OUTPUT}/shared/*")
+if(NOT reference_files STREQUAL shared_files)
+    message(FATAL_ERROR "Reference/shared artifact lists differ")
+endif()
+foreach(file IN LISTS reference_files)
+    file(SHA256 "${OUTPUT}/reference/${file}" expected)
+    file(SHA256 "${OUTPUT}/shared/${file}" actual)
+    if(NOT expected STREQUAL actual)
+        message(FATAL_ERROR "Native rendering parity failed: ${file}")
+    endif()
+endforeach()
+message(STATUS "Native/shared events, cursors, indexed pixels, snapshots and state are identical")
+

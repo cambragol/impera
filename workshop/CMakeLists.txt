@@ -95,7 +95,7 @@ foreach(item IN LISTS actor_matches)
 endforeach()
 string(APPEND actor_header "};\n")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/actor_names.h" "${actor_header}")
-add_library(impera_workshop_core STATIC shop_editor.cpp map_positions.cpp map_entities.cpp contents_editor.cpp ../src/mod/contents.c content_navigation.cpp engine_tables.cpp world_objects.cpp font_editor.cpp scene_editor.cpp narrative_editor.cpp location_text.cpp dungeon_editor.cpp resource_document.cpp text_preview.cpp formats.cpp dialogue.cpp dialogue_preview.cpp dialogue_surface.cpp map_editor.cpp project.cpp ../src/mod/package.c)
+add_library(impera_workshop_core STATIC ../src/text/text_window.c native_text_viewport.cpp shop_editor.cpp map_positions.cpp map_entities.cpp contents_editor.cpp ../src/mod/contents.c content_navigation.cpp engine_tables.cpp world_objects.cpp font_editor.cpp scene_editor.cpp narrative_editor.cpp location_text.cpp dungeon_editor.cpp resource_document.cpp text_preview.cpp formats.cpp dialogue.cpp dialogue_preview.cpp dialogue_surface.cpp map_editor.cpp project.cpp ../src/mod/package.c)
 qt_add_resources(impera_workshop_core alternate_tilesets PREFIX "/tilesets"
     BASE ../textures/tilesets FILES
     ../textures/tilesets/Ultima_5_Tiles_Amiga.png
@@ -137,6 +137,11 @@ if(IMPERA_WORKSHOP_DEPLOY_QT)
 endif()
 if(BUILD_TESTING OR U5D_BUILD_TESTS)
     enable_testing()
+    if(NOT TARGET impera_text_window_test)
+        add_executable(impera_text_window_test ../tests/text_window_test.c ../src/text/text_window.c)
+        target_include_directories(impera_text_window_test PRIVATE ../src ../tests)
+        add_test(NAME text_window COMMAND impera_text_window_test)
+    endif()
     # Compile the actual engine keyword matcher in isolation as a compatibility oracle.
     file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../src/6000.c" matcher_source)
     string(FIND "${matcher_source}" "int ULTIMA_6f1e(" matcher_begin)
@@ -145,13 +150,11 @@ if(BUILD_TESTING OR U5D_BUILD_TESTS)
     string(SUBSTRING "${matcher_source}" ${matcher_begin} ${matcher_length} matcher_function)
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/engine_match_oracle.c"
         "#include <string.h>\ntypedef unsigned char byte;\nstatic byte DAT_000738d8[128];\n${matcher_function}\nint WorkshopEngineMatch(const byte*key,char*input){for(int i='a';i<='z';++i)DAT_000738d8[i]=2;return ULTIMA_6f1e((byte*)key,input); }\n")
-    # Verify dialogue word layout against the engine's original word-buffer routines.
+    # Verify dialogue word layout against the independent pre-extraction routines.
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${workshop_engine_root}/src/talk.c")
-    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../src/talk.c" talk_source)
-    string(FIND "${talk_source}" "static void TALK_04e2_PrintWord(void)" words_begin)
-    string(FIND "${talk_source}" "static int TALK_0b04(void);" words_end)
-    math(EXPR words_length "${words_end}-${words_begin}")
-    string(SUBSTRING "${talk_source}" ${words_begin} ${words_length} words_functions)
+    configure_file("${workshop_engine_root}/tests/native_words_reference.inc"
+        "${CMAKE_CURRENT_BINARY_DIR}/native_words_reference.inc" COPYONLY)
+    file(READ "${workshop_engine_root}/tests/native_words_reference.inc" words_functions)
     file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/engine_match_oracle.c"
         "typedef unsigned int uint;\nstatic byte D_bce4[16], D_4af1, D_4af3;\nstatic int wrap_x,wrap_y,wrap_charset,wrap_count;\nstatic int *wrap_output;\nstatic int ULTIMA_1f12_GetCurrentTextX(void){return wrap_x;}\nstatic void ULTIMA_1c9e_SelectCharset(int font){wrap_charset=font;}\nstatic void ULTIMA_16ba_PrintChar(unsigned int c){if(c==10){wrap_x=0;wrap_y++;}else{if(wrap_count<16384){int *g=wrap_output+wrap_count*4;g[0]=wrap_x;g[1]=wrap_y;g[2]=c;g[3]=wrap_charset;wrap_count++;}if(++wrap_x>17){wrap_x=0;wrap_y++;}}}\n${words_functions}\nint WorkshopEngineTalkWords(const byte *bytes,int length,int *output){D_4af1=D_4af3=0;wrap_x=wrap_y=wrap_charset=wrap_count=0;wrap_output=output;for(int i=0;i<length;++i)TALK_0574_BuildOrPrintWord(bytes[i]);TALK_04e2_PrintWord();return wrap_count;}\n")
     # Check room links against the actual engine calculation (Deceit/Despise share bank 0).

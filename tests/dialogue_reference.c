@@ -14,7 +14,10 @@
 static void REFERENCE_TraceOpcode(const byte *cursor);
 static void REFERENCE_CheckCursor(const byte *cursor);
 /* Whole engine source; the generated copy adds only opcode/bounds observation hooks. */
-#include "reference_talk.c"
+#ifndef DIALOGUE_REFERENCE_TALK
+#define DIALOGUE_REFERENCE_TALK "reference_talk.c"
+#endif
+#include DIALOGUE_REFERENCE_TALK
 
 enum { TEXT_X = 192, TEXT_Y = 88, TEXT_W = 128, TEXT_H = 104, MAX_KEYS = 4096 };
 typedef struct {

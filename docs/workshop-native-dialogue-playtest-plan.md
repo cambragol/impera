@@ -16,8 +16,11 @@ compiling the same functions over maintaining a second C++ interpretation of the
 Keep Qt as the presentation and host adapter. Preserve Workshop's standalone build
 without requiring SDL, the engine executable, or a separate installed helper.
 
-The plan's [phase 1 reference runner](workshop-dialogue-reference-runner.md) is
-implemented. Production Playtest UI/runtime changes have not begun.
+Phases 1 and 2 are implemented: the
+[reference runner](workshop-dialogue-reference-runner.md) and
+[shared renderer](workshop-shared-text-renderer.md). The selected-response preview
+uses the native renderer. Interactive Playtest still uses the Simulator pending
+phase 3; it does not yet provide native execution or input.
 
 ## Findings in the current implementation
 
@@ -25,8 +28,8 @@ implemented. Production Playtest UI/runtime changes have not begun.
 | --- | --- | --- |
 | Playtest | `Dialogue::Simulator` in `workshop/dialogue.cpp` | Separate topic, question, action, and state implementation |
 | Playtest display | Qt tree transcript and separate input field | No native text window, cursor, scrolling, or in-window input echo |
-| Game preview | `previewResponse` in `workshop/dialogue_preview.cpp` | Selected-entry snapshot; branches stop and actions are approximated |
-| Word layout | Port of two native word-buffer functions | Tested against extracted functions, but its character renderer assumes 18 columns and unlimited rows |
+| Game preview | Approximate response decoder feeding the shared renderer | Fixed native pixels/window; branches and actions still need phase 3 execution |
+| Word layout | Shared native C word buffer and character renderer | Native 18-column word threshold and 16-column hard wrap preserved; old unlimited layout retained only as a compatibility oracle |
 | Fonts | Snapshot reads IBM.CH and RUNES.CH | Live Playtest uses Qt text; project edits must reach the new raster renderer |
 | Wait and Pause | Simulator trace records | Does not suspend the response and consume input at the actual action boundary |
 | Recruitment and guards | Trace descriptions | Their actual effects and dependent responses are not exercised |
@@ -179,6 +182,8 @@ reference outputs, including at least one overflowing text window and interrupte
 Pause/Wait sequence.
 
 ### Phase 2: Extract the shared text-window renderer
+
+**Implemented:** see [shared renderer details and validation](workshop-shared-text-renderer.md).
 
 Factor the native text window, word buffer, font/effect operations, palette, glyph
 drawing, scroll, clear, backspace, and cursor logic into a portable core. Replace

@@ -3,6 +3,9 @@
 #include "project.h"
 #include <QtWidgets>
 #include <functional>
+namespace Dialogue {
+class NativeTextViewport;
+}
 class ConversationEditor : public QWidget {
   public:
     ConversationEditor(Project *project, const QString &resource,
@@ -40,7 +43,8 @@ class ConversationEditor : public QWidget {
     void filterNpcs();
     bool wholeSource = false;
     void refreshSource();
-    QLabel *dosImage, *previewNotes;
+    Dialogue::NativeTextViewport *dosImage;
+    QLabel *previewNotes;
     QWidget *blocksWidget;
     QVBoxLayout *blocksLayout;
     QTimer timer;
