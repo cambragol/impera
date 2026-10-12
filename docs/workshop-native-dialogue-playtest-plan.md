@@ -16,23 +16,24 @@ compiling the same functions over maintaining a second C++ interpretation of the
 Keep Qt as the presentation and host adapter. Preserve Workshop's standalone build
 without requiring SDL, the engine executable, or a separate installed helper.
 
-Phases 1 and 2 are implemented: the
+Phases 1–3 are implemented: the
 [reference runner](workshop-dialogue-reference-runner.md) and
-[shared renderer](workshop-shared-text-renderer.md). The selected-response preview
-uses the native renderer. Interactive Playtest still uses the Simulator pending
-phase 3; it does not yet provide native execution or input.
+[shared renderer](workshop-shared-text-renderer.md), followed by
+[native execution and input](workshop-native-dialogue-runtime.md). Interactive
+Playtest now uses the shared interpreter and a native pixel viewport.
+Complete NPC/world context remains phase 4 work.
 
 ## Findings in the current implementation
 
 | Component | Current behavior | Accuracy gap |
 | --- | --- | --- |
-| Playtest | `Dialogue::Simulator` in `workshop/dialogue.cpp` | Separate topic, question, action, and state implementation |
-| Playtest display | Qt tree transcript and separate input field | No native text window, cursor, scrolling, or in-window input echo |
+| Playtest | Shared native C interpreter in `src/text/dialogue_runtime.c` | Complete NPC/world context remains phase 4 |
+| Playtest display | Native pixel viewport, cursor, echo and shared input editor | Surrounding frame/zoom presentation remains phase 5 |
 | Game preview | Approximate response decoder feeding the shared renderer | Fixed native pixels/window; branches and actions still need phase 3 execution |
 | Word layout | Shared native C word buffer and character renderer | Native 18-column word threshold and 16-column hard wrap preserved; old unlimited layout retained only as a compatibility oracle |
-| Fonts | Snapshot reads IBM.CH and RUNES.CH | Live Playtest uses Qt text; project edits must reach the new raster renderer |
-| Wait and Pause | Simulator trace records | Does not suspend the response and consume input at the actual action boundary |
-| Recruitment and guards | Trace descriptions | Their actual effects and dependent responses are not exercised |
+| Fonts | Private copies of current Project IBM.CH and RUNES.CH | Missing/corrupt fonts fail explicitly |
+| Wait and Pause | Native blocking input and 28-tick Pause loop | Real-time host remains subject to scheduler jitter |
+| Recruitment and guards | Engine callbacks; unsupported in conversation-only Workshop sessions | Full isolated NPC/world context remains phase 4 |
 
 The native word-buffer threshold of 18 and the actual window width are different
 things. Keep both behaviors; do not change the engine window to fit the existing
@@ -198,6 +199,8 @@ wrapping, repeated quotes, mixed speech/narration, runes, and scrolling. Ordinar
 Impera rendering regressions also pass.
 
 ### Phase 3: Extract conversation execution and connect input
+
+**Implemented:** see [runtime details and validation](workshop-native-dialogue-runtime.md).
 
 Move the actual dispatch/interpreter/keyword/question routines into the shared
 runtime. Preserve native entry framing, nested transfers, alias precedence,

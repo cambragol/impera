@@ -95,7 +95,7 @@ foreach(item IN LISTS actor_matches)
 endforeach()
 string(APPEND actor_header "};\n")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/actor_names.h" "${actor_header}")
-add_library(impera_workshop_core STATIC ../src/text/text_window.c native_text_viewport.cpp shop_editor.cpp map_positions.cpp map_entities.cpp contents_editor.cpp ../src/mod/contents.c content_navigation.cpp engine_tables.cpp world_objects.cpp font_editor.cpp scene_editor.cpp narrative_editor.cpp location_text.cpp dungeon_editor.cpp resource_document.cpp text_preview.cpp formats.cpp dialogue.cpp dialogue_preview.cpp dialogue_surface.cpp map_editor.cpp project.cpp ../src/mod/package.c)
+add_library(impera_workshop_core STATIC ../src/text/text_window.c ../src/text/text_input.c ../src/text/dialogue_runtime.c native_text_viewport.cpp native_dialogue_session.cpp shop_editor.cpp map_positions.cpp map_entities.cpp contents_editor.cpp ../src/mod/contents.c content_navigation.cpp engine_tables.cpp world_objects.cpp font_editor.cpp scene_editor.cpp narrative_editor.cpp location_text.cpp dungeon_editor.cpp resource_document.cpp text_preview.cpp formats.cpp dialogue.cpp dialogue_preview.cpp dialogue_surface.cpp map_editor.cpp project.cpp ../src/mod/package.c)
 qt_add_resources(impera_workshop_core alternate_tilesets PREFIX "/tilesets"
     BASE ../textures/tilesets FILES
     ../textures/tilesets/Ultima_5_Tiles_Amiga.png
@@ -137,17 +137,23 @@ if(IMPERA_WORKSHOP_DEPLOY_QT)
 endif()
 if(BUILD_TESTING OR U5D_BUILD_TESTS)
     enable_testing()
+    add_executable(impera_workshop_dialogue_parity native_dialogue_parity.cpp)
+    target_link_libraries(impera_workshop_dialogue_parity PRIVATE impera_workshop_core)
+    if(TARGET impera_dialogue_reference)
+        add_test(NAME workshop_dialogue_host_parity COMMAND impera_workshop_dialogue_parity
+            "${CMAKE_BINARY_DIR}/dialogue-renderer-parity/reference")
+        set_tests_properties(workshop_dialogue_host_parity PROPERTIES
+            DEPENDS dialogue_renderer_parity FIXTURES_REQUIRED native_dialogue_artifacts TIMEOUT 30)
+    endif()
     if(NOT TARGET impera_text_window_test)
         add_executable(impera_text_window_test ../tests/text_window_test.c ../src/text/text_window.c)
         target_include_directories(impera_text_window_test PRIVATE ../src ../tests)
         add_test(NAME text_window COMMAND impera_text_window_test)
     endif()
     # Compile the actual engine keyword matcher in isolation as a compatibility oracle.
-    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../src/6000.c" matcher_source)
-    string(FIND "${matcher_source}" "int ULTIMA_6f1e(" matcher_begin)
-    string(FIND "${matcher_source}" "// ASM\nstatic int ULTIMA_6f90" matcher_end)
-    math(EXPR matcher_length "${matcher_end}-${matcher_begin}")
-    string(SUBSTRING "${matcher_source}" ${matcher_begin} ${matcher_length} matcher_function)
+    configure_file("${workshop_engine_root}/tests/native_match_reference.inc"
+        "${CMAKE_CURRENT_BINARY_DIR}/native_match_reference.inc" COPYONLY)
+    file(READ "${workshop_engine_root}/tests/native_match_reference.inc" matcher_function)
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/engine_match_oracle.c"
         "#include <string.h>\ntypedef unsigned char byte;\nstatic byte DAT_000738d8[128];\n${matcher_function}\nint WorkshopEngineMatch(const byte*key,char*input){for(int i='a';i<='z';++i)DAT_000738d8[i]=2;return ULTIMA_6f1e((byte*)key,input); }\n")
     # Verify dialogue word layout against the independent pre-extraction routines.

@@ -12,6 +12,7 @@
 #include "shoppes3.h"
 #include "talk.h"
 #include "text/text_window.h"
+#include "text/dialogue_runtime.h"
 #include "town.h"
 
 #define TALK_KEY_NAME 0
@@ -381,82 +382,37 @@ int TALK_041c_TalkCmd(void)
     return 0;
 }
 
-static void TALK_04d2_PrintCr(void) { TALK_0f32_ProcessChar(0x80 | 0xd); }
-
-static void TALK_04da_PrintQuoteMark(void) { TALK_0f32_ProcessChar(0x80 | 0x22); }
-
-static int wordColumn(void *host) {
-    (void)host;
-    return ULTIMA_1f12_GetCurrentTextX();
+static ImperaTalk nativeTalk(void);
+static int TALK_0f32_ProcessChar(byte ch) {
+    ImperaTalk s = nativeTalk();
+    return IMPERA_TalkCharacter(&s, ch);
 }
-static void wordFont(void *host, int font) {
-    (void)host;
-    ULTIMA_1c9e_SelectCharset(font);
-}
-static void wordPrint(void *host, uint16_t ch) {
-    (void)host;
-    ULTIMA_16ba_PrintChar(ch);
-}
-static ImperaWords nativeWords(void) {
-    ImperaWords s = {0};
-    s.buffer = D_bce4;
-    s.length = &D_4af1;
-    s.lastColumn = &D_4af3;
-#if defined(MATCHING_BUILD)
-    s.matching = 1;
-#endif
-    s.column = wordColumn;
-    s.font = wordFont;
-    s.print = wordPrint;
-    return s;
-}
-static void TALK_04e2_PrintWord(void)
-{
-    ImperaWords s = nativeWords();
-    IMPERA_WordFlush(&s);
+static void TALK_04da_PrintQuoteMark(void) { TALK_0f32_ProcessChar(0xa2); }
+static void TALK_04d2_PrintCr(void) { TALK_0f32_ProcessChar(0x8d); }
+static void TALK_04e2_PrintWord(void) {
+    ImperaTalk s = nativeTalk();
+    IMPERA_TalkFlush(&s);
 }
 static void TALK_0574_BuildOrPrintWord(byte ch) {
-    ImperaWords s = nativeWords();
-    IMPERA_WordAppend(&s, ch);
+    ImperaTalk s = nativeTalk();
+    IMPERA_TalkAppend(&s, ch);
 }
-
-static int TALK_0b04(void);
-
-static int TALK_05b6(void)
-{
-    int local_4;
-
-    local_4 = (D_bce0[0] & 0x7f) * 100 + (D_bce0[1] & 0x7f) * 10 + (D_bce0[2] & 0x7f) - 0x14d0; // 0x14d0 == 5328
-    if (D_57aa >= local_4)
-    {
-        D_57aa -= local_4;
-        ULTIMA_2900_UpdateVitalsDisplay();
-        if ((D_5c5a[D_5f5e[D_bcdc]._c]._0_tile & 0xfc) == TILE_ACTOR_BEGGAR && D_588b >= 100)
-        {
-            D_588b = 0;
-            ULTIMA_3ef0_IncreaseByte(&D_5888, 1, 99);
-            if (D_57aa == 0)
-            {
-                ULTIMA_3ef0_IncreaseByte(&D_5888, 2, 99);
-            }
-        }
-
-        return 0;
-    }
-    else
-    {
-        D_4af1 = 0;
-        ULTIMA_16ba_PrintChar('\"');
-        ULTIMA_1850_PrintString(_TEXT(0x9328, "Thou hast not enough gold!"));
-        ULTIMA_16ba_PrintChar('\"');
-        ULTIMA_1850_PrintString(_TEXT(0x9344, "\n\n"));
-
-        D_4aef = D_4aee = 0;
-
-        return TALK_0b04();
-    }
+static void TALK_075a_SelectNthTalkString(int entry) {
+    ImperaTalk s = nativeTalk();
+    IMPERA_TalkSelect(&s, entry);
 }
-
+static int TALK_111c(void) {
+    ImperaTalk s = nativeTalk();
+    return IMPERA_TalkDescription(&s);
+}
+static int TALK_0b04(void) {
+    ImperaTalk s = nativeTalk();
+    return IMPERA_TalkTopics(&s);
+}
+static int TALK_0a3c(void) {
+    ImperaTalk s = nativeTalk();
+    return IMPERA_TalkFarewell(&s);
+}
 static void TALK_0682(byte param_1)
 {
     if (param_1 < 0x40)
@@ -504,93 +460,6 @@ static void TALK_0682(byte param_1)
         break;
     }
 }
-
-// skip one talk string
-static int TALK_0728_SkipOneTalkString(byte param_1, byte param_2)
-{
-    byte local_4;
-
-    do
-    {
-        local_4 = *D_bcde++;
-        if (local_4 == param_1)
-        {
-            return 1;
-        }
-
-        if (local_4 == param_2)
-        {
-            return 0;
-        }
-    } while (1);
-}
-
-// CHECKED
-// select nth talk string
-static void TALK_075a_SelectNthTalkString(int param_1)
-{
-    D_bcde = D_b21e;
-
-    if (param_1 != 0)
-    {
-        for (; param_1 != 0; param_1--)
-        {
-            TALK_0728_SkipOneTalkString(0, 0x90);
-        }
-    }
-}
-
-static int TALK_0f32_ProcessChar(byte param_1);
-
-// process talk string
-static int TALK_0788_ProcessTalkString(void)
-{
-    while (*D_bcde != 0)
-    {
-        if (TALK_0f32_ProcessChar(*D_bcde++) != 0)
-        {
-            return 1;
-        }
-    }
-
-    return 0;
-}
-
-static int TALK_07aa_ProcessNthTalkString(byte param_1)
-{
-    TALK_075a_SelectNthTalkString(param_1);
-    return TALK_0788_ProcessTalkString();
-}
-
-static int TALK_07be(void)
-{
-    D_bcde++;
-
-    while (*D_bcde == 0)
-    {
-        D_bcde++;
-    }
-
-    while (*D_bcde++ != 0)
-    {
-        // empty
-    }
-
-    return TALK_0788_ProcessTalkString();
-}
-
-static void TALK_07e4_PrintAvatarName(void)
-{
-    byte* local_4;
-    local_4 = D_55a8_party[0].name;
-
-    while (*local_4 != 0)
-    {
-        TALK_0f32_ProcessChar(*local_4++ | 0x80);
-    }
-}
-
-// CHECKED
 static int TALK_080a_Join(void)
 {
     int local_30; // 30..2f
@@ -670,694 +539,170 @@ static int TALK_080a_Join(void)
 
     return 1;
 }
-
-static int TALK_093a(void)
-{
-    D_bcde = D_b21e;
-    while (*D_bcde != D_bcf4)
-    {
-        TALK_0728_SkipOneTalkString(0x90, 0x9f);
-    }
-    D_bcde++;
-    return TALK_0788_ProcessTalkString();
+static void talkPrint(void *host, uint16_t ch) {
+    (void)host;
+    ULTIMA_16ba_PrintChar(ch);
 }
-
-static int TALK_0960(void)
-{
-    TALK_0728_SkipOneTalkString(0, 0x90);
-    return TALK_0788_ProcessTalkString();
+static void talkString(void *host, const char *str) {
+    (void)host;
+    ULTIMA_1850_PrintString((char *)str);
 }
-
-static int TALK_096e(void)
-{
-    D_bcde = D_b21e;
-    while (*D_bcde != D_bcf4)
-    {
-        TALK_0728_SkipOneTalkString(0x90, 0x9f);
-    }
-    TALK_0728_SkipOneTalkString(0, 0x9f);
-    return TALK_0788_ProcessTalkString();
+static const char *talkText(void *host, uint16_t address, const char *str) {
+    (void)host;
+    (void)address;
+    return _TEXT(address, str);
 }
-
-static int TALK_099a(int param_1)
-{
-    D_bcde = D_b21e;
-    param_1 = param_1 * 2 + 5;
-
-    while (param_1 != 0)
-    {
-        if (TALK_0728_SkipOneTalkString(0, 0x90) == 0)
-            return 0;
-
-        param_1--;
-    }
-
-    return 1;
+static int talkColumn(void *host) {
+    (void)host;
+    return ULTIMA_1f12_GetCurrentTextX();
 }
-
-static int TALK_09d8(void)
-{
-    int local_4;
-
-    D_bcf6 = 0;
-    while (1)
-    {
-        if (TALK_099a(D_bcf6) == 0)
-        {
-            return 0;
-        }
-
-        local_4 = ULTIMA_6f1e(D_bcde, D_bcf8);
-        if (local_4 != -1 && (local_4 == 0 || D_bcf8[local_4 - 1] == ' '))
-        {
-            return 1;
-        }
-
-        D_bcde++;
-        D_bcf6++;
-    }
-
-    return 1;
+static void talkFont(void *host, int index) {
+    (void)host;
+    ULTIMA_1c9e_SelectCharset(index);
 }
-
-static void TALK_0a2c_GetString(void)
-{
-    TALK_04e2_PrintWord();
-    ULTIMA_3b1c_GetString(D_bcf8, 0xf);
+static int talkChar(void *host) {
+    (void)host;
+    return ULTIMA_266c_GetChar();
 }
-
-static int TALK_0a3c(void)
-{
-    TALK_04da_PrintQuoteMark();
-    if (TALK_07aa_ProcessNthTalkString(TALK_KEY_4) == 0)
-    {
-        TALK_04da_PrintQuoteMark();
-        TALK_04d2_PrintCr();
-    }
-    return 1;
+static void talkInput(void *host, char *str, int size) {
+    (void)host;
+    ULTIMA_3b1c_GetString(str, size);
 }
-
-static int TALK_0a54(byte param_1)
-{
-    int local_4;
-
-    switch (param_1)
-    {
-    case 0:
-        // ca1c
-        if (D_4af2 != 0)
-        {
-            return 2;
-        }
-
-        ULTIMA_1850_PrintString(_TEXT(0x93c2, "\"My name is "));
-        if (TALK_07aa_ProcessNthTalkString(TALK_KEY_NAME) != 0)
-        {
-            return 1;
-        }
-
-        TALK_04da_PrintQuoteMark();
-        TALK_04d2_PrintCr();
-        TALK_04d2_PrintCr();
-        return 0;
-
-    case 1:
-    case 2:
-        // ca3e
-        if (D_4af2 != 0)
-        {
-            return 2;
-        }
-
-        TALK_04da_PrintQuoteMark();
-        if (TALK_07aa_ProcessNthTalkString(TALK_KEY_3) != 0)
-        {
-            return 1;
-        }
-
-        TALK_04da_PrintQuoteMark();
-        TALK_04d2_PrintCr();
-        TALK_04d2_PrintCr();
-        return 0;
-
-    case 3:
-    case 4:
-        // ca60
-        if (D_4af2 != 0)
-        {
-            return 2;
-        }
-
-        return TALK_0a3c();
-
-    default:
-        // c9f8
-        ULTIMA_1850_PrintString(_TEXT(0x93d0, "\"With language like that, how did you become an Avatar?"));
-        TALK_04da_PrintQuoteMark();
-        TALK_04d2_PrintCr();
-        TALK_04d2_PrintCr();
-
-        for (local_4 = 0; local_4 < 0x1c; local_4++)
-        {
-            ULTIMA_5910_UpdateFrame();
-            if (ULTIMA_1d5e_PollKey() != 0)
-                break;
-
-            ULTIMA_20fa_WaitTicks(1);
-        }
-
-        ULTIMA_1b16_ClearKbdBuffer();
-        return 0;
-    }
+static int talkPoll(void *host) {
+    (void)host;
+    return ULTIMA_1d5e_PollKey();
 }
-
-static int TALK_0b04(void)
-{
-    int local_8;
-    int local_6;
-    byte local_4;
-
-    while (1)
-    {
-        D_4af2 = 0;
-        ULTIMA_1850_PrintString(_TEXT(0x9408, "Your interest?\n:"));
-        TALK_0a2c_GetString();
-        if (D_bcf8[0] == 0)
-        {
-            ULTIMA_1850_PrintString(_TEXT(0x941a, "BYE\n\n"));
-            return TALK_0a3c();
-        }
-        TALK_04d2_PrintCr();
-        TALK_04d2_PrintCr();
-        for (local_4 = 0, local_6 = -1; local_4 < 0x22; local_4++)
-        {
-            local_8 = ULTIMA_6f1e((byte*)D_4aa8[local_4], D_bcf8);
-            if (local_8 != -1 && (local_8 == 0 || D_bcf8[local_8 - 1] == ' '))
-            {
-                local_6 = TALK_0a54(local_4);
-                if (local_6 == 0)
-                {
-                    break;
-                }
-
-                if (local_6 == 1)
-                {
-                    return 1;
-                }
-            }
-        }
-
-        if (local_6 != 0)
-        {
-            if (TALK_09d8() == 0)
-            {
-                ULTIMA_1850_PrintString(_TEXT(0x9420, "\"I cannot help thee with that."));
-                TALK_04da_PrintQuoteMark();
-                TALK_04d2_PrintCr();
-                TALK_04d2_PrintCr();
-            }
-            else
-            {
-                TALK_04da_PrintQuoteMark();
-                if (TALK_07aa_ProcessNthTalkString(D_bcf6 * 2 + 6) != 0)
-                {
-                    return 1;
-                }
-                TALK_04da_PrintQuoteMark();
-                TALK_04d2_PrintCr();
-                TALK_04d2_PrintCr();
-            }
-        }
-    }
+static void talkWait(void *host, int ticks) {
+    (void)host;
+    ULTIMA_20fa_WaitTicks(ticks);
 }
-
-static int TALK_0bd4(void)
-{
-    int local_4;
-
-    D_bcde = D_b21e;
-    while (*D_bcde != D_bcf4)
-    {
-        TALK_0728_SkipOneTalkString(0x90, 0x9f);
-    }
-
-    TALK_0728_SkipOneTalkString(0, 0x9f);
-    TALK_0728_SkipOneTalkString(0, 0x9f);
-
-    while (1)
-    {
-        local_4 = ULTIMA_6f1e(D_bcde, D_bcf8);
-        if (local_4 != -1 && (local_4 == 0 || D_bcf8[local_4 - 1] == ' '))
-        {
-            return 1;
-        }
-
-        if (TALK_0728_SkipOneTalkString(0, 0x90) == 0)
-        {
-            return 0;
-        }
-
-        if (TALK_0728_SkipOneTalkString(0, 0x90) == 0)
-        {
-            return 0;
-        }
-    }
+static void talkFrame(void *host) {
+    (void)host;
+    ULTIMA_5910_UpdateFrame();
 }
-
-// CHECKED
-// process label?
-static int TALK_0c5c(void)
-{
-    int local_6;
-    int local_8;
-    byte local_4;
-
-    do
-    {
-        TALK_04da_PrintQuoteMark();
-        if (TALK_093a() != 0)
-        {
-            return 1;
-        }
-
-        TALK_04da_PrintQuoteMark();
-
-        do
-        {
-            TALK_04d2_PrintCr();
-            TALK_04d2_PrintCr();
-            D_4af2 = 0xff;
-            ULTIMA_1850_PrintString(_TEXT(0x9440, "You respond-\n:"));
-            TALK_0a2c_GetString();
-            if (D_bcf8[0] == 0)
-            {
-                ULTIMA_1850_PrintString(_TEXT(0x9450, "\n\n\"What didst thou say?"));
-            }
-        } while (D_bcf8[0] == 0);
-
-        TALK_04d2_PrintCr();
-        TALK_04d2_PrintCr();
-        for (local_4 = 0, local_6 = -1; local_4 < 0x22; local_4++)
-        {
-            local_8 = ULTIMA_6f1e(D_4aa8[local_4], D_bcf8);
-            if (local_8 != -1 && (local_8 == 0 || D_bcf8[local_8 - 1] == ' '))
-            {
-                local_6 = TALK_0a54(local_4);
-                if (local_6 == 0)
-                {
-                    break;
-                }
-
-                if (local_6 == 1)
-                {
-                    return 1;
-                }
-            }
-        }
-    } while (local_6 == 0);
-
-    if (TALK_0bd4() == 0)
-    {
-        TALK_04da_PrintQuoteMark();
-        local_6 = TALK_096e();
-    }
+static void talkClear(void *host) {
+    (void)host;
+    ULTIMA_1b16_ClearKbdBuffer();
+}
+static int talkIntroduced(void *host) {
+    (void)host;
+    uint32_t flags;
+    memcpy(&flags, &D_5bda[(D_5893_map_id - 1) * 4], 4);
+    return (flags & ((uint32_t)1 << D_bcdc)) != 0;
+}
+static void talkIntroduce(void *host) {
+    (void)host;
+    uint32_t flags;
+    byte *p = &D_5bda[(D_5893_map_id - 1) * 4];
+    memcpy(&flags, p, 4);
+    flags |= (uint32_t)1 << D_bcdc;
+    memcpy(p, &flags, 4);
+}
+static int talkParty(void *host) {
+    (void)host;
+    return D_585b;
+}
+static const uint8_t *talkName(void *host, int index) {
+    (void)host;
+    return D_55a8_party[index].name;
+}
+static int talkKarma(void *host) {
+    (void)host;
+    return D_5888;
+}
+static void talkChangeKarma(void *host, int amount) {
+    (void)host;
+    if (amount > 0)
+        ULTIMA_3ef0_IncreaseByte(&D_5888, amount, 99);
     else
-    {
-        TALK_04da_PrintQuoteMark();
-        local_6 = TALK_0960();
-    }
-
-    if (local_6 == 0)
-    {
-        TALK_04da_PrintQuoteMark();
-        TALK_04d2_PrintCr();
-        TALK_04d2_PrintCr();
-        return TALK_0b04();
-    }
-    else
-    {
+        ULTIMA_3f36_DecreaseByte(&D_5888, -amount);
+}
+static int talkPay(void *host, int amount) {
+    (void)host;
+    if (D_57aa < amount)
         return 1;
-    }
-}
-
-// NOT MATCHING (u32 operation)
-// set npc met flag
-static int TALK_0d42(int param_1)
-{
-    // NOTE: invokes aNNalshl
-    (*(u32*)&D_5bda[(D_5893_map_id - 1) * 4]) |= ((u32)1 << (byte)param_1);
-}
-
-// NOT MATCHING (u32 operation)
-// check npc met flag
-static int TALK_0d7a(int param_1)
-{
-    // NOTE: invokes aNNalshl
-    return (*(u32*)&D_5bda[(D_5893_map_id - 1) * 4] & ((u32)1 << (byte)param_1)) != 0;
-}
-
-static int TALK_0dbe(byte param_1)
-{
-    switch (D_4aee)
-    {
-    default:
-        // 0dda
-        D_4aef = D_4aee = 0;
-        // 0dfc ->
-        // 0e74
-        break;
-
-    case 0x85:
-        // 0de4
-        D_bce0[D_4aef++] = param_1;
-        if (D_4aef != 3)
-        {
-            // 0dfc
-            return 0;
-        }
-
-        // 0e02
-        if (TALK_05b6() != 0)
-        {
-            // -> 0e74
-            return 1;
-        }
-
-        // 0dda
-        D_4aef = D_4aee = 0;
-        break;
-
-    case 0x86:
-        // 0e0e
-        TALK_0682(param_1 & 0x7f);
-
-        // 0dda
-        D_4aef = D_4aee = 0;
-        break;
-
-    case 0x8c:
-        // 0e1c
-        D_4aef = D_4aee = 0;
-
-        if (TALK_0d7a(D_bcdc) == 0)
-        {
-            // 0dfc
-            return 0;
-        }
-
-        if (param_1 == 0xff)
-        {
-            return TALK_0b04();
-        }
-
-        // 0e3a
-        D_bcf4 = param_1;
-
-        // 0e3d
-        return TALK_0c5c();
-
-    case 0xfe:
-        // 0e46
-        D_bce0[D_4aef++] = param_1;
-        if (D_4aef != 2)
-        {
-            // 0dfc
-            return 0;
-        }
-
-        D_4aef = D_4aee = 0;
-
-        if (D_5888 < D_bce0[0])
-        {
-            // 0dfc
-            return 0;
-        }
-
-        D_bcf4 = D_bce0[1];
-
-        // 0e3d
-        return TALK_0c5c();
-    }
-
-    return 0;
-}
-
-// CHECKED
-static void TALK_0e78_AskName(void)
-{
-    int local_e;
-    int local_c;
-    int local_a;
-    char local_8[5];
-
-    local_a = 0;
-    TALK_04da_PrintQuoteMark();
-    TALK_04e2_PrintWord();
-    ULTIMA_1850_PrintString(_TEXT(0x9468, "What is thy name?\"\n"));
-    ULTIMA_1850_PrintString(_TEXT(0x947c, "\nYou respond-\n:"));
-    TALK_0a2c_GetString();
-
-    D_4aee = D_4aef = 0;
-
-    if (D_bcf8[0] == 0)
-    {
-        ULTIMA_1850_PrintString(_TEXT(0x948c, "\n\n\"If you say so..."));
-    }
-    else
-    {
-        for (; local_a < D_585b; local_a++)
-        {
-            for (local_c = 0; local_c < 4; local_c++)
-            {
-                local_8[local_c] = D_55a8_party[local_a].name[local_c];
-            }
-
-            local_8[4] = 0;
-
-            local_e = ULTIMA_6f1e(local_8, D_bcf8);
-            if (local_e != -1 && (local_e == 0 || (D_bcf8[local_e - 1] == ' ')))
-            {
-                TALK_0d42(D_bcdc);
-                ULTIMA_1850_PrintString(_TEXT(0x94a0, "\n\n\"A pleasure!"));
-                return;
-            }
-        }
-
-        ULTIMA_1850_PrintString(_TEXT(0x94b0, "\n\n\"If you say so..."));
-    }
-}
-
-static int TALK_0f32_ProcessChar(byte param_1)
-{
-    byte* local_4;
-    int local_6;
-    char* pbVar5;
-
-    if (D_4aee != 0)
-    {
-        return TALK_0dbe(param_1);
-    }
-
-#if !defined(MATCHING_BUILD)
-    /* Controls can transfer/finish the response or replace the word buffer.
-     * Workshop text need not end in a space: print it before the control runs.
-     * Operand bytes were handled above, so they cannot trigger this flush. */
-    if ((param_1 >= 0x81 && param_1 <= 0x8c) || param_1 == 0x8e || param_1 == 0x8f ||
-        (param_1 >= 0x91 && param_1 <= 0x9f) || param_1 == 0xfe || param_1 == 0xff) {
-        if (D_4af1 && ULTIMA_1f12_GetCurrentTextX() + (uint)D_4af1 >= 0x12)
-            ULTIMA_16ba_PrintChar('\n');
-        TALK_04e2_PrintWord();
-    }
-#endif
-
-    // 0f4c
-    D_4aef = 0;
-    if ((param_1 == 0xa2) && (D_4af4 == 0xa2))
-    {
-        // 0f5e
-        return 0;
-    }
-
-    // 0f64
-    switch (param_1)
-    {
-    case 0x81: // avatar
-        // 0f86
-        TALK_07e4_PrintAvatarName();
-        break;
-    case 0x82: // end conversation
-        // 0f8c
-        return 1;
-    case 0x83: // pause
-        // 0f92
-        for (local_6 = 0; local_6 < 0x1c; local_6++)
-        {
-            ULTIMA_5910_UpdateFrame();
-            if (ULTIMA_1d5e_PollKey() != 0)
-                break;
-            ULTIMA_20fa_WaitTicks(1);
-        }
-        ULTIMA_1b16_ClearKbdBuffer();
-        return 0; // -> 0f5e
-    case 0x84:    // join
-        // 0fb6
-        return TALK_080a_Join(); // -> 1114
-    case 0x87:                // key_or
-        // 0fbc
-        local_4 = D_bcde;
-        if (TALK_07be() != 0)
-        {
-            return 1;
-        }
-        D_bcde = local_4;
-        return 0; // -> 0f5e
-    case 0x88:    // ask name
-        // 0fd2
-        TALK_0e78_AskName();
-        return 0; // -> 0f5e
-    case 0x89:    // karma +1
-        // 0fd8
+    D_57aa -= amount;
+    ULTIMA_2900_UpdateVitalsDisplay();
+    if ((D_5c5a[D_5f5e[D_bcdc]._c]._0_tile & 0xfc) == TILE_ACTOR_BEGGAR && D_588b >= 100) {
+        D_588b = 0;
         ULTIMA_3ef0_IncreaseByte(&D_5888, 1, 99);
-        return 0; // -> 0f5e
-    case 0x8a:    // karma -1
-        // 0fea
-        ULTIMA_3f36_DecreaseByte(&D_5888, 1);
-        return 0; // -> 0f5e
-    case 0x8b:    // call guards
-        // 0ff8
-        TOWN_0958();
-        return 0; // -> 0f5e
-    case 0x8e:    // rune
-        // 0ffe
-        D_4af0 ^= 0x80;
-        return 0; // -> 0f5e
-    case 0xff:    // no selection
-        // 1006
-        TALK_04e2_PrintWord();
-        return TALK_0b04(); // -> 1114
-    case 0x8f:                // wait
-        // 1010
-        ULTIMA_266c_GetChar();
-        return 0; // -> 0f5e
-    case 0xfe:
-    case 0x85: // gold-
-    case 0x86: // change item 65
-    case 0x8c: // if else name
-        // 1016
-        D_4aee = param_1;
-        return 0;
-    case 0x91: // label_0
-    case 0x92: // label_1
-    case 0x93:
-    case 0x94:
-    case 0x95:
-    case 0x96:
-    case 0x97:
-    case 0x98:
-    case 0x99:
-    case 0x9a:
-    case 0x9b: // label_10
-    case 0x9c: // label?
-    case 0x9d: // label?
-    case 0x9e: // label?
-    case 0x9f: // label?
-        // 1020
-        D_bcf4 = param_1;
-        return TALK_0c5c(); // -> 1114
-        // ----------
-    default:
-        // 10ce
-        if (param_1 < 0x81)
-        {
-            TALK_0574_BuildOrPrintWord(0xa0); // 0x20
-
-            pbVar5 = D_24ea[param_1 - 1];
-            while (*pbVar5 != 0)
-            {
-                TALK_0574_BuildOrPrintWord((byte)*pbVar5++ | 0x80);
-            }
-
-            if (*D_24ea[param_1 - 1] == 0)
-            {
-                TALK_0574_BuildOrPrintWord(param_1);
-                return 0; // -> 0f5e
-            }
-
-            D_4af5 = 1;
-        }
-        else
-        {
-            // 1062
-            param_1 |= 0x80;
-            if (param_1 == 0x8d) // 0xd newline
-            {
-                param_1 = 0x8a;
-            }
-
-            D_4af4 = param_1 &= D_4af0;
-
-            if (D_4af5 != 0)
-            {
-                TALK_0574_BuildOrPrintWord(0xa0); // 0x20
-            }
-
-            TALK_0574_BuildOrPrintWord(param_1);
-            D_4af5 = 0;
-        }
-        break;
+        if (!D_57aa)
+            ULTIMA_3ef0_IncreaseByte(&D_5888, 2, 99);
     }
-
     return 0;
 }
-
-static int TALK_111c(void)
-{
-    ULTIMA_1850_PrintString(_TEXT(0x94c4, "You see "));
-
-    if (TALK_07aa_ProcessNthTalkString(TALK_KEY_DESC) != 0)
-    {
-        return 1;
-    }
-    else
-    {
-        TALK_04d2_PrintCr();
-        TALK_04d2_PrintCr();
-        if (TALK_0d7a(D_bcdc) == 0)
-        {
-            ULTIMA_207e_srand(ULTIMA_2056_GetTime());
-            if (ULTIMA_2092_RandomRange(0, 1) != 0)
-            {
-                // "I am called\nNAME"\n\n
-                ULTIMA_1850_PrintString(_TEXT(0x94ce, "\"I am called "));
-                if (TALK_07aa_ProcessNthTalkString(TALK_KEY_NAME) == 0)
-                {
-                    TALK_04da_PrintQuoteMark();
-                    TALK_04d2_PrintCr();
-                    TALK_04d2_PrintCr();
-                }
-                else
-                {
-                    return 1;
-                }
-            }
-        }
-        else
-        {
-            TALK_04da_PrintQuoteMark();
-            if (TALK_07aa_ProcessNthTalkString(TALK_KEY_2) == 0)
-            {
-                TALK_04da_PrintQuoteMark();
-                TALK_04d2_PrintCr();
-                TALK_04d2_PrintCr();
-            }
-            else
-            {
-                return 1;
-            }
-        }
-
-        return 0;
-    }
+static void talkGive(void *host, uint8_t code) {
+    (void)host;
+    TALK_0682(code);
+}
+static int talkJoin(void *host) {
+    (void)host;
+    return TALK_080a_Join();
+}
+static void talkGuards(void *host) {
+    (void)host;
+    TOWN_0958();
+}
+static int talkGreeting(void *host) {
+    (void)host;
+    ULTIMA_207e_srand(ULTIMA_2056_GetTime());
+    return ULTIMA_2092_RandomRange(0, 1);
+}
+/* Observe source bytes separately from rendered game text. */
+static void talkObserve(void *host, const uint8_t *cursor) {
+    (void)host;
+    (void)cursor;
+#if defined(IMPERA_REFERENCE_OBSERVER)
+    REFERENCE_TraceOpcode(cursor);
+#endif
+}
+static ImperaTalk nativeTalk(void) {
+    ImperaTalk s = {0};
+    s.data = D_b21e;
+    s.size = 1024;
+    s.cursor = &D_bcde;
+    s.operands = D_bce0;
+    s.pending = &D_4aee;
+    s.operandCount = &D_4aef;
+    s.mask = &D_4af0;
+    s.length = &D_4af1;
+    s.questionMode = &D_4af2;
+    s.lastColumn = &D_4af3;
+    s.lastLiteral = &D_4af4;
+    s.dictionaryBoundary = &D_4af5;
+    s.label = &D_bcf4;
+    s.topic = &D_bcf6;
+    s.word = D_bce4;
+    s.answer = D_bcf8;
+    s.dictionary = (const char *const *)D_24ea;
+    s.keywords = (const char *const *)D_4aa8;
+    s.text = talkText;
+#if defined(MATCHING_BUILD)
+    s.matching = 1;
+#endif
+    s.print = talkPrint;
+    s.string = talkString;
+    s.column = talkColumn;
+    s.font = talkFont;
+    s.getChar = talkChar;
+    s.getString = talkInput;
+    s.poll = talkPoll;
+    s.waitTicks = talkWait;
+    s.frame = talkFrame;
+    s.clearKeys = talkClear;
+    s.introduced = talkIntroduced;
+    s.introduce = talkIntroduce;
+    s.partySize = talkParty;
+    s.name = talkName;
+    s.karma = talkKarma;
+    s.changeKarma = talkChangeKarma;
+    s.pay = talkPay;
+    s.give = talkGive;
+    s.join = talkJoin;
+    s.guards = talkGuards;
+    s.greetingRoll = talkGreeting;
+    s.observe = talkObserve;
+    return s;
 }
 
 static void TALK_1180(void)
@@ -1468,13 +813,8 @@ static void TALK_127e_StartTalk(int param_1)
     local_8 = *local_6;
     ULTIMA_256e_ReadFileFromDisk(D_4aa0[local_4], D_b21e, 0x400, local_8);
 
-    if (TALK_111c() == 0)
-    {
-        if (TALK_0b04() == 0)
-        {
-            TALK_0a3c();
-        }
-    }
+    ImperaTalk session = nativeTalk();
+    IMPERA_TalkRun(&session);
 
     TALK_1180();
 }

@@ -1,6 +1,7 @@
 #include "native_text_viewport.h"
 #include "formats.h"
 #include <QPainter>
+#include <QKeyEvent>
 namespace Dialogue {
 NativeTextWindow::NativeTextWindow(const QByteArray &normal, const QByteArray &runes, int row)
     : pixels(128 * 104, char(0)) {
@@ -24,19 +25,27 @@ NativeTextWindow::NativeTextWindow(const QByteArray &normal, const QByteArray &r
     text.host = this;
     text.draw = [](void *host, uint8_t *font, int offset, uint8_t f, uint8_t b, int x, int y) {
         auto *self = static_cast<NativeTextWindow *>(host);
-        self->rendered.append({x - self->window.left, y - self->window.top, offset / 8,
-                               font == reinterpret_cast<uint8_t *>(self->fonts[1].data())});
+        if (self->recordGlyphs)
+            self->rendered.append({x - self->window.left, y - self->window.top, offset / 8,
+                                   font == reinterpret_cast<uint8_t *>(self->fonts[1].data())});
         IMPERA_TextGlyph(font, offset, f, b, x * 8, y * 8, host, pixel);
+        if (self->observer)
+            self->observer("glyph", offset / 8);
     };
     text.clear = [](void *host, int x1, int y1, int x2, int y2, uint8_t color) {
         for (int y = y1; y <= y2; ++y)
             for (int x = x1; x <= x2; ++x)
                 pixel(host, x, y, color);
+        auto *self = static_cast<NativeTextWindow *>(host);
+        if (self->observer)
+            self->observer("fill", 0);
     };
     text.scroll = [](void *host, int x1, int y1, int x2, int y2, int amount) {
         auto *self = static_cast<NativeTextWindow *>(host);
         IMPERA_TextScroll(reinterpret_cast<uint8_t *>(self->pixels.data()), 128, x1 - 192, y1 - 88,
                           x2 - 192, y2 - 88, amount, nullptr, nullptr);
+        if (self->observer)
+            self->observer("scroll", amount);
     };
     words.buffer = word;
     words.length = &length;
@@ -63,6 +72,16 @@ void NativeTextWindow::selectFont(int index) {
     charset = reinterpret_cast<uint8_t *>(fonts[index].data());
 }
 void NativeTextWindow::print(uint16_t ch) { IMPERA_TextPrint(&text, ch); }
+void NativeTextWindow::printString(const char *str) { IMPERA_TextString(&text, str); }
+void NativeTextWindow::setSleeper(std::function<void(int)> fn) {
+    sleeper = std::move(fn);
+    text.speedFix = 1;
+    text.sleep = [](void *host, int ms) {
+        auto &self = *static_cast<NativeTextWindow *>(host);
+        if (self.sleeper)
+            self.sleeper(ms);
+    };
+}
 void NativeTextWindow::append(uint8_t ch) { IMPERA_WordAppend(&words, ch); }
 void NativeTextWindow::flush() { IMPERA_WordFlush(&words); }
 void NativeTextWindow::backspace(int count) { IMPERA_TextBackspace(&text, count); }
@@ -84,6 +103,7 @@ NativeTextViewport::NativeTextViewport(QWidget *parent) : QWidget(parent) {
     setObjectName("nativeDialogueViewport");
     setMinimumSize(128, 125);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    setFocusPolicy(Qt::StrongFocus);
 }
 void NativeTextViewport::setImage(const QImage &image) {
     U5::require(image.size() == QSize(128, 104), "Invalid native text framebuffer");
@@ -107,5 +127,99 @@ void NativeTextViewport::paintEvent(QPaintEvent *) {
     painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
     if (!frame.isNull())
         painter.drawImage(displayRect(), frame);
+}
+void NativeTextViewport::keyPressEvent(QKeyEvent *event) {
+    int code = 0;
+    switch (event->key()) {
+    case Qt::Key_Return:
+    case Qt::Key_Enter:
+        code = 13;
+        break;
+    case Qt::Key_Backspace:
+        code = 8;
+        break;
+    case Qt::Key_Escape:
+        code = 27;
+        break;
+    case Qt::Key_Left:
+        code = 257;
+        break;
+    case Qt::Key_Right:
+        code = 258;
+        break;
+    case Qt::Key_Up:
+        code = 259;
+        break;
+    case Qt::Key_Down:
+        code = 260;
+        break;
+    case Qt::Key_Home:
+        code = 256 | 211;
+        break;
+    case Qt::Key_End:
+        code = 256 | 212;
+        break;
+    case Qt::Key_PageUp:
+        code = 256 | 213;
+        break;
+    case Qt::Key_PageDown:
+        code = 256 | 214;
+        break;
+    case Qt::Key_Tab:
+    case Qt::Key_Backtab:
+        code = 9;
+        break;
+    default:
+        if (event->text().size() == 1 && event->text()[0].unicode() >= 32 &&
+            event->text()[0].unicode() < 127)
+            code = event->text()[0].unicode();
+    }
+    if (event->modifiers() & Qt::ControlModifier) {
+        switch (event->key()) {
+        case Qt::Key_B:
+            code = 2;
+            break;
+        case Qt::Key_E:
+            code = 5;
+            break;
+        case Qt::Key_K:
+            code = 11;
+            break;
+        case Qt::Key_M:
+            code = 13;
+            break;
+        case Qt::Key_O:
+            code = 15;
+            break;
+        case Qt::Key_S:
+            code = 19;
+            break;
+        case Qt::Key_V:
+            code = 22;
+            break;
+        default:
+            code = 26;
+            break;
+        }
+    }
+    if (keyInput && code) {
+        keyInput(code);
+        event->accept();
+    } else
+        QWidget::keyPressEvent(event);
+}
+bool NativeTextViewport::event(QEvent *event) {
+    if (keyInput && event->type() == QEvent::ShortcutOverride) {
+        event->accept();
+        return true;
+    }
+    if (keyInput && event->type() == QEvent::KeyPress) {
+        auto *key = static_cast<QKeyEvent *>(event);
+        if (key->key() == Qt::Key_Tab || key->key() == Qt::Key_Backtab) {
+            keyPressEvent(key);
+            return true;
+        }
+    }
+    return QWidget::event(event);
 }
 } // namespace Dialogue

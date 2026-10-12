@@ -1,8 +1,8 @@
 # Native dialogue reference runner (Playtest phase 1)
 
 Phase 1 is implemented as `impera_dialogue_reference`, a headless test/developer
-executable built with the engine's native sources. Workshop's Playtest UI and
-simulator have not been replaced yet.
+executable built with the engine's native sources. Since phase 3, Workshop
+Playtest uses shared native conversation execution and input.
 
 After phase 2, the reference keeps test-only copies of the original character,
 string, word-buffer, backspace and raster/scroll functions from `df25c19`.
@@ -10,6 +10,11 @@ string, word-buffer, backspace and raster/scroll functions from `df25c19`.
 extracted production renderer. The `dialogue_renderer_parity` test compares their
 complete artifacts, including per-render events and framebuffer snapshots.
 The fixtures' hashes are included in reference provenance.
+
+Phase 3 also preserves independent dialogue, matching, input and dictionary/
+keyword-table fixtures. The corpus now adds name recognition, insufficient
+funds, nested questions and special-key Left editing. Workshop's own standalone
+host is checked against the same artifacts by `workshop_dialogue_host_parity`.
 
 ## What executes
 
@@ -83,8 +88,9 @@ Optional parameters:
 
 Key scripts contain one `delay_ms native_key_code` pair per line. Each delay
 starts on the first native poll for that key, not at an absolute wall-clock time.
-Examples: 13 is Enter, 8 is Backspace, 1 is Left, 27 is Escape, 32 is Space, and
-98/121/101 type `bye`. Lines beginning with `#` are comments. The native input
+Examples: 13 is Enter, 8 is Backspace, 257 is special-key Left, 27 is Escape,
+32 is Space, and 98/121/101 type `bye`. Codes 1–511 are accepted; bit 256
+sets the native extended-key flag. Lines beginning with `#` are comments. The native input
 editor performs character echo and editing; the script does not submit strings
 directly into the interpreter.
 
@@ -142,6 +148,10 @@ and colors, restored font buffers, and scenario-specific decisions/effects.
 | `input_limit` | Topic input accepts exactly fifteen characters, then handles the next reply independently |
 | `introduction` | Actual seeded first-meeting selection reproduces the same execution twice |
 | `runes` | Six glyphs use the original runic font, then normal charset is restored |
+| `ask_name` | Party-name recognition sets the NPC introduction flag and follows the introduced greeting |
+| `payment` | Insufficient funds returns to native topic input without deducting gold |
+| `nested` | A karma condition transfers into a second question and executes the selected answer |
+| `left_editing` | The native extended-key flag lets Left edit the input as in the engine backend |
 | `dialogue_reference_tlk` | A real original TOWNE.TLK conversation is loaded by identity and completes with scripted native input |
 
 ## Boundaries and findings

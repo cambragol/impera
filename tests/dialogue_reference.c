@@ -187,6 +187,7 @@ void __wrap_TIME_SleepMs(int ms) {
 }
 uint __wrap_ULTIMA_2056_GetTime(void) { return (uint)seed; }
 int __wrap_KEY_PollKey(void) {
+    D_538a = 0;
     if (key_index >= key_count)
         fail("script exhausted while the native interpreter requested input");
     if (!scheduled) {
@@ -196,6 +197,10 @@ int __wrap_KEY_PollKey(void) {
     if (now < ready_at)
         return 0;
     int key = script[key_index++].key;
+    if (key & 256) {
+        D_538a = 1;
+        key &= 255;
+    }
     scheduled = false;
     event("key", key, key_index, 0);
     return key;
@@ -332,6 +337,12 @@ static void build(const char *name) {
         base(name, "a careful traveller.", "Welcome.");
         tail();
         keys("jox\bb\rbad\033work\rbye\r", 0);
+    } else if (!strcmp(name, "left_editing")) {
+        base(name, "a careful traveller.", "Welcome.");
+        tail();
+        keys("jox", 0);
+        scenario.keys[scenario.key_count++] = (ScriptKey){0, 257};
+        keys("b\rbye\r", 0);
     } else if (!strcmp(name, "input_limit")) {
         base(name, "a careful traveller.", "Welcome.");
         tail();
@@ -349,6 +360,59 @@ static void build(const char *name) {
         entry("Farewell.");
         tail();
         keys("bye\r", 0);
+    } else if (!strcmp(name, "ask_name")) {
+        memset(&scenario, 0, sizeof(scenario));
+        scenario.name = name;
+        entry("Name");
+        literal("a traveller.\"\n\n");
+        bytecode(136);
+        literal(" Good day.");
+        bytecode(0);
+        entry("Welcome.");
+        entry("I study maps.");
+        entry("Farewell.");
+        tail();
+        keys("Avatar\rbye\r", 0);
+    } else if (!strcmp(name, "payment")) {
+        base(name, "a traveller.", "Welcome.");
+        entry("pay");
+        literal("Pay now.\"\n\n");
+        bytecode(133);
+        literal("999");
+        bytecode(0);
+        tail();
+        keys("pay\rbye\r", 0);
+    } else if (!strcmp(name, "nested")) {
+        base(name, "a traveller.", "Welcome.");
+        entry("hint");
+        literal("Choose.\"\n\n");
+        bytecode(145);
+        bytecode(0);
+        bytecode(144);
+        bytecode(145);
+        entry("First question?");
+        literal("No.");
+        bytecode(130);
+        bytecode(0);
+        entry("yes");
+        literal("Next.\"\n\n");
+        bytecode(254);
+        bytecode(50);
+        bytecode(146);
+        bytecode(0);
+        bytecode(144);
+        bytecode(146);
+        entry("Second question?");
+        literal("No.");
+        bytecode(130);
+        bytecode(0);
+        entry("yes");
+        literal("Done.");
+        bytecode(137);
+        bytecode(130);
+        bytecode(0);
+        tail();
+        keys("hint\ryes\ryes\r", 0);
     } else if (!strcmp(name, "introduction")) {
         base(name, "a careful traveller.", "Welcome.");
         scenario.introduced = 0;
@@ -437,8 +501,8 @@ static void load_script(const char *path) {
         int key;
         char extra;
         if (sscanf(line, "%u %d %c", &delay, &key, &extra) != 2 || delay > 300000 || key < 1 ||
-            key > 255 || scenario.key_count >= MAX_KEYS)
-            fail("key script lines must contain delay_ms and a native key code (1..255)");
+            key > 511 || scenario.key_count >= MAX_KEYS)
+            fail("key script lines must contain delay_ms and a native key code (1..511)");
         scenario.keys[scenario.key_count++] = (ScriptKey){delay, key};
     }
     if (ferror(f) || !scenario.key_count)
@@ -692,9 +756,10 @@ int main(int argc, char **argv) {
     }
     if (!only && (start_x != 0 || start_y != 12))
         fail("custom cursor positions require --case or --tlk");
-    const char *cases[] = {"questions",       "fallback",     "scroll",
-                           "pause_interrupt", "pause_full",   "editing",
-                           "input_limit",     "introduction", "runes"};
+    const char *cases[] = {"questions",   "fallback", "scroll",      "pause_interrupt",
+                           "pause_full",  "editing",  "input_limit", "introduction",
+                           "runes",       "ask_name", "payment",     "nested",
+                           "left_editing"};
     int count = 0;
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
         if (only && strcmp(only, cases[i]))

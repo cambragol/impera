@@ -1,6 +1,7 @@
 #include "dialogue_editor.h"
 #include "dialogue_preview.h"
 #include "native_text_viewport.h"
+#include "native_dialogue_session.h"
 #include "dialogue_surface.h"
 #include <memory>
 using namespace Dialogue;
@@ -448,11 +449,15 @@ ConversationEditor::ConversationEditor(
     auto testToolbar = new QHBoxLayout;
     auto setupButton =
         button(testToolbar, "Setup", [setup] { setup->setVisible(!setup->isVisible()); });
-    setupButton->setToolTip("Configure the sandbox's starting state, then Reset to restart.");
-    button(testToolbar, "Reset", [this] { resetSimulation(); });
+    setupButton->setToolTip("Configure the sandbox's starting state, then Restart.");
+    button(testToolbar, "Restart", [this] { resetSimulation(); });
     showTrace = new QCheckBox("Show actions");
     showTrace->setObjectName("conversationShowTrace");
     testToolbar->addWidget(showTrace);
+    playtestStatus = new QLabel;
+    playtestStatus->setObjectName("conversationPlaytestStatus");
+    playtestStatus->setWordWrap(true);
+    testToolbar->addWidget(playtestStatus, 1);
     testLayout->addLayout(testToolbar);
     auto stateRow = new QHBoxLayout;
     avatar = new QLineEdit("Avatar");
@@ -473,10 +478,13 @@ ConversationEditor::ConversationEditor(
     setupLayout->addLayout(stateRow);
     auto stateRow2 = new QHBoxLayout;
     introduced = new QCheckBox("Introduced");
-    announce = new QCheckBox("Announce name on first encounter");
-    announce->setChecked(true);
+    seed = new QSpinBox;
+    seed->setObjectName("conversationSeed");
+    seed->setRange(0, 65535);
+    seed->setValue(42);
+    seed->setPrefix("Seed ");
     stateRow2->addWidget(introduced);
-    stateRow2->addWidget(announce);
+    stateRow2->addWidget(seed);
     partySize = new QSpinBox;
     partySize->setRange(1, 6);
     partySize->setValue(3);
@@ -488,8 +496,21 @@ ConversationEditor::ConversationEditor(
     transcript = new QTreeWidget;
     transcript->setHeaderLabels({"Conversation"});
     transcript->setObjectName("conversationTranscript");
-    testLayout->addWidget(transcript, 1);
+    auto testBody = new QHBoxLayout;
+    playtestImage = new NativeTextViewport;
+    playtestImage->setObjectName("conversationNativeViewport");
+    playtestImage->keyInput = [this](int key) {
+        if (nativeSession)
+            nativeSession->sendKey(key);
+    };
+    testBody->addWidget(playtestImage, 1);
+    testBody->addWidget(transcript);
+    testLayout->addLayout(testBody, 1);
+    transcript->setMaximumWidth(260);
+    transcript->hide();
     connect(transcript, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem *i) {
+        if (nativeStale)
+            return;
         int e = i->data(0, Qt::UserRole).toInt();
         const int offset = i->data(0, Qt::UserRole + 2).toInt();
         if (e >= 0 && flush()) {
@@ -517,32 +538,17 @@ ConversationEditor::ConversationEditor(
         }
     });
     connect(showTrace, &QCheckBox::toggled, this, [this](bool show) {
+        transcript->setVisible(show);
         for (int i = 0; i < transcript->topLevelItemCount(); ++i) {
             auto item = transcript->topLevelItem(i);
             item->setHidden(!show && item->data(0, Qt::UserRole + 1).toBool());
         }
     });
-    auto answer = new QHBoxLayout;
-    input = new QLineEdit;
-    input->setObjectName("conversationInput");
-    input->setMaxLength(15);
-    input->setPlaceholderText("Type a reply (15 characters maximum)");
-    answer->addWidget(input, 1);
-    auto send = [this] {
-        if (!simulation)
-            resetSimulation();
-        if (simulation) {
-            appendTranscript(simulation->respond(input->text()));
-            input->clear();
-        }
-    };
-    button(answer, "Send", send);
-    connect(input, &QLineEdit::returnPressed, this, send);
-    testLayout->addLayout(answer);
     previewTabs->addTab(test, "Test Conversation");
     auto close = new QDialogButtonBox(QDialogButtonBox::Close);
     auxiliaryLayout->addWidget(close);
     connect(close, &QDialogButtonBox::rejected, auxiliary, &QDialog::hide);
+    auxiliary->installEventFilter(this);
     split->addWidget(right);
     split->addWidget(actionPane);
     split->setStretchFactor(0, 0);
@@ -615,7 +621,9 @@ bool ConversationEditor::attempt(const std::function<void()> &fn) {
 void ConversationEditor::loadNpc(int i, int entry) {
     npcIndex = i;
     doc = parse(conversations[i].bytes);
-    simulation.reset();
+    ++nativeGeneration;
+    nativeSession.reset();
+    nativeStale = false;
     transcript->clear();
     buildOutline(entry);
     loadEntry(qBound(0, entry, int(doc.entries.size() - 1)));
@@ -800,8 +808,10 @@ void ConversationEditor::openAuxiliary(int tab) {
     updateDiagnostics();
     auxiliary->raise();
     auxiliary->activateWindow();
-    if (tab == 2 && !simulation)
+    if (tab == 2 && !nativeSession)
         resetSimulation();
+    if (tab == 2)
+        playtestImage->setFocus();
 }
 void ConversationEditor::updateOutlineActions() {
     auto available = findChild<QListWidget *>("conversationAvailableActions");
@@ -1468,7 +1478,7 @@ bool ConversationEditor::applyDraft() {
         aliasesDraft = false;
         sourceBaseline = bytes;
         refreshSource();
-        simulation.reset();
+        nativeStale = true;
         transcript->clear();
         status->setText("Changes applied");
         buildOutline(selected);
@@ -1528,7 +1538,7 @@ void ConversationEditor::install(const QByteArray &bytes, const QString &descrip
     commit(encoded, description);
     conversations = entries;
     doc = next;
-    simulation.reset();
+    nativeStale = true;
     transcript->clear();
     pending = false;
     buildOutline(entry < 0 ? selected : entry);
@@ -1853,24 +1863,57 @@ void ConversationEditor::deleteSelected() {
 void ConversationEditor::resetSimulation() {
     if (!flush())
         return;
-    for (auto i : doc.issues())
-        if (i.error) {
+    for (const auto &issue : doc.issues())
+        if (issue.error) {
             status->setText("Resolve conversation errors before testing.");
             return;
         }
-    Sandbox s;
-    s.partyNames = avatar->text().split(',', Qt::SkipEmptyParts);
-    for (auto &name : s.partyNames)
+    NativeSetup config;
+    config.state.partyNames = avatar->text().split(',', Qt::SkipEmptyParts);
+    for (auto &name : config.state.partyNames)
         name = name.trimmed();
-    s.avatar = s.partyNames.isEmpty() ? "Avatar" : s.partyNames.first();
-    s.introduced = introduced->isChecked();
-    s.announceName = announce->isChecked();
-    s.gold = gold->value();
-    s.karma = karma->value();
-    s.partySize = partySize->value();
-    simulation = std::make_unique<Simulator>(doc, s);
+    config.state.avatar =
+        config.state.partyNames.isEmpty() ? "Avatar" : config.state.partyNames.first();
+    config.state.introduced = introduced->isChecked();
+    config.state.gold = gold->value();
+    config.state.karma = karma->value();
+    config.state.partySize = partySize->value();
+    config.seed = uint16_t(seed->value());
+    const auto generation = ++nativeGeneration;
+    nativeSession.reset();
+    nativeStale = false;
     transcript->clear();
-    appendTranscript(simulation->start());
+    playtestImage->clear();
+    nativeSession = std::make_unique<NativeDialogueSession>(
+        doc.bytes(), project->resources.contains("IBM.CH") ? project->data("IBM.CH") : QByteArray(),
+        project->resources.contains("RUNES.CH") ? project->data("RUNES.CH") : QByteArray(), config);
+    connect(
+        nativeSession.get(), &NativeDialogueSession::frameReady, this,
+        [this, generation](const QImage &image) {
+            if (generation == nativeGeneration)
+                playtestImage->setImage(image);
+        },
+        Qt::QueuedConnection);
+    connect(
+        nativeSession.get(), &NativeDialogueSession::actionReady, this,
+        [this, generation](const QString &text, int entry, int offset) {
+            if (generation == nativeGeneration && !nativeStale)
+                appendTranscript({{text, entry, true, offset}});
+        },
+        Qt::QueuedConnection);
+    connect(
+        nativeSession.get(), &NativeDialogueSession::finished, this,
+        [this, generation](const QString &message) {
+            if (generation == nativeGeneration) {
+                status->setText(message);
+                playtestStatus->setText(message);
+            }
+        },
+        Qt::QueuedConnection);
+    status->setText("Playtest running");
+    playtestStatus->setText("Running");
+    nativeSession->start();
+    playtestImage->setFocus();
 }
 void ConversationEditor::appendTranscript(const QVector<Line> &lines) {
     for (auto l : lines) {
@@ -1889,12 +1932,6 @@ void ConversationEditor::appendTranscript(const QVector<Line> &lines) {
             item->setForeground(0, QBrush(QColor("#94b9e7")));
     }
     transcript->scrollToBottom();
-    if (simulation)
-        status->setText(QString("Sandbox: gold %1 · karma %2 · %3 · %4")
-                            .arg(simulation->state.gold)
-                            .arg(simulation->state.karma)
-                            .arg(simulation->state.introduced ? "introduced" : "not introduced")
-                            .arg(simulation->ended ? "ended" : "awaiting input"));
 }
 
 QString ConversationEditor::questionName(int label) const {
@@ -1995,4 +2032,16 @@ void ConversationEditor::hideEvent(QHideEvent *event) {
     if (auxiliary)
         auxiliary->hide();
     QWidget::hideEvent(event);
+}
+
+ConversationEditor::~ConversationEditor() {
+    ++nativeGeneration;
+    nativeSession.reset();
+}
+bool ConversationEditor::eventFilter(QObject *object, QEvent *event) {
+    if (object == auxiliary && (event->type() == QEvent::Hide || event->type() == QEvent::Close)) {
+        ++nativeGeneration;
+        nativeSession.reset();
+    }
+    return QWidget::eventFilter(object, event);
 }

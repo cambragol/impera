@@ -2,6 +2,7 @@
 #include <QImage>
 #include <QWidget>
 #include <QVector>
+#include <functional>
 #include "text/text_window.h"
 namespace Dialogue {
 struct PreviewGlyph {
@@ -13,6 +14,10 @@ class NativeTextWindow {
   public:
     NativeTextWindow(const QByteArray &normal, const QByteArray &runes, int row = 12);
     void print(uint16_t ch);
+    void printString(const char *);
+    uint16_t *advanceFlag() { return &advance; }
+    void setSleeper(std::function<void(int)> fn);
+    void setObserver(std::function<void(const QString &, int)> fn) { observer = std::move(fn); }
     void append(uint8_t ch);
     void flush();
     void backspace(int count);
@@ -22,6 +27,7 @@ class NativeTextWindow {
     const QByteArray &indexedPixels() const { return pixels; }
     const TextWindow &cursor() const { return window; }
     const QVector<PreviewGlyph> &glyphs() const { return rendered; }
+    void setRecordGlyphs(bool enabled) { recordGlyphs = enabled; }
     NativeTextWindow(const NativeTextWindow &) = delete;
     NativeTextWindow &operator=(const NativeTextWindow &) = delete;
 
@@ -34,18 +40,25 @@ class NativeTextWindow {
     ImperaText text{};
     ImperaWords words{};
     QVector<PreviewGlyph> rendered;
+    bool recordGlyphs = true;
+    std::function<void(int)> sleeper;
+    std::function<void(const QString &, int)> observer;
     static void pixel(void *, int, int, uint8_t);
 };
 class NativeTextViewport : public QWidget {
+    Q_OBJECT
   public:
     explicit NativeTextViewport(QWidget *parent = nullptr);
     void setImage(const QImage &image);
     void clear();
     QSize sizeHint() const override;
     QRect displayRect() const;
+    std::function<void(int)> keyInput;
 
   protected:
     void paintEvent(QPaintEvent *) override;
+    void keyPressEvent(QKeyEvent *) override;
+    bool event(QEvent *) override;
 
   private:
     QImage frame;

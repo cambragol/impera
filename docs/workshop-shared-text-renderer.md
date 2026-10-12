@@ -37,11 +37,10 @@ than an unlimited, 18-column image. A selected response starts in a cleared
 window at (0,0). This is deliberately distinct from a full conversation session,
 which can start on the bottom row with prior text.
 
-The response decoder still approximates dialogue execution and stops at certain
-actions. Interactive Playtest still uses the prior Simulator. This phase
-establishes shared rendering, not full Playtest accuracy. Phase 3 connects actual
-dialogue execution, native input and waits; the later UI phase retires the
-separate snapshot.
+The snapshot decoder still approximates dialogue execution and stops at certain
+actions. Phase 2 established shared rendering; phase 3 now connects
+[actual dialogue execution, native input and waits](workshop-native-dialogue-runtime.md)
+to interactive Playtest. The later UI phase retires the separate snapshot.
 
 ## Independent validation
 
@@ -52,8 +51,8 @@ separate snapshot.
   Workshop. It checks indexed pixels, cursor, buffer, fonts, effects and delays
   after operations from every starting row/column, plus glyph effects, clearing,
   cursor painting, backspace, native strings and scrolling in both directions.
-- On Linux, `dialogue_renderer_parity` runs the nine phase 1 scripted conversations
-  and an original TOWNE.TLK conversation through independent and shared
+- On Linux, `dialogue_renderer_parity` runs the reference corpus (expanded to
+  13 scripted cases in phase 3) and an original TOWNE.TLK conversation through independent and shared
   renderers. Every artifact must match byte-for-byte, including event cursor
   positions/pixel hashes, snapshots, frame pixels, fonts, input and state.
 - Workshop checks session isolation, missing fonts, native geometry and

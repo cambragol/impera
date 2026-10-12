@@ -1,6 +1,7 @@
 #pragma once
 #include "dialogue.h"
 #include "project.h"
+#include "native_dialogue_session.h"
 #include <QtWidgets>
 #include <functional>
 namespace Dialogue {
@@ -14,10 +15,12 @@ class ConversationEditor : public QWidget {
                        int entry, std::function<void(int, int)> selection,
                        QWidget *parent = nullptr);
     bool flush();
+    ~ConversationEditor() override;
     void focusCharacter();
 
   protected:
     void hideEvent(QHideEvent *) override;
+    bool eventFilter(QObject *, QEvent *) override;
 
   private:
     Project *project;
@@ -57,10 +60,14 @@ class ConversationEditor : public QWidget {
     QVector<Dialogue::Issue> issues;
     QListWidget *diagnostics;
     QTreeWidget *transcript;
-    QLineEdit *input, *avatar;
-    QCheckBox *introduced, *announce;
-    QSpinBox *gold, *karma, *partySize;
-    std::unique_ptr<Dialogue::Simulator> simulation;
+    QLineEdit *avatar;
+    QCheckBox *introduced;
+    QSpinBox *gold, *karma, *partySize, *seed;
+    Dialogue::NativeTextViewport *playtestImage;
+    QLabel *playtestStatus;
+    std::unique_ptr<Dialogue::NativeDialogueSession> nativeSession;
+    uint64_t nativeGeneration = 0;
+    bool nativeStale = false;
     int npcIndex = -1, selected = -1, prefix = 0;
     bool loading = false, pending = false, sourceDraft = false, aliasesDraft = false;
     QByteArray sourceBaseline;

@@ -5,6 +5,7 @@
 #include "dialogue.h"
 #include "dialogue_editor.h"
 #include "dialogue_preview.h"
+#include "native_dialogue_session.h"
 #include "dialogue_surface.h"
 #include "dungeon_editor.h"
 #include "engine_tables.h"
@@ -71,6 +72,23 @@ static Project fixture(const QString &directory) {
     Project p;
     p.openGame(directory);
     return p;
+}
+static void waitFor(const std::function<bool()> &ready, int timeout = 3000) {
+    QElapsedTimer timer;
+    timer.start();
+    while (!ready() && timer.elapsed() < timeout) {
+        QApplication::processEvents();
+        QThread::msleep(1);
+    }
+    check(ready(), "Timed out waiting for native Playtest");
+}
+static void nativeKeys(Dialogue::NativeTextViewport *viewport, const QString &keys) {
+    check(viewport, "Native keyboard viewport missing");
+    for (QChar ch : keys) {
+        QKeyEvent event(QEvent::KeyPress, ch == '\r' ? Qt::Key_Return : ch.unicode(),
+                        Qt::NoModifier, ch == '\r' ? QString() : QString(ch));
+        QApplication::sendEvent(viewport, &event);
+    }
 }
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
@@ -3943,6 +3961,84 @@ int main(int argc, char **argv) {
                       "Resizing reflowed native pixels or lost DOS aspect");
             }
         });
+        test("Native Playtest cancels waits and pauses, restarts and isolates sessions", [&] {
+            const auto waiting =
+                U5::encodeText("Name<Entry>Description<Entry>Hello<Key "
+                               "Wait><Entry>Work<Entry>Bye<Entry><Any><Label 15>@");
+            const auto pausing = U5::encodeText("Name<Entry>Description<Entry>Hello<Pause><Entry>"
+                                                "Work<Entry>Bye<Entry><Any><Label 15>@");
+            QByteArray font(1024, char(128));
+            Dialogue::NativeSetup setup;
+            setup.state.introduced = true;
+            Dialogue::NativeDialogueSession first(waiting, font, font, setup);
+            int waits = 0, frames = 0, heartbeats = 0;
+            QObject::connect(
+                &first, &Dialogue::NativeDialogueSession::actionReady, &app,
+                [&](const QString &name, int, int) {
+                    if (name == "Wait for key")
+                        ++waits;
+                },
+                Qt::QueuedConnection);
+            QObject::connect(
+                &first, &Dialogue::NativeDialogueSession::frameReady, &app,
+                [&](const QImage &image) {
+                    check(image.size() == QSize(128, 104), "Worker reflowed pixels");
+                    ++frames;
+                },
+                Qt::QueuedConnection);
+            QTimer heartbeat;
+            QObject::connect(&heartbeat, &QTimer::timeout, &app, [&] { ++heartbeats; });
+            heartbeat.start(5);
+            first.start();
+            waitFor([&] { return waits > 0 && frames > 0 && heartbeats > 2; });
+            QElapsedTimer stop;
+            stop.start();
+            first.cancel();
+            check(stop.elapsed() < 250 && !first.running(), "Wait cancellation blocked the UI");
+            QApplication::processEvents();
+            first.start();
+            first.sendKey('x');
+            for (char ch : std::string("bye\r"))
+                first.sendKey(ch);
+            waitFor([&] { return !first.running() && waits>=2; });
+            check(waits >= 2, "Restart did not rebuild the conversation");
+            Dialogue::NativeDialogueSession second(pausing, font, font, setup);
+            bool pause = false;
+            QObject::connect(
+                &second, &Dialogue::NativeDialogueSession::actionReady, &app,
+                [&](const QString &name, int, int) {
+                    if (name == "Pause")
+                        pause = true;
+                },
+                Qt::QueuedConnection);
+            second.start();
+            first.start();
+            waitFor([&] { return pause && waits >= 3; });
+            stop.restart();
+            second.cancel();
+            first.cancel();
+            check(stop.elapsed() < 250, "Pause cancellation or simultaneous sessions hung");
+            heartbeat.stop();
+            auto script =
+                QVector<Dialogue::NativeKey>{{0, 'x'}, {0, 'b'}, {0, 'y'}, {0, 'e'}, {0, 13}};
+            const auto before = waiting;
+            auto a = Dialogue::runNativeVirtual(waiting, font, font, setup, script);
+            auto b = Dialogue::runNativeVirtual(waiting, font, font, setup, script);
+            check(a.error.isEmpty() && b.error.isEmpty() && a.pixels == b.pixels &&
+                      a.time == b.time && a.keysConsumed == 5 && before == waiting,
+                  "Native restart leaked state or a wait key became the next answer");
+            auto unsupported = U5::encodeText("Name<Entry>Description<Entry>Hello<Join "
+                                              "Party><Entry>Work<Entry>Bye<Entry><Any><Label 15>@");
+            auto rejected = Dialogue::runNativeVirtual(unsupported, font, font, setup, {});
+            check(!rejected.error.isEmpty(), "Recruitment invented a successful world outcome");
+            auto runic=U5::encodeText(
+                "Name<Entry>Description<Entry>Hello <Rune>R<Rune><End Conversation><Entry>Work<Entry>Bye<Entry><Any><Label 15>@");
+            auto missing=Dialogue::runNativeVirtual(runic,font,{},setup,{});
+            check(!missing.error.isEmpty(),"Missing rune font did not stop native execution");
+            for(const auto &boundary:missing.boundaries)
+                check(boundary.kind!="glyph" || boundary.value!='R',
+                      "Missing rune glyph was drawn with replacement artwork");
+        });
         test("Wait actions hide conventional spacing and insert it automatically", [&] {
             QTemporaryDir dir;
             auto p = fixture(dir.path());
@@ -4260,6 +4356,8 @@ int main(int argc, char **argv) {
         test("Conversation surface, unified questions and source-linked playtest", [&] {
             QTemporaryDir dir;
             auto p = fixture(dir.path());
+            file(dir.path() + "/IBM.CH", QByteArray(1024, char(255)));
+            file(dir.path() + "/RUNES.CH", QByteArray(1024, char(255)));
             auto bytes =
                 U5::encodeText("Name<Entry>Description<Entry>Greeting<Entry>Work<Entry>Bye<Entry>"
                                "help<Entry><Or><Entry>hint<Entry>Seek <Avatar><Label 1><Entry>"
@@ -4384,18 +4482,19 @@ int main(int argc, char **argv) {
             check(!tools->isHidden() &&
                       editor.findChild<QWidget *>("conversationTestSetup")->isHidden(),
                   "Playtest is not optional or its setup crowds the transcript");
-            auto input = editor.findChild<QLineEdit *>("conversationInput");
-            input->setText("help");
-            QMetaObject::invokeMethod(input, "returnPressed", Qt::DirectConnection);
-            input->setText("dawn");
-            QMetaObject::invokeMethod(input, "returnPressed", Qt::DirectConnection);
+            auto viewport =
+                editor.findChild<Dialogue::NativeTextViewport *>("conversationNativeViewport");
+            check(!editor.findChild<QLineEdit *>("conversationInput"),
+                  "Qt reply input still bypasses native editing");
+            nativeKeys(viewport, "help\rdawn\r");
             auto transcript = editor.findChild<QTreeWidget *>("conversationTranscript");
             QTreeWidgetItem *wait = nullptr;
-            for (int i = 0; i < transcript->topLevelItemCount(); ++i) {
-                auto item = transcript->topLevelItem(i);
-                if (item->text(0).contains("Wait for key"))
-                    wait = item;
-            }
+            waitFor([&] {
+                for (int i = 0; i < transcript->topLevelItemCount(); ++i)
+                    if (transcript->topLevelItem(i)->text(0).contains("Wait for key"))
+                        wait = transcript->topLevelItem(i);
+                return wait != nullptr;
+            });
             check(wait && wait->isHidden(), "Action traces clutter ordinary NPC speech");
             editor.findChild<QCheckBox *>("conversationShowTrace")->setChecked(true);
             check(!wait->isHidden() && wait->data(0, Qt::UserRole + 2).toInt() >= 0,
@@ -4519,6 +4618,8 @@ int main(int argc, char **argv) {
         test("Structured conversation widgets, aliases, undo and annotations", [&] {
             QTemporaryDir dir;
             fixture(dir.path());
+            file(dir.path() + "/IBM.CH", QByteArray(1024, char(255)));
+            file(dir.path() + "/RUNES.CH", QByteArray(1024, char(255)));
             auto bytes =
                 U5::encodeText("Name<Entry>Description<Entry>Greeting<Entry>Job<Entry>Bye<Entry>"
                                "help<Entry><Or><Entry>hint<Entry>Hello<Label 1><Entry><Any><Label "
@@ -4587,15 +4688,15 @@ int main(int argc, char **argv) {
             QMetaObject::invokeMethod(aliases, "editingFinished", Qt::DirectConnection);
             check(editor->flush(), "Corrected alias draft did not apply");
             for (auto b : editor->findChildren<QPushButton *>())
-                if (b->text() == "Reset") {
+                if (b->text() == "Restart") {
                     b->click();
                     break;
                 }
-            auto input = editor->findChild<QLineEdit *>("conversationInput");
-            input->setText("help");
-            QMetaObject::invokeMethod(input, "returnPressed", Qt::DirectConnection);
+            nativeKeys(
+                editor->findChild<Dialogue::NativeTextViewport *>("conversationNativeViewport"),
+                "help\r");
             auto transcript = editor->findChild<QTreeWidget *>("conversationTranscript");
-            check(transcript->topLevelItemCount() > 1, "Test conversation transcript absent");
+            waitFor([&] { return transcript->topLevelItemCount() > 1; });
             check(w.projectForTests().data("TOWNE.TLK") == before, "Simulation changed project");
             w.projectForTests().dialogueNames["TOWNE.TLK/1/1"] = "Password question";
             QString path = dir.path() + "/test.imperaproject";
