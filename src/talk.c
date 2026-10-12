@@ -431,6 +431,10 @@ static void TALK_04e2_PrintWord(void)
 
 static void TALK_0574_BuildOrPrintWord(byte param_1)
 {
+#if !defined(MATCHING_BUILD)
+    /* Keep the incoming character when a long literal fills the buffer. */
+    if (D_4af1 == sizeof(D_bce4)) TALK_04e2_PrintWord();
+#endif
     if (D_4af1 != 0x10)
     {
         D_bce4[D_4af1++] = param_1;
@@ -1186,6 +1190,18 @@ static int TALK_0f32_ProcessChar(byte param_1)
     {
         return TALK_0dbe(param_1);
     }
+
+#if !defined(MATCHING_BUILD)
+    /* Controls can transfer/finish the response or replace the word buffer.
+     * Workshop text need not end in a space: print it before the control runs.
+     * Operand bytes were handled above, so they cannot trigger this flush. */
+    if ((param_1 >= 0x81 && param_1 <= 0x8c) || param_1 == 0x8e || param_1 == 0x8f ||
+        (param_1 >= 0x91 && param_1 <= 0x9f) || param_1 == 0xfe || param_1 == 0xff) {
+        if (D_4af1 && ULTIMA_1f12_GetCurrentTextX() + (uint)D_4af1 >= 0x12)
+            ULTIMA_16ba_PrintChar('\n');
+        TALK_04e2_PrintWord();
+    }
+#endif
 
     // 0f4c
     D_4aef = 0;

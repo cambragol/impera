@@ -36,6 +36,8 @@ QVector<PreviewGlyph> layoutTalkWords(const QByteArray &styled) {
     // particular, a full 16-byte word flushes before consuming the next byte.
     // This unusual behavior is tested against the extracted engine functions.
     for (unsigned char byte : styled) {
+        if (word.size() == 16)
+            flush();
         if (word.size() != 16) {
             word.append(char(byte));
             if (byte != 0x8a && byte != 0xa0)

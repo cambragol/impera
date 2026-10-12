@@ -15,6 +15,7 @@
 #include "graphics/grap.h"
 #include "funcs.h"
 #include "savegame.h"
+#include "npc.h"
 #include "vars.h"
 #include "key/key.h"
 #include "event/event.h"
@@ -300,7 +301,25 @@ int main(void)
     }
     writeResourcePackage("starting-game/Mods/brit.imperamod","BRIT.OOL",objectBase,britObjects,256);
     writeResourcePackage("starting-game/Mods/under.imperamod","UNDER.OOL",objectBase,underObjects,256);
-    FILE_SetDataDirectory("starting-game");assert(MOD_LoadedCount()==2);
+    byte npcBase[4608]={0}, npcChanged[4608];
+    memcpy(npcChanged,npcBase,sizeof(npcChanged));
+    int npcStart=4*576;
+    for(int slot=5;slot<=8;slot++) {
+        int record=npcStart+slot*16;
+        for(int phase=0;phase<3;phase++) {
+            npcChanged[record+3+phase]=(byte)(10+slot);
+            npcChanged[record+6+phase]=(byte)(12+slot);
+            npcChanged[record+9+phase]=(byte)(slot==7?1:0);
+        }
+        npcChanged[npcStart+512+slot]=(byte)(slot==6?128:80);
+        npcChanged[npcStart+544+slot]=(byte)(slot==6?0:42);
+    }
+    f=fopen("starting-game/DWELLING.NPC","wb");assert(f);
+    assert(fwrite(npcBase,1,sizeof(npcBase),f)==sizeof(npcBase));fclose(f);
+    f=fopen("starting-game/TOWNE.NPC","wb");assert(f);
+    assert(fwrite(npcBase,1,sizeof(npcBase),f)==sizeof(npcBase));fclose(f);
+    writeResourcePackage("starting-game/Mods/npcs.imperamod","DWELLING.NPC",npcBase,npcChanged,sizeof(npcChanged));
+    FILE_SetDataDirectory("starting-game");assert(MOD_LoadedCount()==3);
     assert(SLOTS_Load("9999"));
     f=FILE_Open("SAVEGAME/SAVED.OOL","rb");assert(f);
     for(int i=0;i<512;i++) assert(fgetc(f)==(i<256?0x12:0x34));fclose(f);
@@ -314,8 +333,23 @@ int main(void)
     D_5893_map_id=13;D_5895_map_level=0;memset(D_5c5a,0x77,256);
     memset(D_b21e,0xee,512);
     writeWorld("SAVEGAME/BRIT.OOL",0x12,256);writeWorld("SAVEGAME/UNDER.OOL",0x34,256);
+    memset(D_5b5a,0,sizeof(D_5b5a));D_5b5a[12*4+1]=1; /* NPC 8 was already removed. */
+    D_587f=8;
     assert(SLOTS_CreateInitial());
-    for(int i=0;i<256;i++) assert(((byte*)D_5c5a)[i]==0x77);
+    for(int i=0;i<8;i++) assert(((byte*)D_5c5a)[i]==0x77); /* Party actor remains intact. */
+    assert(D_5893_map_id==13 && D_5895_map_level==0 && D_587f==8 && D_57a8==678);
+    for(int slot=5;slot<=6;slot++) {
+        int actor=D_5f5e[slot]._c;assert(actor>0 && actor<32);
+        assert(D_5f5e[slot]._0 && D_5c5a[actor]._0_tile==(slot==5?80:128));
+        assert(D_5c5a[actor]._2_x==10+slot && D_5c5a[actor]._3_y==12+slot);
+        assert(D_5f5e[slot]._a==(slot==5?42:0));
+    }
+    assert(D_5f5e[7]._0 && !D_5f5e[7]._c); /* Another floor is not spawned here. */
+    assert(!D_5f5e[8]._0 && !D_659e[8]);
+    /* A bad/missing bank must fail before replacing any resident actors. */
+    ActorFmt residents[32];memcpy(residents,D_5c5a,sizeof(residents));
+    D_5893_map_id=17;assert(!NPC_InitializeNewGame());
+    assert(!memcmp(residents,D_5c5a,sizeof(residents)));D_5893_map_id=13;
     f=FILE_Open("SAVEGAME/BRIT.OOL","rb");assert(f);assert(fgetc(f)==0x12);fclose(f);
     f=FILE_Open("SAVEGAME/UNDER.OOL","rb");assert(f);assert(fgetc(f)==0x34);fclose(f);
     remove("SAVEGAME/BRIT.OOL");remove("SAVEGAME/UNDER.OOL");
@@ -330,12 +364,18 @@ int main(void)
     assert(!strcmp(D_55a8_party[0].name,"New Hero"));assert(D_5893_map_id==2);
     f=FILE_Open("SAVEGAME/SAVED.OOL","rb");assert(f);
     for(int i=0;i<512;i++) assert(fgetc(f)==(i<256?0x23:0x45));fclose(f);
+    const char *hut=strcmp(initialIds[0],initialIds[1])>0?initialIds[1]:initialIds[0];
+    assert(SLOTS_Load(hut));assert(FILE_ReadSavegameFile("SAVED.GAM")==0);
+    assert(D_5893_map_id==13 && D_5f5e[5]._0 && D_5f5e[6]._0);
+    assert(D_5c5a[D_5f5e[5]._c]._0_tile==80 && D_5c5a[D_5f5e[6]._c]._0_tile==128);
     FILE_SetDataDirectory(NULL);
     remove("starting-game/Mods/brit.imperamod");remove("starting-game/Mods/under.imperamod");
     for(int i=0;i<3;i++) {
         char objectPath[128];SDL_snprintf(objectPath,sizeof(objectPath),"starting-game/%s",objectFiles[i]);
         remove(objectPath);
     }
+    remove("starting-game/Mods/npcs.imperamod");
+    remove("starting-game/DWELLING.NPC");remove("starting-game/TOWNE.NPC");
     SDL_RemovePath("starting-game/Mods");SDL_RemovePath("starting-game");
     /* Older two-line metadata remains loadable. */
     const char* latest=strcmp(initialIds[0],initialIds[1])>0?initialIds[0]:initialIds[1];

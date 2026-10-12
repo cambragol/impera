@@ -164,6 +164,15 @@ if(U5D_BUILD_TESTS)
              -DTEST_DIR=${CMAKE_BINARY_DIR}/test-runtime
              -P ${CMAKE_SOURCE_DIR}/tests/check_missing_file.cmake)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        set(DIALOGUE_TEST_SOURCES ${TEST_SOURCES})
+        list(REMOVE_ITEM DIALOGUE_TEST_SOURCES src/talk.c)
+        add_executable(impera_dialogue_test tests/dialogue_runtime_test.c ${DIALOGUE_TEST_SOURCES})
+        list(APPEND U5D_TARGETS impera_dialogue_test)
+        target_link_options(impera_dialogue_test PRIVATE
+            "-Wl,--wrap=ULTIMA_16ba_PrintChar" "-Wl,--wrap=ULTIMA_1c9e_SelectCharset"
+            "-Wl,--wrap=ULTIMA_1f12_GetCurrentTextX")
+        add_test(NAME dialogue_runtime COMMAND impera_dialogue_test)
+        set_tests_properties(dialogue_runtime PROPERTIES TIMEOUT 10)
         add_executable(impera_u4_transfer_test tests/u4_transfer_test.c ${TEST_SOURCES})
         list(APPEND U5D_TARGETS impera_u4_transfer_test)
         target_compile_definitions(impera_u4_transfer_test PRIVATE TEST_GAME_DIR="${CMAKE_SOURCE_DIR}/Ultima 5")

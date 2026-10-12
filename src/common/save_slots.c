@@ -5,6 +5,7 @@
 #include "engine_settings.h"
 #include "file.h"
 #include "savegame.h"
+#include "npc.h"
 #include "graphics/grap_sdl.h"
 #include "graphics/grap_buf.h"
 #include "key/mouse.h"
@@ -177,10 +178,11 @@ bool SLOTS_CreateInitial(void)
 {
     /* Always resolve new-game templates afresh; never seed from old saves. */
     if(!storage() || !MOD_InitializeWorldObjects(D_b21e)) return false;
-    /* Settlement actors belong to INIT.GAM; a world start must serialize the
-     * same objects in SAVED.GAM's resident list and SAVED.OOL's world list. */
+    /* A world start must serialize the same objects in SAVED.GAM's resident
+     * list and SAVED.OOL's world list. */
     if(D_5893_map_id == 0)
         memcpy(D_5c5a, D_b21e + (D_5895_map_level ? 256 : 0), 256);
+    if(!NPC_InitializeNewGame()) return false;
     SLOTS_ResetTime();
     char name[sizeof(D_55a8_party[0].name)+1];
     memcpy(name,D_55a8_party[0].name,sizeof(D_55a8_party[0].name));name[sizeof(name)-1]=0;
