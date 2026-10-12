@@ -1,5 +1,6 @@
 #include "mod/contents.h"
 #include "common/common.h"
+#include "text/game_frame.h"
 #include "text/dialogue_runtime.h"
 #include "funcs.h"
 #include "vars.h"
@@ -181,48 +182,31 @@ void ULTIMA_6360_Camping(int param_1, int param_2)
     ULTIMA_5e4a();
 }
 
-// draw frame
-void ULTIMA_637e_DrawFrame(void)
-{
-    int local_4; // unused
- 
-    // black
-    ULTIMA_0a70_GRAP_2d_SetPenColor(0);
-    ULTIMA_0aa6_GRAP_3f_FillRect(0, 0, 319, 199);
-
-    ULTIMA_0a70_GRAP_2d_SetPenColor(D_13b2_blueColor);
-    ULTIMA_0aa6_GRAP_3f_FillRect(0, 0, 319, 6);
-    ULTIMA_0aa6_GRAP_3f_FillRect(0, 185, 191, 191);
-    ULTIMA_0aa6_GRAP_3f_FillRect(0, 0, 6, 191);
-    ULTIMA_0aa6_GRAP_3f_FillRect(185, 0, 191, 191);
-    ULTIMA_0aa6_GRAP_3f_FillRect(313, 0, 319, 87);
-    ULTIMA_0aa6_GRAP_3f_FillRect(192, 80, 312, 87);
-    ULTIMA_0aa6_GRAP_3f_FillRect(192, 0x39, 312, 63);
-
-    ULTIMA_1cca_SetTextForegroundColor(D_13b2_blueColor);
-    ULTIMA_1bf2_SetTextPosition(0, 0);
-    ULTIMA_16ba_PrintChar(0x7b);
-    ULTIMA_1bf2_SetTextPosition(39, 0);
-    ULTIMA_16ba_PrintChar(0x7c);
-    ULTIMA_1bf2_SetTextPosition(0, 23);
-    ULTIMA_16ba_PrintChar(0x7d);
-
-    ULTIMA_0a70_GRAP_2d_SetPenColor(D_13b0_brightWhiteColor);
-    ULTIMA_0b10_GRAP_Line(7, 7, 7, 184);
-    ULTIMA_0f90_GRAP_Pen(184, 184);
-    ULTIMA_0f90_GRAP_Pen(184, 7);
-    ULTIMA_0f90_GRAP_Pen(7, 7);
-    ULTIMA_0b10_GRAP_Line(191, 191, 191, 87);
-    ULTIMA_0f90_GRAP_Pen(319, 87);
-    ULTIMA_0b10_GRAP_Line(191, 7, 312, 7);
-    ULTIMA_0f90_GRAP_Pen(312, 56);
-    ULTIMA_0f90_GRAP_Pen(191, 56);
-    ULTIMA_0f90_GRAP_Pen(191, 7);
-    ULTIMA_0b10_GRAP_Line(191, 63, 312, 63);
-    ULTIMA_0f90_GRAP_Pen(312, 80);
-    ULTIMA_0f90_GRAP_Pen(191, 80);
-    ULTIMA_0f90_GRAP_Pen(191, 63);
-
+/* Native game frame adapters */
+static void frameFill(void *host, uint8_t color, int x1, int y1, int x2, int y2) {
+    (void)host;
+    ULTIMA_0a70_GRAP_2d_SetPenColor(color);
+    ULTIMA_0aa6_GRAP_3f_FillRect(x1, y1, x2, y2);
+}
+static void frameLine(void *host, uint8_t color, int x1, int y1, int x2, int y2) {
+    (void)host;
+    ULTIMA_0a70_GRAP_2d_SetPenColor(color);
+    ULTIMA_0b10_GRAP_Line(x1, y1, x2, y2);
+}
+static void frameCorner(void *host, uint8_t color, int x, int y, uint8_t ch) {
+    (void)host;
+    ULTIMA_1cca_SetTextForegroundColor(color);
+    ULTIMA_1bf2_SetTextPosition(x, y);
+    ULTIMA_16ba_PrintChar(ch);
+}
+void ULTIMA_637e_DrawFrame(void) {
+    ImperaGameFrame frame = {0};
+    frame.blue = D_13b2_blueColor;
+    frame.white = D_13b0_brightWhiteColor;
+    frame.fill = frameFill;
+    frame.line = frameLine;
+    frame.corner = frameCorner;
+    IMPERA_DrawGameFrame(&frame);
     ULTIMA_1cca_SetTextForegroundColor(D_13b0_brightWhiteColor);
 }
 

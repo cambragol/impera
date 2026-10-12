@@ -52,6 +52,10 @@ class NativeTextViewport : public QWidget {
   public:
     explicit NativeTextViewport(QWidget *parent = nullptr);
     void setImage(const QImage &image);
+    void setConversationFrame(const QImage &);
+    void setZoom(double scale); // Zero fits the available area; positive values never reflow.
+    double zoom() const { return scale; }
+    const QImage &logicalImage() const { return presentation; }
     void clear();
     QSize sizeHint() const override;
     QRect displayRect() const;
@@ -63,6 +67,10 @@ class NativeTextViewport : public QWidget {
     bool event(QEvent *) override;
 
   private:
-    QImage frame;
+    QImage frame, backdrop, presentation;
+    double scale = 0;
+    void compose();
+    void updateMinimumSize();
+    QSize logicalSize() const;
 };
 } // namespace Dialogue

@@ -56,10 +56,9 @@ Phase 4 adds [isolated NPC/game context](workshop-native-dialogue-context.md),
 including shared native payment, inventory, recruitment and guard effects.
 No project, mod package, game files or real save are written by Playtest.
 
-Phase 5 will finish presentation and consolidate the auxiliary window, including
-the actual frame crop and zoom controls, and retire the separate selected-response
-snapshot. That snapshot still uses its approximate decoder and is not the live
-Playtest runtime.
+Phase 5 supplies the [native frame crop and zoom controls](workshop-native-dialogue-presentation.md)
+in a dedicated Playtest window. The selected-response snapshot has been removed
+from the UI; its decoder remains only as a test oracle.
 
 ## Validation
 

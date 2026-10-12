@@ -59,6 +59,7 @@ set(SOURCES
 	src/text/input_engine.c
 	src/text/dialogue_runtime.c
 	src/text/dialogue_game.c
+	src/text/game_frame.c
 	src/2000.c
 	src/3000.c
 	src/4000.c
@@ -232,6 +233,14 @@ if(U5D_BUILD_TESTS)
                 math(EXPR function_length "${end_pos}-${begin_pos}")
                 string(SUBSTRING "${reference_unit}" ${begin_pos} ${function_length} adapter_function)
                 string(REPLACE "${adapter_function}" "${native_function}\n" reference_unit "${reference_unit}")
+                if(unit STREQUAL "6000")
+                    file(READ "${CMAKE_SOURCE_DIR}/tests/native_frame_reference.inc" native_frame)
+                    string(FIND "${reference_unit}" "/* Native game frame adapters */" frame_begin)
+                    string(FIND "${reference_unit}" "// CHECKED\n// place actor on combat map" frame_end)
+                    math(EXPR frame_length "${frame_end}-${frame_begin}")
+                    string(SUBSTRING "${reference_unit}" ${frame_begin} ${frame_length} frame_adapter)
+                    string(REPLACE "${frame_adapter}" "${native_frame}\n" reference_unit "${reference_unit}")
+                endif()
             else()
                 file(READ "${CMAKE_SOURCE_DIR}/tests/native_graphics_reference.inc" original_renderer)
                 string(FIND "${reference_unit}" "static void textPixel(" renderer_start)
@@ -275,7 +284,7 @@ if(U5D_BUILD_TESTS)
             file(SHA256 "${header}" header_hash)
             string(APPEND reference_source_hashes "${header_name}:${header_hash}\n")
         endforeach()
-        foreach(fixture text words graphics backspace string talk input_char input_string match dictionary keywords)
+        foreach(fixture text words graphics backspace string talk input_char input_string match dictionary keywords frame)
             configure_file("${CMAKE_SOURCE_DIR}/tests/native_${fixture}_reference.inc"
                 "${CMAKE_BINARY_DIR}/reference-source-snapshot/native_${fixture}_reference.inc" COPYONLY)
             file(SHA256 "${CMAKE_SOURCE_DIR}/tests/native_${fixture}_reference.inc" fixture_hash)

@@ -6,6 +6,7 @@
 #include "dialogue_editor.h"
 #include "dialogue_preview.h"
 #include "native_dialogue_session.h"
+#include "native_dialogue_frame.h"
 #include "dialogue_surface.h"
 #include "dungeon_editor.h"
 #include "engine_tables.h"
@@ -3960,6 +3961,200 @@ int main(int argc, char **argv) {
                           other.indexedPixels() == pixels,
                       "Resizing reflowed native pixels or lost DOS aspect");
             }
+        });
+        test("Native framed viewport preserves pixels at fixed zoom, Fit and different DPI", [&] {
+            QByteArray font(1024, char(128));
+            auto border = Dialogue::nativeConversationFrame(font);
+            check(border.size() == QSize(135, 112) && border.pixel(0, 0) == qRgb(0, 0, 170) &&
+                      border.pixel(6, 7) == qRgb(255, 255, 255) &&
+                      border.pixel(6, 111) == qRgb(255, 255, 255) &&
+                      border.pixel(134, 111) == qRgb(0, 0, 0),
+                  "Conversation border adds edges absent from Impera");
+            QImage text(128, 104, QImage::Format_RGB32);
+            text.fill(Qt::black);
+            text.setPixel(0, 0, qRgb(255, 255, 255));
+            text.setPixel(127, 103, qRgb(255, 85, 85));
+            Dialogue::NativeTextViewport viewport;
+            viewport.setConversationFrame(border);
+            viewport.setImage(text);
+            auto logical = viewport.logicalImage();
+            check(logical.copy(7, 8, 128, 104) == text,
+                  "Frame shifted or clipped the native text pixels");
+            for (int factor = 1; factor <= 5; ++factor) {
+                viewport.setZoom(factor);
+                viewport.resize(1000, 1000);
+                check(viewport.displayRect().size() ==
+                          QSize(135 * factor, qRound(112 * 1.2 * factor)),
+                      "Fixed zoom stretches to available space");
+                viewport.resize(200, 180);
+                check(viewport.rect().contains(viewport.displayRect()) &&
+                          viewport.logicalImage() == logical,
+                      "Fixed zoom clips or reflows the framebuffer");
+            }
+            viewport.setZoom(0);
+            for (const auto size : {QSize(300, 700), QSize(900, 200)}) {
+                viewport.resize(size);
+                auto area = viewport.displayRect();
+                check(viewport.rect().contains(area) &&
+                          qAbs(area.width() / double(area.height()) - 135.0 / (112 * 1.2)) < 0.01,
+                      "Fit loses the DOS pixel aspect ratio");
+                for (double dpi : {1.0, 1.25, 2.0}) {
+                    QImage painted(qRound(viewport.width() * dpi), qRound(viewport.height() * dpi),
+                                   QImage::Format_RGB32);
+                    painted.setDevicePixelRatio(dpi);
+                    viewport.render(&painted);
+                    for (int y = 0; y < painted.height(); ++y)
+                        for (int x = 0; x < painted.width(); ++x) {
+                            auto color = painted.pixel(x, y);
+                            check(color == qRgb(0, 0, 0) || color == qRgb(0, 0, 170) ||
+                                      color == qRgb(255, 255, 255) || color == qRgb(255, 85, 85),
+                                  "DPI scaling interpolates native pixels");
+                        }
+                    check(viewport.logicalImage() == logical, "DPI scaling changed logical pixels");
+                }
+            }
+        });
+        test("Dedicated Playtest freezes edits and fonts until Restart and cancels on close", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            p.resources["INIT.GAM"].edited.replace(2, 9, QByteArray("Avatar\0\0\0", 9));
+            QByteArray font(1024, char(0));
+            for (int ch = 0; ch < 128; ++ch)
+                for (int row = 0; row < 8; ++row)
+                    font[ch * 8 + row] = char(ch * 37 + row * 11);
+            p.resources["IBM.CH"] = {font, font, false};
+            p.resources["RUNES.CH"] = {font, font, false};
+            const auto original =
+                U5::encodeText("Nora<Entry>A traveller.<Entry>Old greeting<Key Wait><Entry>Old "
+                               "work<Key Wait><Entry>Farewell<Entry><Any><Label 15>@");
+            auto tlk = U5::writeDialogue({{1, original}});
+            p.resources["TOWNE.TLK"] = {tlk, tlk, false};
+            ConversationEditor editor(
+                &p, "TOWNE.TLK",
+                [&](const QByteArray &bytes, const QString &) {
+                    p.resources["TOWNE.TLK"].edited = bytes;
+                },
+                [](const QString &, const QString &) {}, 0, 0, [](int, int) {});
+            editor.resize(1000, 700);
+            editor.show();
+            auto playtest = editor.findChild<QDialog *>("conversationTools");
+            auto viewport =
+                editor.findChild<Dialogue::NativeTextViewport *>("conversationNativeViewport");
+            auto trace = editor.findChild<QTreeWidget *>("conversationTranscript");
+            auto await = [&](const char *stage, const std::function<bool()> &ready) {
+                try {
+                    waitFor(ready);
+                } catch (const std::exception &) {
+                    throw std::runtime_error(
+                        QString("Playtest %1: %2; focus=%3; image=%4x%5")
+                            .arg(stage)
+                            .arg(editor.findChild<QLabel *>("conversationPlaytestStatus")->text())
+                            .arg(QApplication::focusWidget()
+                                     ? QApplication::focusWidget()->objectName()
+                                     : "none")
+                            .arg(viewport->logicalImage().width())
+                            .arg(viewport->logicalImage().height())
+                            .toStdString());
+                }
+            };
+            auto play = [&] {
+                for (auto button : editor.findChildren<QPushButton *>())
+                    if (button->text() == "Playtest") {
+                        button->click();
+                        return;
+                    }
+                throw std::runtime_error("Playtest action missing");
+            };
+            for (auto button : editor.findChildren<QPushButton *>())
+                check(button->text() != "Game preview", "Redundant static preview remains visible");
+            check(playtest->findChildren<QTabWidget *>().isEmpty() &&
+                      editor.findChild<QDialog *>("conversationDiagnosticsWindow")->isHidden(),
+                  "Playtest still mixes diagnostics and multiple previews");
+            editor.findChild<QCheckBox *>("conversationIntroduced")->setChecked(true);
+            auto setup = Dialogue::nativeSetup(p, "TOWNE.TLK", 0, -2);
+            setup.state.introduced = true;
+            auto expected = [&](const QByteArray &bytes, const QByteArray &currentFont, bool work) {
+                QVector<Dialogue::NativeKey> keys;
+                if (work)
+                    for (char ch : std::string("xjob\r"))
+                        keys.append({0, ch});
+                auto result = Dialogue::runNativeVirtual(bytes, currentFont, font, setup, keys);
+                check(result.error.contains("Script exhausted"), "Expected a blocked native wait");
+                return result;
+            };
+            auto matches = [&](const Dialogue::NativeResult &result,
+                               const QByteArray &currentFont) {
+                const auto &image = viewport->logicalImage();
+                if (image.size() != QSize(135, 112))
+                    return false;
+                auto pixels = Dialogue::nativeFramedPixels(currentFont, result.pixels);
+                QRect cursor(7 + result.x * 8, 8 + result.y * 8, 8, 8);
+                for (int y = 0; y < 112; ++y)
+                    for (int x = 0; x < 135; ++x)
+                        if (!cursor.contains(x, y) &&
+                            image.pixel(x, y) !=
+                                (0xff000000u | IMPERA_TextPalette[uint8_t(pixels[y * 135 + x])]))
+                            return false;
+                return true;
+            };
+            auto greeting = expected(original, font, false);
+            play();
+            await("opening", [&] { return viewport->hasFocus() && matches(greeting, font); });
+            auto zoom = editor.findChild<QComboBox *>("conversationZoom");
+            playtest->resize(480, 360);
+            zoom->setCurrentIndex(5);
+            auto scroll = editor.findChild<QScrollArea *>("conversationPlaytestScroll");
+            await("zoom scrollbars", [&] {
+                return scroll->horizontalScrollBar()->maximum() > 0 &&
+                       scroll->verticalScrollBar()->maximum() > 0;
+            });
+            check(viewport->displayRect().size() == QSize(675, 672),
+                  "Fixed zoom was reduced to fit");
+            zoom->setCurrentIndex(0);
+            await("Fit", [&] { return viewport->hasFocus() && matches(greeting, font); });
+            auto outline = editor.findChild<QTreeWidget *>("conversationOutline");
+            outline->setCurrentItem(treeItem(outline, "Job / Work"));
+            app.processEvents();
+            QPlainTextEdit *paragraph = nullptr;
+            for (auto field : editor.findChildren<QPlainTextEdit *>("conversationBlockText"))
+                if (field->property("dialogueEntry").toInt() == 3 && field->isVisible())
+                    paragraph = field;
+            check(paragraph, "Work paragraph missing");
+            paragraph->setPlainText("New work");
+            check(editor.flush(), "Cannot apply Playtest edit");
+            auto changed = U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes;
+            auto currentFont = font;
+            currentFont['N' * 8] ^= char(127);
+            p.resources["IBM.CH"].edited = currentFont;
+            check(!trace->isEnabled() && editor.findChild<QLabel *>("conversationPlaytestStatus")
+                                             ->text()
+                                             .contains("Restart"),
+                  "Edits left stale source links active or silently restarted playback");
+            nativeKeys(viewport, "xjob\r");
+            auto oldWork = expected(original, font, true);
+            await("old snapshot", [&] { return matches(oldWork, font); });
+            check(p.data("TOWNE.TLK") == U5::writeDialogue({{1, changed}}),
+                  "Live session rewrote the draft");
+            editor.findChild<QPushButton *>("conversationRestart")->click();
+            nativeKeys(viewport, "xjob\r");
+            auto newWork = expected(changed, currentFont, true);
+            await("Restart", [&] { return trace->isEnabled() && matches(newWork, currentFont); });
+            QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+            QApplication::sendEvent(viewport, &escape);
+            check(playtest->isVisible(), "Native Escape closed the tools window");
+            QElapsedTimer stop;
+            stop.start();
+            playtest->close();
+            check(stop.elapsed() < 250 && playtest->isHidden() && trace->topLevelItemCount() == 0 &&
+                      editor.findChild<QLabel *>("conversationPlaytestStatus")->text() == "Stopped",
+                  "Close left a running wait or stale events");
+            play();
+            auto newGreeting = expected(changed, currentFont, false);
+            await("reopening",
+                  [&] { return viewport->hasFocus() && matches(newGreeting, currentFont); });
+            editor.hide();
+            check(playtest->isHidden() && trace->topLevelItemCount() == 0,
+                  "Leaving the editor kept Playtest alive");
         });
         test("Native game context uses edited NPCs and keeps starting resources isolated", [&] {
             for (int seed : {0, 1, 42, 32768, 65535}) {

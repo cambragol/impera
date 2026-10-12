@@ -1,4 +1,5 @@
 #include "native_dialogue_session.h"
+#include "native_dialogue_frame.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -87,6 +88,16 @@ int main(int argc, char **argv) {
             auto result =
                 runNativeVirtual(read(path + "conversation.tlk-entry"), read(path + "normal.font"),
                                  read(path + "runes.font"), setup, keys, initialTime);
+            require(nativeGameFramePixels(read(path + "normal.font")) ==
+                        read(path + "initial-frame.bin"),
+                    "Workshop/native full game frame differs");
+            auto fullFrame = read(path + "frame.bin");
+            QByteArray expectedFrame;
+            for (int y = 0; y < IMPERA_TALK_FRAME_HEIGHT; ++y)
+                expectedFrame += fullFrame.mid(
+                    (y + IMPERA_TALK_FRAME_Y) * 320 + IMPERA_TALK_FRAME_X, IMPERA_TALK_FRAME_WIDTH);
+            require(nativeFramedPixels(read(path + "normal.font"), result.pixels) == expectedFrame,
+                    "Workshop/native framed conversation crop differs");
             require(result.error.isEmpty(), qPrintable(result.error));
             require(result.gameState == read(path + "final-game.bin"),
                     "Workshop/native full game and NPC state differ");

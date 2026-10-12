@@ -1,5 +1,6 @@
 #include "native_text_viewport.h"
 #include "formats.h"
+#include "text/game_frame.h"
 #include <QPainter>
 #include <QKeyEvent>
 namespace Dialogue {
@@ -108,25 +109,62 @@ NativeTextViewport::NativeTextViewport(QWidget *parent) : QWidget(parent) {
 void NativeTextViewport::setImage(const QImage &image) {
     U5::require(image.size() == QSize(128, 104), "Invalid native text framebuffer");
     frame = image;
+    compose();
+}
+void NativeTextViewport::setConversationFrame(const QImage &image) {
+    U5::require(image.size() == QSize(IMPERA_TALK_FRAME_WIDTH, IMPERA_TALK_FRAME_HEIGHT),
+                "Invalid native conversation frame");
+    backdrop = image;
+    updateMinimumSize();
+    compose();
+}
+void NativeTextViewport::compose() {
+    presentation = backdrop.isNull() ? frame : backdrop.copy();
+    if (!backdrop.isNull() && !frame.isNull()) {
+        QPainter painter(&presentation);
+        painter.drawImage(IMPERA_TALK_FRAME_TEXT_X, IMPERA_TALK_FRAME_TEXT_Y, frame);
+    }
     update();
 }
 void NativeTextViewport::clear() {
     frame = QImage();
+    compose();
+}
+QSize NativeTextViewport::logicalSize() const {
+    return backdrop.isNull() ? QSize(128, 104) : backdrop.size();
+}
+void NativeTextViewport::setZoom(double value) {
+    U5::require(value == 0 || (value >= 1 && value <= 5), "Invalid Playtest zoom");
+    scale = value;
+    updateMinimumSize();
     update();
 }
-QSize NativeTextViewport::sizeHint() const { return QSize(384, 375); }
+void NativeTextViewport::updateMinimumSize() {
+    const auto logical = logicalSize();
+    double factor = scale > 0 ? scale : 1;
+    setMinimumSize(qRound(logical.width() * factor), qRound(logical.height() * 1.2 * factor));
+    updateGeometry();
+}
+QSize NativeTextViewport::sizeHint() const {
+    const auto logical = logicalSize();
+    double factor = scale > 0 ? scale : 3;
+    return QSize(qRound(logical.width() * factor), qRound(logical.height() * 1.2 * factor));
+}
 QRect NativeTextViewport::displayRect() const {
     // One DOS pixel is 5:6. Resize presentation only, never the logical window.
-    const double scale = qMin(width() / 128.0, height() / (104.0 * 1.2));
-    const QSize size(qRound(128 * scale), qRound(104 * 1.2 * scale));
+    const auto logical = logicalSize();
+    const double factor =
+        scale > 0 ? scale
+                  : qMin(width() / double(logical.width()), height() / (logical.height() * 1.2));
+    const QSize size(qRound(logical.width() * factor), qRound(logical.height() * 1.2 * factor));
     return QRect(QPoint((width() - size.width()) / 2, (height() - size.height()) / 2), size);
 }
 void NativeTextViewport::paintEvent(QPaintEvent *) {
     QPainter painter(this);
     painter.fillRect(rect(), Qt::black);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
-    if (!frame.isNull())
-        painter.drawImage(displayRect(), frame);
+    if (!presentation.isNull())
+        painter.drawImage(displayRect(), presentation);
 }
 void NativeTextViewport::keyPressEvent(QKeyEvent *event) {
     int code = 0;

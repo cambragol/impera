@@ -37,9 +37,10 @@ class ConversationEditor : public QWidget {
     QTreeWidget *npcs, *outline;
     QLineEdit *search, *aliases;
     QLabel *budget, *context, *status;
-    QTabWidget *tabs, *previewTabs;
+    QTabWidget *tabs;
     QPlainTextEdit *source;
     QDialog *auxiliary = nullptr;
+    QDialog *diagnosticsWindow = nullptr;
     QWidget *keywordChips;
     QCheckBox *showTrace;
     QPushButton *replyButton, *deleteButton, *upButton, *downButton, *duplicateButton, *nameButton;
@@ -47,8 +48,6 @@ class ConversationEditor : public QWidget {
     void filterNpcs();
     bool wholeSource = false;
     void refreshSource();
-    Dialogue::NativeTextViewport *dosImage;
-    QLabel *previewNotes;
     QWidget *blocksWidget;
     QVBoxLayout *blocksLayout;
     QTimer timer;
@@ -68,7 +67,7 @@ class ConversationEditor : public QWidget {
     QLabel *playtestStatus;
     std::unique_ptr<Dialogue::NativeDialogueSession> nativeSession;
     uint64_t nativeGeneration = 0;
-    bool nativeStale = false;
+    bool nativeStale = false, setupStale = false;
     int npcIndex = -1, selected = -1, prefix = 0;
     bool loading = false, pending = false, sourceDraft = false, aliasesDraft = false;
     QByteArray sourceBaseline;
@@ -83,7 +82,10 @@ class ConversationEditor : public QWidget {
     int entryPrefix(int entry) const;
     int selectedQuestion() const;
     void updateOutlineActions();
-    void openAuxiliary(int tab);
+    void openPlaytest();
+    void openDiagnostics();
+    void markPlaytestStale(bool sourceChanged);
+    void stopPlaytest();
     void insertBlock(int entry, int before, const QByteArray &bytes, bool resolved = false);
     void changed();
     bool applyDraft();

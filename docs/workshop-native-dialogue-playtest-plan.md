@@ -16,20 +16,21 @@ compiling the same functions over maintaining a second C++ interpretation of the
 Keep Qt as the presentation and host adapter. Preserve Workshop's standalone build
 without requiring SDL, the engine executable, or a separate installed helper.
 
-Phases 1–4 are implemented: the
+Phases 1–5 are implemented: the
 [reference runner](workshop-dialogue-reference-runner.md) and
 [shared renderer](workshop-shared-text-renderer.md), followed by
 [native execution and input](workshop-native-dialogue-runtime.md). Interactive
 Playtest now uses the shared interpreter and a native pixel viewport.
 The [isolated game context](workshop-native-dialogue-context.md) now supplies native action outcomes.
+The [Playtest presentation](workshop-native-dialogue-presentation.md) uses the native frame crop and zoom controls.
 
 ## Findings in the current implementation
 
 | Component | Current behavior | Accuracy gap |
 | --- | --- | --- |
 | Playtest | Shared native C interpreter and dialogue game actions | Movement and combat consequences require full-game Test Mod |
-| Playtest display | Native pixel viewport, cursor, echo and shared input editor | Surrounding frame/zoom presentation remains phase 5 |
-| Game preview | Approximate response decoder feeding the shared renderer | Fixed native pixels/window; branches and actions still need phase 3 execution |
+| Playtest display | Native frame crop, pixel viewport, cursor, echo and shared input editor | Broad cross-platform packaging validation remains phase 6 |
+| Game preview | Retired from the UI; Playtest is the single game presentation | The old decoder remains only as a test oracle |
 | Word layout | Shared native C word buffer and character renderer | Native 18-column word threshold and 16-column hard wrap preserved; old unlimited layout retained only as a compatibility oracle |
 | Fonts | Private copies of current Project IBM.CH and RUNES.CH | Missing/corrupt fonts fail explicitly |
 | Wait and Pause | Native blocking input and 28-tick Pause loop | Real-time host remains subject to scheduler jitter |
@@ -238,6 +239,8 @@ success/failure behavior and sandbox mutations. No project, installed mod, game
 resource, or real save is written by the session.
 
 ### Phase 5: Replace the current Playtest UI
+
+**Implemented:** see [presentation details and validation](workshop-native-dialogue-presentation.md).
 
 Connect the native viewport to ConversationEditor, use Project fonts/resources,
 keep Setup and traces optional, and remove the player-facing Qt transcript/Send

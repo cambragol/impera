@@ -66,6 +66,6 @@ Rules packages are validated when constructing context. These dialogue actions
 use native hardcoded caps and behavior; unrelated shop/combat rule overrides do
 not alter them. Unsupported overlay spans are not assigned invented effects.
 Full-game Test Mod remains necessary for movement, combat, special location-entry
-events and later consequences. The surrounding frame/zoom presentation remains
-phase 5. Linux differential validation is local; Windows and both macOS architectures
+events and later consequences. The [native frame/zoom presentation](workshop-native-dialogue-presentation.md)
+is implemented in phase 5. Linux differential validation is local; Windows and both macOS architectures
 still require their CI builds, including the native-library RNG check.
