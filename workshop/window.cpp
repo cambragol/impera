@@ -694,7 +694,7 @@ void WorkshopWindow::rebuildTree() {
     const auto changes = Workshop::contentChanges(project, destinations);
     auto displayed = destinations;
     if (workspaceSelector->currentText() == "World" || characters) {
-        QCollator alphabetical(QLocale(QLocale::English));
+        QCollator alphabetical{QLocale{QLocale::English}};
         alphabetical.setCaseSensitivity(Qt::CaseInsensitive);
         alphabetical.setNumericMode(true);
         std::stable_sort(displayed.begin(), displayed.end(), [&](const auto &a, const auto &b) {
