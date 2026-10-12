@@ -22,6 +22,12 @@ static QString caption(const QByteArray &bytes) {
     }
     return s.simplified().left(65);
 }
+static bool waitFollowsStateActions(const QVector<Block> &entryBlocks, int index) {
+    while (index < entryBlocks.size() &&
+           (entryBlocks[index].opcode == 134 || entryBlocks[index].opcode == 140))
+        ++index;
+    return index < entryBlocks.size() && entryBlocks[index].opcode == 143;
+}
 // Keyword chips wrap without forcing the conversation column wider than the window.
 class KeywordFlowLayout : public QLayout {
   public:
@@ -963,8 +969,7 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
         if (inlineControls) {
             auto displayed = entryBlocks.mid(index, end - index);
             QByteArray spacing;
-            if (end < entryBlocks.size() && entryBlocks[end].opcode == 143 &&
-                displayed.last().opcode < 0 &&
+            if (waitFollowsStateActions(entryBlocks, end) && displayed.last().opcode < 0 &&
                 displayed.last().bytes.endsWith(QByteArray::fromHex("8d8d"))) {
                 spacing = QByteArray::fromHex("8d8d");
                 displayed.last().bytes.chop(2);
@@ -1055,7 +1060,7 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
         layout->addLayout(tools);
         if (b.opcode < 0) {
             QByteArray visible = b.bytes, spacing;
-            if (index + 1 < entryBlocks.size() && entryBlocks[index + 1].opcode == 143 &&
+            if (waitFollowsStateActions(entryBlocks, index + 1) &&
                 visible.endsWith(QByteArray::fromHex("8d8d"))) {
                 spacing = QByteArray::fromHex("8d8d");
                 visible.chop(2);
@@ -1450,10 +1455,16 @@ void ConversationEditor::mutateBlocks(int entry, int block, int delta, bool remo
     attempt([&] {
         auto bs = blocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
         U5::require(block >= 0 && block < bs.size(), "This block no longer exists");
-        if (bs[block].opcode == 143 && block > 0 && bs[block - 1].opcode < 0 &&
-            bs[block - 1].bytes.endsWith(QByteArray::fromHex("8d8d"))) {
-            bs[block - 1].bytes.chop(2);
-            bs[block].bytes.prepend(QByteArray::fromHex("8d8d"));
+        if (bs[block].opcode == 143) {
+            int textBlock = block - 1;
+            while (textBlock >= 0 &&
+                   (bs[textBlock].opcode == 134 || bs[textBlock].opcode == 140))
+                --textBlock;
+            if (textBlock >= 0 && bs[textBlock].opcode < 0 &&
+                bs[textBlock].bytes.endsWith(QByteArray::fromHex("8d8d"))) {
+                bs[textBlock].bytes.chop(2);
+                bs[block].bytes.prepend(QByteArray::fromHex("8d8d"));
+            }
         }
         if (remove)
             bs.removeAt(block);

@@ -3893,6 +3893,7 @@ int main(int argc, char **argv) {
             auto bytes =
                 U5::encodeText("Name<Entry>Description<Entry>Greeting<Entry>Work<New Line><New "
                                "Line><Key Wait><Entry>Bye<Entry><Any><Label 15>@");
+            bytes.replace(QByteArray::fromHex("8d8d8f"), QByteArray::fromHex("8d8d86418f"));
             file(dir.path() + "/TOWNE.TLK", U5::writeDialogue({{1, bytes}}));
             p.openGame(dir.path());
             int commits = 0;
@@ -3913,8 +3914,8 @@ int main(int argc, char **argv) {
             check(editor.flush(), "Cannot edit speech before wait");
             auto doc = Dialogue::parse(U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes);
             check(doc.entries[3].bytes ==
-                      Dialogue::text("Edited work") + QByteArray::fromHex("8d8d8f"),
-                  "Editing speech lost automatic wait spacing");
+                      Dialogue::text("Edited work") + QByteArray::fromHex("8d8d86418f"),
+                  "Editing speech lost wait spacing across an intervening state action");
             outline->setCurrentItem(treeItem(outline, "Greeting (introduced)"));
             auto actions = editor.findChild<QListWidget *>("conversationAvailableActions");
             QListWidgetItem *wait = nullptr;
