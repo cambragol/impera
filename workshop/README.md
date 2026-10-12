@@ -160,7 +160,7 @@ selection or into another map; it never copies NPCs or combat records. Each
 terrain operation is one undo command; rejected operations leave resources intact.
 
 Click/drag the **minimap** to navigate; the white outline shows the viewport.
-**Highlight changes** marks terrain differing from original game files in orange,
+**View → Highlight changes** marks terrain differing from original game files in orange,
 with a changed-cell count. The browser offers **All tiles / Overworld / Ground /
 Buildings / Objects / Other**. Overworld includes tiles actually used in Britannia
 or the Underworld, and can overlap one of the four artwork categories.
@@ -525,3 +525,7 @@ layout and colors, with tile/sheet PNG import/export and Undo. Alternate sheets
 are bundled into Workshop and exported as mod resources. In Impera, choose the
 matching tileset in Engine Options to see those changes. See the
 [tileset documentation](../docs/workshop-content-navigation.md#alternate-tilesets).
+
+The map editor’s **View** menu contains only **Contents markers** and
+**Highlight changes**, both checkable. Inspectors open by selecting an item with
+Select / Move; the View menu does not contain inspector shortcuts.

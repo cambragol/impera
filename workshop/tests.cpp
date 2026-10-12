@@ -3983,7 +3983,7 @@ int main(int argc, char **argv) {
             check(!workspace.findChild<QCheckBox *>("mapGrid") &&
                       !workspace.findChild<QCheckBox *>("mapRectangleOutline"),
                   "Removed map controls are still present");
-            for (const char *name : {"mapCopy", "mapPaste", "mapClearSelection", "mapComparison"}) {
+            for (const char *name : {"mapCopy", "mapPaste", "mapClearSelection"}) {
                 auto control = workspace.findChild<QWidget *>(name);
                 check(control &&
                           qAbs(control->mapTo(&workspace, QPoint()).y() -
@@ -3991,6 +3991,25 @@ int main(int argc, char **argv) {
                               10,
                       "Terrain action is not on the tool row");
             }
+            WorkshopWindow viewWindow;
+            check(viewWindow.openGame(dir.path()), "View menu fixture open");
+            viewWindow.selectResource("TOWNE.DAT");
+            auto viewWorkspace = viewWindow.findChild<QStackedWidget *>("workspaces")->currentWidget();
+            auto viewMenu = viewWorkspace->findChild<QToolButton *>("mapViewOptions");
+            check(viewMenu && viewMenu->text() == "View" && viewMenu->menu()->actions().size() == 2 &&
+                      !viewWorkspace->findChild<QToolButton *>("mapItemsMenu"),
+                  "View menu should contain only the two display toggles");
+            auto highlight = viewWorkspace->findChild<QAction *>("viewHighlightChanges");
+            auto markers = viewWorkspace->findChild<QAction *>("viewContentsMarkers");
+            check(highlight && markers && highlight->isCheckable() && markers->isCheckable(),
+                  "View settings are not checkable");
+            auto canvas = dynamic_cast<MapCanvas *>(viewWorkspace->findChild<QWidget *>("mapCanvas"));
+            highlight->setChecked(true);
+            check(canvas->comparison, "View menu did not enable change highlighting");
+            markers->setChecked(false);
+            check(!canvas->showContentsMarkers, "View menu did not hide contents markers");
+            highlight->setChecked(false);
+            markers->setChecked(true);
             check(floors->count() == 2 && floors->findData(0) >= 0 && floors->findData(1) >= 0 &&
                       floors->findData(6) < 0,
                   "Floor selector includes other locations");

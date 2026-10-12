@@ -1149,10 +1149,10 @@ MapWorkspace::MapWorkspace(
     tools->insertWidget(tools->count() - 1, copy);
     tools->insertWidget(tools->count() - 1, paste);
     tools->insertWidget(tools->count() - 1, clear);
-    comparison = new QCheckBox("Highlight changes");
+    comparison = new QCheckBox("Highlight changes", this);
     comparison->setObjectName("mapComparison");
     comparison->setToolTip("Orange marks terrain that differs from original game files");
-    tools->addWidget(comparison);
+    comparison->hide();
     row->insertStretch(row->count() - 1);
     row->insertWidget(row->count() - 1, zoom);
     canvas = new MapCanvas;
@@ -1552,26 +1552,12 @@ void MapWorkspace::enableLocationModes(const QStringList &names, LocationLayerFa
         connect(action, &QAction::triggered, this, [this, kind] { beginAdd(int(kind)); });
     }
     add->setMenu(addMenu);
-    auto extras = new QToolButton;
-    extras->setText("Map items");
-    extras->setObjectName("mapItemsMenu");
-    extras->setPopupMode(QToolButton::InstantPopup);
-    auto menu = new QMenu(extras);
-    for (int index = 1; index < names.size(); ++index) {
-        const auto name = names[index];
-        if (name == "Signs" || name == "Starting Objects" || name == "Encounter Details" ||
-            name == "Contents")
-            menu->addAction(name, this, [this, index] { locationModes->setCurrentIndex(index); });
-    }
-    extras->setMenu(menu);
     if (auto row = findChild<QHBoxLayout *>("mapToolRow")) {
         row->insertWidget(7, add);
         auto divider = new QFrame;
         divider->setFrameShape(QFrame::VLine);
         row->insertWidget(7, divider);
     }
-    extras->setParent(this);
-    extras->hide();
     canvas->deleteItem = [this] { deleteSelectedItem(); };
     auto remove = new QToolButton;
     remove->setObjectName("mapDeleteItem");
@@ -1600,17 +1586,25 @@ void MapWorkspace::enableLocationModes(const QStringList &names, LocationLayerFa
     markers->hide();
     auto viewOptions = new QToolButton;
     viewOptions->setObjectName("mapViewOptions");
-    viewOptions->setIcon(style()->standardIcon(QStyle::SP_FileDialogContentsView));
-    viewOptions->setToolTip("View and map item options");
+    viewOptions->setText("View");
+    viewOptions->setToolTip("Map display options");
     viewOptions->setAccessibleName("View options");
     viewOptions->setPopupMode(QToolButton::InstantPopup);
     auto viewMenu = new QMenu(viewOptions);
     auto markerAction = viewMenu->addAction("Contents markers");
+    markerAction->setObjectName("viewContentsMarkers");
+    markerAction->setToolTip(markers->toolTip());
     markerAction->setCheckable(true);
     markerAction->setChecked(true);
     connect(markerAction, &QAction::toggled, markers, &QCheckBox::setChecked);
-    for (auto action : menu->actions())
-        viewMenu->addAction(action);
+    connect(markers, &QCheckBox::toggled, markerAction, &QAction::setChecked);
+    auto highlightAction = viewMenu->addAction("Highlight changes");
+    highlightAction->setObjectName("viewHighlightChanges");
+    highlightAction->setCheckable(true);
+    highlightAction->setChecked(comparison->isChecked());
+    highlightAction->setToolTip(comparison->toolTip());
+    connect(highlightAction, &QAction::toggled, comparison, &QCheckBox::setChecked);
+    connect(comparison, &QCheckBox::toggled, highlightAction, &QAction::setChecked);
     viewOptions->setMenu(viewMenu);
     if (auto row = findChild<QHBoxLayout *>("mapLocationRow"))
         row->addWidget(viewOptions);
@@ -1660,7 +1654,7 @@ void MapWorkspace::applyLocationMode() {
     schedule->setVisible(showSchedule);
     if (auto label = findChild<QLabel *>("mapScheduleLabel"))
         label->setVisible(showSchedule);
-    comparison->setVisible(true);
+    comparison->hide();
     for (auto name : {"mapCopy", "mapPaste", "mapClearSelection"})
         findChild<QToolButton *>(name)->setEnabled(activeMode == 0);
     comparison->setEnabled(true);
@@ -2027,6 +2021,10 @@ void MapWorkspace::loadPage() {
     {
         QSignalBlocker block(comparison);
         comparison->setChecked(state.comparison);
+        if (auto action = findChild<QAction *>("viewHighlightChanges")) {
+            QSignalBlocker actionBlock(action);
+            action->setChecked(state.comparison);
+        }
     }
     canvas->zoom = state.zoom;
     canvas->grid = false;
