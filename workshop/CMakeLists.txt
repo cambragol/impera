@@ -118,7 +118,7 @@ qt_add_resources(impera_workshop_core alternate_tilesets PREFIX "/tilesets"
 target_include_directories(impera_workshop_core PUBLIC "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(impera_workshop_core PUBLIC Qt6::Widgets)
 target_include_directories(impera_workshop_core PUBLIC . ../src)
-add_executable(ImperaWorkshop WIN32 MACOSX_BUNDLE main.cpp window.cpp dialogue_editor.cpp)
+add_executable(ImperaWorkshop WIN32 MACOSX_BUNDLE main.cpp window.cpp dialogue_editor.cpp native_dialogue_smoke.cpp)
 target_link_libraries(ImperaWorkshop PRIVATE impera_workshop_core)
 set_target_properties(ImperaWorkshop PROPERTIES MACOSX_BUNDLE_BUNDLE_NAME "Impera Workshop"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.impera.workshop" MACOSX_BUNDLE_ICON_FILE impera.icns)
@@ -149,13 +149,16 @@ if(IMPERA_WORKSHOP_DEPLOY_QT)
 endif()
 if(BUILD_TESTING OR U5D_BUILD_TESTS)
     enable_testing()
+    add_test(NAME workshop_packaged_dialogue_smoke COMMAND ImperaWorkshop --playtest-smoke-test)
+    set_tests_properties(workshop_packaged_dialogue_smoke PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 15)
     add_executable(impera_workshop_dialogue_parity native_dialogue_parity.cpp)
     target_link_libraries(impera_workshop_dialogue_parity PRIVATE impera_workshop_core)
     if(TARGET impera_dialogue_reference)
         add_test(NAME workshop_dialogue_host_parity COMMAND impera_workshop_dialogue_parity
             "${CMAKE_BINARY_DIR}/dialogue-renderer-parity/reference")
         set_tests_properties(workshop_dialogue_host_parity PROPERTIES
-            DEPENDS dialogue_renderer_parity FIXTURES_REQUIRED native_dialogue_artifacts TIMEOUT 30)
+            DEPENDS dialogue_renderer_parity FIXTURES_REQUIRED native_dialogue_artifacts TIMEOUT 180)
     endif()
     if(NOT TARGET impera_text_window_test)
         add_executable(impera_text_window_test ../tests/text_window_test.c ../src/text/text_window.c)

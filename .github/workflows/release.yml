@@ -9,6 +9,7 @@ on:
       - 'CMakeLists.txt'
       - 'workshop/**'
       - 'src/mod/**'
+      - 'src/text/**'
       - 'src/vars.c'
       - 'src/6000.c'
       - 'scripts/package-workshop.py'
@@ -157,15 +158,15 @@ jobs:
               runtime = pathlib.Path(temporary)
               if os.name == 'nt':
                   executable = next(pathlib.Path('workshop-dist').glob('*/bin/ImperaWorkshop.exe')).resolve()
-                  command = [str(executable), '--help']
+                  command = [str(executable), '--playtest-smoke-test']
               elif '${{ runner.os }}' == 'macOS':
                   with tarfile.open(next(pathlib.Path('workshop-dist').glob('*.tar.gz'))) as archive:
                       archive.extractall(runtime, filter='data')
                   executable = next(runtime.glob('*/ImperaWorkshop.app/Contents/MacOS/ImperaWorkshop'))
-                  command = [str(executable), '--help']
+                  command = [str(executable), '--playtest-smoke-test']
               else:
                   executable = next(pathlib.Path('workshop-dist').glob('*.AppImage')).resolve()
-                  command = [str(executable), '--appimage-extract-and-run', '--help']
+                  command = [str(executable), '--appimage-extract-and-run', '--playtest-smoke-test']
               # Do not let the SDK's environment hide missing packaged dependencies.
               env = {k: v for k, v in os.environ.items() if k not in
                      {'LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH', 'DYLD_FRAMEWORK_PATH',
@@ -175,7 +176,7 @@ jobs:
                                               if 'qt' not in p.lower())
               result = subprocess.run(command, cwd=runtime, env=env,
                                       capture_output=True, text=True, check=True, timeout=60)
-              assert 'Native Ultima 5 mod-package authoring' in result.stdout, result.stdout + result.stderr
+              assert 'PASS native dialogue packaged smoke test' in result.stdout, result.stdout + result.stderr
       - name: Verify Workshop native icon
         run: python scripts/verify-package-icons.py --workshop --platform ${{ matrix.platform }} --package-root workshop-dist
       - name: Stage direct Windows Workshop download

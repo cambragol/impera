@@ -40,6 +40,7 @@ typedef struct {
 static Scenario scenario;
 static ScriptKey *script;
 static int key_count, key_index;
+static bool allow_unused_keys;
 static u32 now, ready_at, seed = 42, trace_hash;
 static bool scheduled, recording;
 static unsigned event_count, scroll_count, glyph_count, sleep55_count, clear_count;
@@ -740,7 +741,7 @@ static Result run(const char *directory, bool write_artifacts) {
         TALK_0a3c();
     TALK_04e2_PrintWord();
     event("finish", 0, 0, 0);
-    assert(key_index == key_count);
+    assert(allow_unused_keys || key_index == key_count);
     Result result = {0};
     result.time = now;
     result.trace_hash = trace_hash;
@@ -858,6 +859,8 @@ int main(int argc, char **argv) {
             start_y = (int)number(argv[++i], 12);
         else if (!strcmp(argv[i], "--introduced"))
             introduced = (int)number(argv[++i], 1);
+        else if (!strcmp(argv[i], "--allow-unused-keys"))
+            allow_unused_keys = number(argv[++i], 1) != 0;
         else
             fail("unknown command option");
     }

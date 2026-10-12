@@ -75,6 +75,13 @@ class WorkshopReleaseTest(unittest.TestCase):
         self.assertIn('--with-workshop', next(s['run'] for s in release['steps']
                                             if s.get('name') == 'Assemble release downloads'))
         self.assertIn('IMPERA_WORKSHOP_DEPLOY_QT=ON', steps['Configure Workshop']['run'])
+        smoke = steps['Workshop package startup smoke check']['run']
+        self.assertEqual(smoke.count("'--playtest-smoke-test'"), 3)
+        self.assertIn('timeout=60', smoke)
+        self.assertIn('PASS native dialogue packaged smoke test', smoke)
+        standalone = yaml.safe_load((ROOT / '.github/workflows/workshop.yml').read_text())
+        self.assertEqual(set(standalone['jobs']['workshop']['strategy']['matrix']['os']),
+                         {'ubuntu-24.04', 'windows-2022', 'macos-15-intel', 'macos-15'})
 
 
 if __name__ == '__main__':

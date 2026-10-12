@@ -29,7 +29,7 @@ The [Playtest presentation](workshop-native-dialogue-presentation.md) uses the n
 | Component | Current behavior | Accuracy gap |
 | --- | --- | --- |
 | Playtest | Shared native C interpreter and dialogue game actions | Movement and combat consequences require full-game Test Mod |
-| Playtest display | Native frame crop, pixel viewport, cursor, echo and shared input editor | Broad cross-platform packaging validation remains phase 6 |
+| Playtest display | Native frame crop, pixel viewport, cursor, echo and shared input editor | Four-platform CI checks standalone builds and deployed native Playtest startup |
 | Game preview | Retired from the UI; Playtest is the single game presentation | The old decoder remains only as a test oracle |
 | Word layout | Shared native C word buffer and character renderer | Native 18-column word threshold and 16-column hard wrap preserved; old unlimited layout retained only as a compatibility oracle |
 | Fonts | Private copies of current Project IBM.CH and RUNES.CH | Missing/corrupt fonts fail explicitly |
@@ -285,6 +285,44 @@ matched seeds and the appropriate platform's native reference.
 
 **Exit:** exact logical-pixel, branch, input, and state parity for the supported
 dialogue scope; timing requests match; all four release packages pass smoke tests.
+
+### Phase 6 implementation and verification scope
+
+The Linux differential suite now enumerates every conversation in TOWNE.TLK,
+DWELLING.TLK, CASTLE.TLK and KEEP.TLK. With the original resources in this checkout,
+135 conversations run four paths each: both introduction states, with ordinary
+farewell input or mixed-case Name/Job input and question answers. Stillwelt and
+Blackthorn have explicit scripts for their mandatory questions, including the
+Oppression password path. These scripts supply surplus keys intentionally;
+the harness still compares the actual number and order consumed. Synthetic
+fixtures retain the stricter requirement that every supplied key is consumed.
+
+All reference artifacts are compared byte for byte with the engine adapter.
+Workshop independently replays the same inputs and compares logical pixels at
+every rendering boundary, opcode/source positions, cursor, time requests, frame
+updates and private native game state. The suite fails if any of the 32 dialogue
+control bytes is no longer reached. This is execution coverage, not a claim that
+every possible answer or game-state combination has been exhausted.
+
+Standalone CTest now launches the actual application with
+`--playtest-smoke-test`. This resource-free check uses an explicitly synthetic
+font to exercise native execution, consumed keys, repeatability, font rejection,
+frame geometry, widget painting and cancellation during real-time input waits.
+It never substitutes synthetic artwork in player sessions. Release packaging
+runs this same check from the deployed Windows executable, extracted macOS app
+or Linux AppImage, outside the checkout and without SDK runtime search paths.
+Failures prevent release publication. The existing four-platform standalone
+matrix also runs the independent frozen text renderer, native keyword oracle,
+platform RNG comparisons and UI/session/resource regression tests.
+
+Local verification is Linux only. Windows and both macOS architectures must pass
+the committed CI jobs before their packages can be considered verified. The full
+independent engine-reference harness still requires GNU linker wrapping and local
+original game assets; it is not a full-interpreter differential oracle on macOS
+or Windows. Their portable regression tests and packaged smoke checks do not
+erase that limitation. Manual visual comparison of live timing remains useful;
+CI verifies exact virtual timing and bounded real-time responsiveness instead of
+assuming a scheduler delivers every tick without jitter.
 
 ## Recommended starting point
 

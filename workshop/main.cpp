@@ -1,5 +1,6 @@
 #include "ui_theme.h"
 #include "window.h"
+#include "native_dialogue_smoke.h"
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QTimer>
@@ -13,6 +14,7 @@ int main(int argc, char **argv) {
     parser.setApplicationDescription("Native Ultima 5 mod-package authoring for Impera");
     parser.addHelpOption();
     parser.addVersionOption();
+    parser.addOption({"playtest-smoke-test", "Check the packaged native dialogue runtime and exit"});
     parser.addOption({"game", "Read original DOS resources from this folder", "directory"});
     parser.addOption({"project", "Open a saved Workshop project", "file"});
     parser.addOption({"resource", "Initially select this resource", "name"});
@@ -21,6 +23,8 @@ int main(int argc, char **argv) {
     parser.addOption(
         {"screenshot", "Save a UI screenshot before exiting (for development)", "file"});
     parser.process(app);
+    if (parser.isSet("playtest-smoke-test"))
+        return nativeDialogueSmokeTest();
     WorkshopWindow window;
     if (parser.isSet("game") && !window.openGame(parser.value("game")))
         return 1;

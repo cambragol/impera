@@ -14,6 +14,13 @@ foreach(variant REFERENCE SHARED)
         message(FATAL_ERROR "${variant} original TLK: ${log}\n${errors}")
     endif()
 endforeach()
+execute_process(COMMAND "${PYTHON}" "${CORPUS}"
+    --reference "${REFERENCE}" --shared "${SHARED}" --game "${GAME}" --output "${OUTPUT}"
+    RESULT_VARIABLE status OUTPUT_VARIABLE log ERROR_VARIABLE errors)
+if(NOT status EQUAL 0)
+    message(FATAL_ERROR "Original dialogue corpus: ${log}\n${errors}")
+endif()
+message(STATUS "${log}")
 file(GLOB_RECURSE reference_files RELATIVE "${OUTPUT}/reference" "${OUTPUT}/reference/*")
 file(GLOB_RECURSE shared_files RELATIVE "${OUTPUT}/shared" "${OUTPUT}/shared/*")
 if(NOT reference_files STREQUAL shared_files)

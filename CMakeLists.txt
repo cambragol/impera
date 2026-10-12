@@ -329,14 +329,17 @@ if(U5D_BUILD_TESTS)
             IMPERA_REFERENCE_OBSERVER=1 DIALOGUE_REFERENCE_TALK="shared_reference_talk.c" TEST_GAME_DIR="${CMAKE_SOURCE_DIR}/Ultima 5")
         get_target_property(reference_wraps impera_dialogue_reference LINK_OPTIONS)
         target_link_options(impera_dialogue_shared_reference PRIVATE ${reference_wraps})
+        find_package(Python3 COMPONENTS Interpreter REQUIRED)
         add_test(NAME dialogue_renderer_parity COMMAND "${CMAKE_COMMAND}"
+            "-DPYTHON=${Python3_EXECUTABLE}"
+            "-DCORPUS=${CMAKE_SOURCE_DIR}/tests/dialogue_original_corpus.py"
             "-DREFERENCE=$<TARGET_FILE:impera_dialogue_reference>"
             "-DSHARED=$<TARGET_FILE:impera_dialogue_shared_reference>"
             "-DOUTPUT=${CMAKE_BINARY_DIR}/dialogue-renderer-parity"
             "-DGAME=${CMAKE_SOURCE_DIR}/Ultima 5"
             "-DSCRIPT=${CMAKE_SOURCE_DIR}/tests/dialogue_reference_bye.tsv"
             -P "${CMAKE_SOURCE_DIR}/tests/dialogue_renderer_parity.cmake")
-        set_tests_properties(dialogue_renderer_parity PROPERTIES TIMEOUT 30
+        set_tests_properties(dialogue_renderer_parity PROPERTIES TIMEOUT 180
             FIXTURES_SETUP native_dialogue_artifacts)
         add_test(NAME dialogue_reference_tlk COMMAND impera_dialogue_reference
             --output "${CMAKE_BINARY_DIR}/dialogue-reference-tlk-runtime"
