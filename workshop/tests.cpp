@@ -3961,6 +3961,83 @@ int main(int argc, char **argv) {
                       "Resizing reflowed native pixels or lost DOS aspect");
             }
         });
+        test("Native game context uses edited NPCs and keeps starting resources isolated", [&] {
+            for (int seed : {0, 1, 42, 32768, 65535}) {
+                Dialogue::NativeRandom rng;
+                rng.seed(uint16_t(seed));
+                std::srand(seed);
+                for (int i = 0; i < 1024; ++i)
+                    check(rng.next() == std::rand(),
+                          "Session RNG differs from platform-native rand");
+            }
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            auto &init = p.resources["INIT.GAM"].edited;
+            init.replace(2, 9, QByteArray("Avatar\0\0\0", 9));
+            init.replace(2 + 15 * 32, 9, QByteArray("Nora\0\0\0\0\0", 9));
+            init[0x2d9] = 19;
+            init[0x2e2] = 70;
+            init[0x206] = 98;
+            init[0x204] = 50;
+            init[0x24a] = 23;
+            init[0x215] = 17;
+            QByteArray schedule(4608, char(0));
+            schedule[512 + 5] = 0x44;
+            schedule[544 + 5] = 1;
+            schedule[5 * 16 + 3] = 23;
+            schedule[5 * 16 + 6] = 15;
+            schedule[5 * 16 + 12] = 19;
+            p.resources["TOWNE.NPC"] = {schedule, schedule, false};
+            p.resources["TOWNE.DAT"] = {QByteArray(16384, char(0)), QByteArray(16384, char(0)),
+                                        false};
+            auto talk = U5::encodeText("Nora<Entry>Description<Entry>Hello<Join "
+                                       "Party><Entry>Work<Entry>Bye<Entry><Any><Label 15>@");
+            auto tlk = U5::writeDialogue({{1, talk}});
+            p.resources["TOWNE.TLK"] = {tlk, tlk, false};
+            auto original = p.data("INIT.GAM"), originalNpc = p.data("TOWNE.NPC");
+            auto setup = Dialogue::nativeSetup(p, "TOWNE.TLK", 0, 5);
+            check(setup.hasNpc && setup.npc == 5 && uint8_t(setup.gameState[0x2ed]) == 1 &&
+                      setup.state.gold == 50 && setup.state.karma == 70 &&
+                      uint8_t(setup.npcRecords[5 * 16 + 2]) == 23,
+                  "Playtest ignored Project starting state or NPC schedules");
+            setup.state.introduced = true;
+            const auto initialContext = setup.gameState;
+            auto result = Dialogue::runNativeVirtual(talk, QByteArray(1024, char(128)),
+                                                     QByteArray(1024, char(128)), setup, {});
+            check(result.error.isEmpty() && result.partySize == 2 &&
+                      result.gameState.mid(34, 4) == "Nora" && result.shapes[5] == 0 &&
+                      (uint8_t(result.gameState[0x5b4]) & 32) &&
+                      uint8_t(result.gameState[0x24a]) == 23 &&
+                      uint8_t(result.gameState[0x215]) == 17,
+                  "Recruitment failed or damaged unrelated game state");
+            auto again = Dialogue::runNativeVirtual(talk, QByteArray(1024, char(128)),
+                                                    QByteArray(1024, char(128)), setup, {});
+            check(result.gameState == again.gameState && p.data("INIT.GAM") == original &&
+                      p.data("TOWNE.NPC") == originalNpc && setup.gameState == initialContext,
+                  "Playtest restart mutated Project or starting context");
+            p.resources["TOWNE.NPC"].edited[512 + 6] = 0x44;
+            p.resources["TOWNE.NPC"].edited[544 + 6] = 1;
+            check(!Dialogue::nativeSetup(p, "TOWNE.TLK", 0).hasNpc &&
+                      Dialogue::nativeSetup(p, "TOWNE.TLK", 0, 6).npc == 6,
+                  "Shared conversation guessed an NPC identity");
+            p.resources["INIT.GAM"].edited[0x322] = 1;
+            auto invaded = Dialogue::nativeSetup(p, "TOWNE.TLK", 0, 5);
+            check(uint8_t(invaded.shapes[31]) == 0xfc && invaded.scheduleRecords[31 * 16] == 6 &&
+                      invaded.npcRecords[31 * 16 + 2] == 15,
+                  "Shadowlord context omitted its active NPC");
+            invaded.state.introduced = true;
+            auto guarded = Dialogue::runNativeVirtual(
+                U5::encodeText("Nora<Entry>Description<Entry>Hello<Call Guards><End "
+                               "Conversation><Entry>Work<Entry>Bye<Entry><Any><Label 15>@"),
+                QByteArray(1024, char(128)), QByteArray(1024, char(128)), invaded, {});
+            check(guarded.error.isEmpty() && guarded.scheduleRecords[31 * 16] == 7,
+                  "Guard reactions omitted a location's Shadowlord");
+            p.resources["INIT.GAM"].edited[0x5b4] = 64;
+            auto killed = Dialogue::nativeSetup(p, "TOWNE.TLK", 0, 5);
+            check(killed.shapes[6] == 0 && killed.npcRecords[6 * 16] == 0 &&
+                      uint8_t(killed.npcRecords[6 * 16 + 8]) == 0x44,
+                  "Killed NPC context lost native despawn preservation");
+        });
         test("Native Playtest cancels waits and pauses, restarts and isolates sessions", [&] {
             const auto waiting =
                 U5::encodeText("Name<Entry>Description<Entry>Hello<Key "

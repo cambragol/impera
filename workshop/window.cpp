@@ -1695,6 +1695,7 @@ QWidget *WorkshopWindow::dialogueEditor(const QString &name) {
             editorState[name + "/entry"] = entry;
         });
     auto location = editor->findChild<QComboBox *>("conversationLocationFilter");
+    editor->setCharacterIdentity(editorState.value(name + "/character", -1));
     location->setCurrentIndex(
         qMax(0, location->findData(editorState.value(name + "/locationFilter", -1))));
     connect(location, &QComboBox::currentIndexChanged, this, [this, name, location] {

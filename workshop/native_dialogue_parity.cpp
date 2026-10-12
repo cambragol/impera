@@ -43,6 +43,22 @@ int main(int argc, char **argv) {
             setup.state.gold = context["gold"].toInt();
             setup.state.karma = context["karma"].toInt();
             setup.state.introduced = context["introduced"].toInt() != 0;
+            setup.gameState = read(path + "initial-game.bin");
+            setup.actorRecords = setup.gameState.mid(0x6b4, 256);
+            setup.scheduleRecords = setup.gameState.mid(0x7b8, 512);
+            setup.npcRecords = setup.gameState.mid(0x9b8, 512);
+            setup.shapes = setup.gameState.mid(0xff8, 32);
+            setup.npc = context["npc_slot"].toInt();
+            setup.hasNpc = true;
+            setup.state.partySize = uint8_t(setup.gameState[0x2b5]);
+            setup.state.gold =
+                uint8_t(setup.gameState[0x204]) | (uint8_t(setup.gameState[0x205]) << 8);
+            setup.state.karma = uint8_t(setup.gameState[0x2e2]);
+            setup.state.partyNames.clear();
+            for (int i = 0; i < setup.state.partySize; ++i) {
+                QByteArray name = setup.gameState.mid(2 + i * 32, 9);
+                setup.state.partyNames.append(QString::fromLatin1(name.constData()));
+            }
             QVector<NativeKey> keys;
             for (auto line : read(path + "keys.tsv").split('\n')) {
                 auto fields = line.simplified().split(' ');
@@ -52,6 +68,7 @@ int main(int argc, char **argv) {
             QVector<QJsonObject> renders;
             QVector<QPair<int, int>> opcodes;
             uint64_t initialTime = 0;
+            int frames = 0;
             for (auto line : read(path + "events.jsonl").split('\n')) {
                 if (line.isEmpty())
                     continue;
@@ -59,7 +76,10 @@ int main(int argc, char **argv) {
                 const QString kind = event["event"].toString();
                 if (kind == "start")
                     initialTime = uint64_t(event["ms"].toDouble());
-                if (kind == "glyph" || kind == "scroll" || kind == "fill")
+                if (kind == "frame_update")
+                    ++frames;
+                if ((kind == "glyph" && event["b"].toInt() >= 11) || kind == "scroll" ||
+                    (kind == "fill" && event["b"].toInt() >= 88))
                     renders.append(event);
                 if (kind == "opcode")
                     opcodes.append({event["a"].toInt(), event["value"].toInt()});
@@ -68,10 +88,17 @@ int main(int argc, char **argv) {
                 runNativeVirtual(read(path + "conversation.tlk-entry"), read(path + "normal.font"),
                                  read(path + "runes.font"), setup, keys, initialTime);
             require(result.error.isEmpty(), qPrintable(result.error));
+            require(result.gameState == read(path + "final-game.bin"),
+                    "Workshop/native full game and NPC state differ");
+            require(result.frames == frames, "Workshop/native frame update requests differ");
             require(result.pixels == read(path + "window.bin"),
                     "Workshop/native final pixels differ");
-            require(result.time == uint64_t(manifest["ms"].toDouble()),
-                    "Workshop/native virtual time differs");
+            if (result.time != uint64_t(manifest["ms"].toDouble()))
+                throw std::runtime_error(QString("%1: Workshop/native virtual time %2 / %3")
+                                             .arg(name)
+                                             .arg(result.time)
+                                             .arg(manifest["ms"].toDouble())
+                                             .toStdString());
             require(result.keysConsumed == manifest["keys_consumed"].toInt(),
                     "Workshop/native input consumption differs");
             require(result.x == manifest["cursor"].toArray()[0].toInt() &&

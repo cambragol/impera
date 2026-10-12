@@ -7,6 +7,7 @@ namespace Dialogue {
 namespace {
 struct Execution {
     NativeTextWindow window;
+    NativeTextWindow vitalsWindow;
     ImperaTalk runtime{};
     ImperaTalkStorage storage{};
     ImperaInput input{};
@@ -15,8 +16,9 @@ struct Execution {
     NativeSetup setup;
     NativeResult result;
     QVector<QByteArray> names;
-    std::array<uint8_t, 64> inventory{};
-    std::array<int, 12> supplies{};
+    ImperaDialogueGame game{};
+    NativeRandom random;
+    uint8_t dirty = 0, frameFlag = 0;
     uint64_t elapsed = 0;
     int charset = 0, entry = -1, offset = -1, consumed = 0;
     bool capture = false;
@@ -46,7 +48,7 @@ struct Execution {
     }
     Execution(const QByteArray &bytes, const QByteArray &normal, const QByteArray &runes,
               const NativeSetup &s)
-        : window(normal, runes), setup(s) {
+        : window(normal, runes), vitalsWindow(normal, runes, 0), setup(s) {
         window.setRecordGlyphs(false);
         U5::require(!bytes.isEmpty() && bytes.size() <= 1024, "Conversation exceeds native bounds");
         U5::require(s.state.partySize >= 1 && s.state.partySize <= 6 && s.state.gold >= 0 &&
@@ -71,6 +73,70 @@ struct Execution {
             encoded += QByteArray(9 - encoded.size(), char(0));
             names.append(encoded);
         }
+        if (setup.gameState.isEmpty()) {
+            setup.gameState = QByteArray(4192, char(0));
+            setup.gameState[0x2ed] = 13;
+        }
+        U5::require(setup.gameState.size() == 4192, "Invalid Playtest game state");
+        if (setup.actorRecords.isEmpty())
+            setup.actorRecords = QByteArray(256, char(0));
+        if (setup.npcRecords.isEmpty())
+            setup.npcRecords = QByteArray(512, char(0));
+        if (setup.scheduleRecords.isEmpty())
+            setup.scheduleRecords = QByteArray(512, char(0));
+        if (setup.shapes.isEmpty())
+            setup.shapes = QByteArray(32, char(0));
+        U5::require(setup.actorRecords.size() == 256 && setup.npcRecords.size() == 512 &&
+                        setup.scheduleRecords.size() == 512 && setup.shapes.size() == 32,
+                    "Invalid Playtest NPC context");
+        auto *state = reinterpret_cast<uint8_t *>(setup.gameState.data());
+        for (int i = 0; i < std::min(names.size(), qsizetype(16)); ++i) {
+            U5::require(names[i].size() == 9, "Invalid party name record");
+            std::copy(names[i].cbegin(), names[i].cend(), state + 2 + i * 32);
+        }
+        state[0x2b5] = uint8_t(s.state.partySize);
+        state[0x204] = uint8_t(s.state.gold);
+        state[0x205] = uint8_t(s.state.gold >> 8);
+        state[0x2e2] = uint8_t(s.state.karma);
+        game.party = state + 2;
+        game.partyCount = state + 0x2b5;
+        game.food = state + 0x202;
+        game.gold = state + 0x204;
+        game.equipment = state + 0x21a;
+        const int supplies[] = {0x202, 0x204, 0x206, 0x207, 0x208, 0x209,
+                                0x20a, 0x216, 0x214, 0x218, 0x20b};
+        for (int i = 0; i < 11; ++i)
+            game.supplies[i] = state + supplies[i];
+        game.karma = state + 0x2e2;
+        game.turn = state + 0x2e5;
+        game.map = state + 0x2ed;
+        game.killed = state + 0x5b4;
+        game.met = state + 0x634;
+        game.actors = reinterpret_cast<uint8_t *>(setup.actorRecords.data());
+        game.npcs = reinterpret_cast<uint8_t *>(setup.npcRecords.data());
+        game.schedules = reinterpret_cast<uint8_t *>(setup.scheduleRecords.data());
+        game.shapes = reinterpret_cast<uint8_t *>(setup.shapes.data());
+        game.npc = setup.hasNpc ? setup.npc : -1;
+        game.dirty = &dirty;
+        game.host = this;
+        game.vitals = [](void *h) { self(h).updateVitals(); };
+        vitalsWindow.setRows(9);
+        vitalsWindow.setRecordGlyphs(false);
+        vitalsWindow.setSleeper([this](int ms) { delay(ms); });
+        animate = state[0x2eb];
+        if (setup.hasNpc) {
+            U5::require(game.npc >= 1 && game.npc < 32 && *game.map >= 1 && *game.map <= 32,
+                        "Invalid Playtest NPC identity");
+            auto *flag = game.met + (*game.map - 1) * 4 + game.npc / 8;
+            *flag = uint8_t((*flag & ~(1 << (game.npc % 8))) |
+                            (s.state.introduced ? 1 << (game.npc % 8) : 0));
+        }
+        random.seed(setup.seed);
+        game.random = [](void *h, int low, int high) {
+            auto &e = self(h);
+            ++e.result.randomDraws;
+            return e.random.next() % (high - low + 1) + low;
+        };
         runtime.host = this;
         runtime.cancelled = [](void *h) {
             auto &e = self(h);
@@ -111,53 +177,68 @@ struct Execution {
             return key;
         };
         runtime.waitTicks = [](void *h, int ticks) { self(h).delay(ticks * 55); };
-        runtime.frame = [](void *) {};     // Map rendering omitted, never world effects.
-        runtime.clearKeys = [](void *) {}; // The current engine's ClearKbdBuffer is a stub.
-        runtime.introduced = [](void *h) { return int(self(h).setup.state.introduced); };
-        runtime.introduce = [](void *h) { self(h).setup.state.introduced = true; };
-        runtime.partySize = [](void *h) { return self(h).setup.state.partySize; };
-        runtime.name = [](void *h, int index) {
-            return reinterpret_cast<const uint8_t *>(self(h).names[index].constData());
+        runtime.frame = [](void *h) {
+            auto &e = self(h);
+            e.frameFlag = 255;
+            e.animate = 1;
+            ++e.result.frames;
+            // Talk disables world animation, wind RNG and movement; clock is not advanced.
         };
-        runtime.karma = [](void *h) { return self(h).setup.state.karma; };
+        runtime.clearKeys = [](void *) {}; // The current engine's ClearKbdBuffer is a stub.
+        runtime.introduced = [](void *h) {
+            auto &e = self(h);
+            return e.setup.hasNpc ? IMPERA_GameMet(&e.game) : int(e.setup.state.introduced);
+        };
+        runtime.introduce = [](void *h) {
+            auto &e = self(h);
+            if (e.setup.hasNpc)
+                IMPERA_GameIntroduce(&e.game);
+            else
+                e.setup.state.introduced = true;
+        };
+        runtime.partySize = [](void *h) { return int(*self(h).game.partyCount); };
+        runtime.name = [](void *h, int index) -> const uint8_t * {
+            return self(h).game.party + index * 32;
+        };
+        runtime.karma = [](void *h) { return int(*self(h).game.karma); };
         runtime.changeKarma = [](void *h, int delta) {
-            auto &v = self(h).setup.state.karma;
-            v = std::clamp(v + delta, 0, 99);
+            auto &v = *self(h).game.karma;
+            v = uint8_t(std::clamp(int(v) + delta, 0, 99));
         };
         runtime.pay = [](void *h, int amount) {
-            auto &gold = self(h).setup.state.gold;
-            if (gold < amount)
+            auto &e = self(h);
+            if (e.setup.requireNpcContext && !e.setup.hasNpc) {
+                e.fail("Choose an NPC in Setup to test payments");
                 return 1;
-            gold -= amount;
-            return 0;
+            }
+            return IMPERA_GamePay(&e.game, amount);
         };
         runtime.give = [](void *h, uint8_t code) {
             auto &e = self(h);
-            if (code < 64) {
-                auto &item = e.inventory[code];
-                item = uint8_t(std::min(99, int(item) + 1));
-            } else if (code == 65)
-                e.supplies[0] = std::min(9999, e.supplies[0] + 1);
-            else if (code == 66)
-                e.setup.state.gold = std::min(9999, e.setup.state.gold + 1);
-            else if (code >= 67 && code <= 71)
-                e.supplies[code - 66] = std::min(99, e.supplies[code - 66] + 1);
-            else if (code >= 72 && code <= 74)
-                e.supplies[code - 66] = 255;
-            else if (code == 75)
-                e.supplies[9] = std::min(99, e.supplies[9] + 1);
+            if (!IMPERA_GameGive(&e.game, code))
+                e.fail("Invalid equipment item");
         };
         runtime.join = [](void *h) {
-            self(h).fail("Recruitment requires a full game test");
-            return 1;
+            auto &e = self(h);
+            if (!e.setup.hasNpc) {
+                e.fail("Choose an NPC in Setup to test recruitment");
+                return 1;
+            }
+            return IMPERA_GameJoin(&e.game, &e.runtime);
         };
-        runtime.guards = [](void *h) { self(h).fail("Calling guards requires a full game test"); };
+        runtime.guards = [](void *h) {
+            auto &e = self(h);
+            if (!e.setup.hasNpc) {
+                e.fail("Choose an NPC in Setup to test guard reactions");
+                return;
+            }
+            IMPERA_GameGuards(&e.game);
+        };
         runtime.greetingRoll = [](void *h) {
-            // Exactly one platform-native first draw, isolated from other sessions.
-            static std::mutex rng;
-            std::lock_guard<std::mutex> lock(rng);
-            std::srand(self(h).setup.seed);
-            return std::rand() % 2;
+            auto &e = self(h);
+            e.random.seed(e.setup.seed);
+            ++e.result.randomDraws;
+            return e.random.next() % 2;
         };
         runtime.observe = [](void *h, const uint8_t *cursor) {
             auto &e = self(h);
@@ -186,7 +267,7 @@ struct Execution {
         input.buffering = &buffering;
         input.cursorBase = 5;
         input.cursorCount = 4;
-        input.map = 13;
+        input.map = *game.map;
         input.driver = 1;
         input.animate = &animate;
         input.host = this;
@@ -201,6 +282,69 @@ struct Execution {
         window.setObserver([this](const QString &kind, int value) { publish(kind, value); });
     }
     bool hasRunes = false;
+    // Run the native non-combat vitals layout offscreen: its wrapping still requests ticks.
+    void updateVitals() {
+        auto &w = vitalsWindow;
+        w.selectFont(charset);
+        auto byte = [&](int at) { return uint8_t(setup.gameState[at]); };
+        auto number = [&](int n, int width = 1, char fill = ' ') {
+            w.printString(
+                QString::number(n).rightJustified(width, QChar(fill)).toLatin1().constData());
+        };
+        for (int i = 0; i < 6; ++i) {
+            w.setPosition(0, i);
+            if (i >= *game.partyCount) {
+                w.printString("               ");
+                continue;
+            }
+            auto *p = game.party + i * 32;
+            int length = 0;
+            while (length < 9 && p[length])
+                w.print(p[length++]);
+            for (int x = length; x < 9; ++x)
+                w.print(' ');
+            bool active = i == byte(0x2d5);
+            w.print(active && p[11] != 'D' && p[11] != 'S' ? 0x1a : ' ');
+            if (active && (p[11] == 'D' || p[11] == 'S'))
+                setup.gameState[0x2d5] = char(255);
+            number(int16_t(p[16] | (p[17] << 8)), 4);
+            w.print(p[11]);
+        }
+        w.setPosition(0, 7);
+        w.printString("F:");
+        number(int16_t(game.food[0] | (game.food[1] << 8)));
+        while (w.cursor().currentX < 8)
+            w.print(' ');
+        if (*game.map < 128 && (byte(0x2d6) & 0xf8) == 0x20) {
+            w.printString("Ship:");
+            number(game.actors[5]);
+            if (game.actors[5] < 10)
+                w.print(' ');
+        } else {
+            w.setPosition(8, 7);
+            int gold = int16_t(game.gold[0] | (game.gold[1] << 8));
+            if (gold < 1000)
+                w.print(' ');
+            if (gold < 100)
+                w.print(' ');
+            if (gold < 10)
+                w.print(' ');
+            w.printString(" G:");
+            number(gold);
+            while (w.cursor().currentX < 15)
+                w.print(' ');
+        }
+        w.printString("\n   ");
+        if (byte(0x2d7) < 10 && byte(0x2d8) < 10)
+            w.print(' ');
+        number(byte(0x2d7));
+        w.print('-');
+        number(byte(0x2d8));
+        w.print('-');
+        number(byte(0x2ce) | (byte(0x2cf) << 8), 3, '0');
+        while (w.cursor().currentX < 15)
+            w.print(' ');
+    }
     NativeResult run() {
         publish("start");
         IMPERA_TalkRun(&runtime);
@@ -211,10 +355,21 @@ struct Execution {
         result.keysConsumed = consumed;
         result.x = window.cursor().currentX;
         result.y = window.cursor().currentY;
-        result.gold = setup.state.gold;
-        result.karma = setup.state.karma;
-        result.keys = supplies[1];
-        result.introduced = setup.state.introduced;
+        result.gold = game.gold[0] | (game.gold[1] << 8);
+        result.karma = *game.karma;
+        result.keys = *game.supplies[2];
+        result.partySize = *game.partyCount;
+        result.introduced = setup.hasNpc ? IMPERA_GameMet(&game) != 0 : setup.state.introduced;
+        setup.gameState[0x2eb] = char(animate);
+        setup.gameState.replace(0x6b4, 256, setup.actorRecords);
+        setup.gameState.replace(0x7b8, 512, setup.scheduleRecords);
+        setup.gameState.replace(0x9b8, 512, setup.npcRecords);
+        setup.gameState.replace(0xff8, 32, setup.shapes);
+        result.gameState = setup.gameState;
+        result.npcRecords = setup.npcRecords;
+        result.scheduleRecords = setup.scheduleRecords;
+        result.actorRecords = setup.actorRecords;
+        result.shapes = setup.shapes;
         result.cancelled = cancelled && cancelled();
         if (runtime.error)
             result.error = QString::fromUtf8(runtime.errorText ? runtime.errorText
@@ -294,8 +449,25 @@ void NativeDialogueSession::start() {
             };
             auto result = e.run();
             active = false;
-            if (!cancelled)
+            if (!cancelled) {
+                QStringList changes;
+                changes << QString("Party: %1 · Gold: %2 · Karma: %3 · Keys: %4")
+                               .arg(result.partySize)
+                               .arg(result.gold)
+                               .arg(result.karma)
+                               .arg(result.keys);
+                if (!setup.scheduleRecords.isEmpty()) {
+                    int changed = 0;
+                    for (int i = 0; i < 32; ++i)
+                        if (result.scheduleRecords.mid(i * 16, 16) !=
+                            setup.scheduleRecords.mid(i * 16, 16))
+                            ++changed;
+                    if (changed)
+                        changes << QString("NPC schedules changed: %1").arg(changed);
+                }
+                emit stateReady(changes);
                 emit finished(result.error.isEmpty() ? "Conversation ended" : result.error);
+            }
         } catch (const std::exception &error) {
             active = false;
             if (!cancelled)

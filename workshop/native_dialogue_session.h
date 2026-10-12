@@ -1,8 +1,10 @@
 #pragma once
 #include "dialogue.h"
+#include "project.h"
 #include "native_text_viewport.h"
 #include "text/dialogue_runtime.h"
 #include "text/text_input.h"
+#include "text/dialogue_game.h"
 #include <QObject>
 #include <atomic>
 #include <condition_variable>
@@ -11,10 +13,25 @@
 #include <mutex>
 #include <thread>
 namespace Dialogue {
+class NativeRandom {
+  public:
+    void seed(uint16_t);
+    int next();
+
+  private:
+    uint32_t state[31]{};
+    int front = 3, rear = 0;
+};
 struct NativeSetup {
     Sandbox state;
     uint16_t seed = 42;
+    QByteArray gameState, npcRecords, scheduleRecords, actorRecords, shapes;
+    int npc = -1;
+    bool hasNpc = false;
+    bool requireNpcContext = false;
 };
+NativeSetup nativeSetup(const Project &, const QString &resource, int conversation,
+                        int character = -1);
 struct NativeKey {
     uint32_t delay = 0;
     int code = 0;
@@ -31,6 +48,8 @@ struct NativeResult {
     int keysConsumed = 0, x = 0, y = 0, gold = 0, karma = 0, keys = 0;
     bool introduced = false, cancelled = false;
     QString error;
+    QByteArray gameState, npcRecords, scheduleRecords, actorRecords, shapes;
+    int partySize = 0, randomDraws = 0, frames = 0;
     QVector<NativeBoundary> boundaries;
     QVector<QPair<int, int>> opcodes;
 };
@@ -50,6 +69,7 @@ class NativeDialogueSession : public QObject {
   signals:
     void frameReady(const QImage &);
     void actionReady(const QString &, int entry, int offset);
+    void stateReady(const QStringList &);
     void finished(const QString &);
 
   private:

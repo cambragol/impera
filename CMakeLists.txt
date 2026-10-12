@@ -58,6 +58,7 @@ set(SOURCES
 	src/text/text_input.c
 	src/text/input_engine.c
 	src/text/dialogue_runtime.c
+	src/text/dialogue_game.c
 	src/2000.c
 	src/3000.c
 	src/4000.c

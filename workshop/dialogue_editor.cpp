@@ -3,6 +3,7 @@
 #include "native_text_viewport.h"
 #include "native_dialogue_session.h"
 #include "dialogue_surface.h"
+#include "content_navigation.h"
 #include <memory>
 using namespace Dialogue;
 static constexpr int InsertParagraphPause = 1000;
@@ -491,6 +492,27 @@ ConversationEditor::ConversationEditor(
     partySize->setPrefix("Party ");
     stateRow2->addWidget(partySize);
     setupLayout->addLayout(stateRow2);
+    auto npcRow = new QHBoxLayout;
+    npcRow->addWidget(new QLabel("NPC"));
+    testNpc = new QComboBox;
+    testNpc->setObjectName("conversationTestNpc");
+    npcRow->addWidget(testNpc, 1);
+    setupLayout->addLayout(npcRow);
+    connect(testNpc, &QComboBox::currentIndexChanged, this, [this] {
+        if (!project->resources.contains("INIT.GAM"))
+            return;
+        try {
+            auto initial =
+                nativeSetup(*project, resource, npcIndex, testNpc->currentData().toInt());
+            avatar->setText(initial.state.partyNames.join(", "));
+            gold->setValue(initial.state.gold);
+            karma->setValue(initial.state.karma);
+            partySize->setValue(initial.state.partySize);
+            introduced->setChecked(initial.state.introduced);
+        } catch (const std::exception &error) {
+            status->setText(QString::fromUtf8(error.what()));
+        }
+    });
     testLayout->addWidget(setup);
     setup->hide();
     transcript = new QTreeWidget;
@@ -618,9 +640,27 @@ bool ConversationEditor::attempt(const std::function<void()> &fn) {
         return false;
     }
 }
+void ConversationEditor::setCharacterIdentity(int character) {
+    int index = testNpc->findData(character);
+    if (index >= 0)
+        testNpc->setCurrentIndex(index);
+}
+void ConversationEditor::loadTestContext() {
+    if (!testNpc)
+        return;
+    testNpc->clear();
+    testNpc->addItem("Conversation only", -2);
+    for (const auto &npc : Workshop::characterDestinations(*project))
+        if (npc.character > 0 && npc.character % 32 != 0 && npc.resource == resource &&
+            npc.conversation == npcIndex)
+            testNpc->addItem(npc.title + " — " + npc.group, npc.character);
+    if (testNpc->count() == 2)
+        testNpc->setCurrentIndex(1);
+}
 void ConversationEditor::loadNpc(int i, int entry) {
     npcIndex = i;
     doc = parse(conversations[i].bytes);
+    loadTestContext();
     ++nativeGeneration;
     nativeSession.reset();
     nativeStale = false;
@@ -1869,6 +1909,14 @@ void ConversationEditor::resetSimulation() {
             return;
         }
     NativeSetup config;
+    if (project->resources.contains("INIT.GAM")) {
+        try {
+            config = nativeSetup(*project, resource, npcIndex, testNpc->currentData().toInt());
+        } catch (const std::exception &error) {
+            status->setText(QString::fromUtf8(error.what()));
+            return;
+        }
+    }
     config.state.partyNames = avatar->text().split(',', Qt::SkipEmptyParts);
     for (auto &name : config.state.partyNames)
         name = name.trimmed();
@@ -1908,6 +1956,15 @@ void ConversationEditor::resetSimulation() {
                 status->setText(message);
                 playtestStatus->setText(message);
             }
+        },
+        Qt::QueuedConnection);
+    connect(
+        nativeSession.get(), &NativeDialogueSession::stateReady, this,
+        [this, generation](const QStringList &changes) {
+            if (generation != nativeGeneration || nativeStale)
+                return;
+            for (const auto &change : changes)
+                appendTranscript({{change, -1, true, -1}});
         },
         Qt::QueuedConnection);
     status->setText("Playtest running");

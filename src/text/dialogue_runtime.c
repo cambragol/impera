@@ -101,7 +101,14 @@ static int TALK_05b6(ImperaTalk *s) {
     return TALK_0b04(s);
 }
 
-static void TALK_0682(ImperaTalk *s, uint8_t code) { s->give(s->host, code); }
+static void TALK_0682(ImperaTalk *s, uint8_t code) {
+    if (code >= 48 && code < 64) {
+        s->error = 1;
+        s->errorText = "Invalid equipment item";
+        return;
+    }
+    s->give(s->host, code);
+}
 
 // skip one talk string
 static int TALK_0728_SkipOneTalkString(ImperaTalk *s, uint8_t param_1, uint8_t param_2) {

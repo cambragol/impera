@@ -16,24 +16,24 @@ compiling the same functions over maintaining a second C++ interpretation of the
 Keep Qt as the presentation and host adapter. Preserve Workshop's standalone build
 without requiring SDL, the engine executable, or a separate installed helper.
 
-Phases 1–3 are implemented: the
+Phases 1–4 are implemented: the
 [reference runner](workshop-dialogue-reference-runner.md) and
 [shared renderer](workshop-shared-text-renderer.md), followed by
 [native execution and input](workshop-native-dialogue-runtime.md). Interactive
 Playtest now uses the shared interpreter and a native pixel viewport.
-Complete NPC/world context remains phase 4 work.
+The [isolated game context](workshop-native-dialogue-context.md) now supplies native action outcomes.
 
 ## Findings in the current implementation
 
 | Component | Current behavior | Accuracy gap |
 | --- | --- | --- |
-| Playtest | Shared native C interpreter in `src/text/dialogue_runtime.c` | Complete NPC/world context remains phase 4 |
+| Playtest | Shared native C interpreter and dialogue game actions | Movement and combat consequences require full-game Test Mod |
 | Playtest display | Native pixel viewport, cursor, echo and shared input editor | Surrounding frame/zoom presentation remains phase 5 |
 | Game preview | Approximate response decoder feeding the shared renderer | Fixed native pixels/window; branches and actions still need phase 3 execution |
 | Word layout | Shared native C word buffer and character renderer | Native 18-column word threshold and 16-column hard wrap preserved; old unlimited layout retained only as a compatibility oracle |
 | Fonts | Private copies of current Project IBM.CH and RUNES.CH | Missing/corrupt fonts fail explicitly |
 | Wait and Pause | Native blocking input and 28-tick Pause loop | Real-time host remains subject to scheduler jitter |
-| Recruitment and guards | Engine callbacks; unsupported in conversation-only Workshop sessions | Full isolated NPC/world context remains phase 4 |
+| Recruitment and guards | Shared native actions using isolated party/NPC records | Unassigned conversations need an NPC choice for world-dependent actions |
 
 The native word-buffer threshold of 18 and the actual window width are different
 things. Keep both behaviors; do not change the engine window to fit the existing
@@ -215,6 +215,8 @@ pixels, branch decisions, input consumption, and virtual timing. Qt remains
 responsive while the session waits.
 
 ### Phase 4: Supply the complete isolated NPC/game context
+
+**Implemented:** see [context details and validation](workshop-native-dialogue-context.md).
 
 Expand the current Sandbox beyond gold, karma, party size, and a boolean introduction.
 Load the actual NPC identity, conversation linkage, party/recruit records, per-NPC

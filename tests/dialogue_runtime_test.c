@@ -28,6 +28,13 @@ static void text(const char *s) {
         assert(TALK_0f32_ProcessChar((byte)*s++ | 128) == 0);
 }
 int main(void) {
+    for (int pattern = 0; pattern < 16; ++pattern) {
+        for (int i = 0; i < 4; ++i)
+            D_5d5e[5].time[i] = (byte)(pattern * 19 + i * 73);
+        for (int hour = 0; hour < 256; ++hour)
+            assert(IMPERA_GameSchedule((const uint8_t *)&D_5d5e[5], (uint8_t)hour) ==
+                   NPC_12e0(5, (char)hour));
+    }
     reset();
     text("Hi lastword.");
     assert(TALK_0f32_ProcessChar(0x82) == 1);

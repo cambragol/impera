@@ -134,8 +134,6 @@ static void REFERENCE_TraceOpcode(const byte *cursor) {
     opcode_entry = entry;
     opcode_offset = offset - start;
     event("opcode", *cursor, offset, D_4aee != 0);
-    if (!D_4aee && (*cursor == 132 || *cursor == 139))
-        fail("recruitment/guard actions require the phase 4 world context");
     if (!D_4aee && *cursor == 131) {
         pausing = true;
         pause_tick_start = sleep55_count;
@@ -278,6 +276,54 @@ static void tail(void) {
     bytecode(0);
 }
 static void build(const char *name) {
+    if (!strncmp(name, "join_", 5) || !strncmp(name, "guards_", 7) ||
+        !strncmp(name, "beggar_", 7) || !strncmp(name, "give_", 5)) {
+        memset(&scenario, 0, sizeof(scenario));
+        scenario.name = name;
+        scenario.introduced = strcmp(name, "guards_first") != 0;
+        entry("Nora");
+        entry("a traveller.");
+        literal("Welcome.");
+        if (!strncmp(name, "join_", 5))
+            bytecode(132);
+        else if (!strncmp(name, "guards_", 7)) {
+            bytecode(139);
+            bytecode(130);
+        } else if (!strncmp(name, "beggar_", 7)) {
+            bytecode(133);
+            bytecode('1' | 128);
+            bytecode('0' | 128);
+            bytecode('0' | 128);
+            bytecode(130);
+        } else {
+            for (int i = 0; i < 48; ++i) {
+                bytecode(134);
+                bytecode(i | 128);
+            }
+            for (int i = 65; i <= 75; ++i) {
+                bytecode(134);
+                bytecode(i | 128);
+            }
+            bytecode(130);
+        }
+        bytecode(0);
+        if (!strcmp(name, "guards_first")) {
+            literal("Work.");
+            bytecode(139);
+            bytecode(130);
+            bytecode(0);
+        } else
+            entry("Work.");
+        entry("Bye.");
+        tail();
+        if (!strcmp(name, "guards_first"))
+            keys("job\r", 0);
+        if (!strcmp(name, "join_full"))
+            keys("xbye\r", 0);
+        if (!strcmp(name, "beggar_insufficient"))
+            keys("bye\r", 0);
+        return;
+    }
     if (!strcmp(name, "questions") || !strcmp(name, "fallback")) {
         base(name, "a careful traveller.", "Welcome.");
         entry("help");
@@ -519,6 +565,42 @@ static void save_pixels(const char *directory, const char *name, const byte *pix
     if (fwrite(pixels, 1, (size_t)width * height, f) != (size_t)width * height || fclose(f))
         fail("cannot write framebuffer artifact");
 }
+static void save_game(const char *directory, const char *name) {
+    byte state[4192] = {0};
+#define COPY(offset, value) memcpy(state + offset, &(value), sizeof(value))
+    COPY(2, D_55a8_party);
+    COPY(0x202, D_57a8);
+    COPY(0x204, D_57aa);
+    COPY(0x206, D_57ac);
+    COPY(0x207, D_57ad);
+    COPY(0x208, D_57ae);
+    COPY(0x209, D_57af);
+    COPY(0x20a, D_57b0);
+    COPY(0x20b, D_57b1);
+    COPY(0x214, D_57ba);
+    COPY(0x216, D_57bc);
+    COPY(0x218, D_57be);
+    COPY(0x21a, D_57c0);
+    COPY(0x24a, D_57f0);
+    COPY(0x2b5, D_585b);
+    COPY(0x2e2, D_5888);
+    COPY(0x2e5, D_588b);
+    COPY(0x2ed, D_5893_map_id);
+    COPY(0x2eb, D_5891);
+    COPY(0x2d5, D_587b);
+    COPY(0x2d6, D_587c_partyTile);
+    COPY(0x2ce, D_5874);
+    COPY(0x2d7, D_587d);
+    COPY(0x2d8, D_587e);
+    COPY(0x5b4, D_5b5a);
+    COPY(0x634, D_5bda);
+    COPY(0x6b4, D_5c5a);
+    COPY(0x7b8, D_5d5e);
+    COPY(0x9b8, D_5f5e);
+    COPY(0xff8, D_659e);
+#undef COPY
+    save_pixels(directory, name, state, sizeof(state), 1);
+}
 static Result run(const char *directory, bool write_artifacts) {
     memcpy(normal_font, normal_original, 1024);
     memcpy(rune_font, rune_original, 1024);
@@ -528,6 +610,14 @@ static Result run(const char *directory, bool write_artifacts) {
     memset(D_5f5e, 0, sizeof(D_5f5e));
     memset(D_5c5a, 0, sizeof(D_5c5a));
     memset(D_55a8_party, 0, sizeof(D_55a8_party));
+    memset(D_5b5a, 0, sizeof(D_5b5a));
+    memset(D_5d5e, 0, sizeof(D_5d5e));
+    memset(D_659e, 0, sizeof(D_659e));
+    memset(D_57c0, 0, sizeof(D_57c0));
+    memset(D_57f0, 0, sizeof(D_57f0));
+    D_57a8 = 0;
+    D_57ad = D_57ae = D_57af = D_57b0 = D_57b1 = 0;
+    D_57ba = D_57bc = D_57be = D_588b = 0;
     strcpy(D_55a8_party[0].name, "Avatar");
     strcpy(D_55a8_party[1].name, "Iolo");
     strcpy(D_55a8_party[2].name, "Shamino");
@@ -544,6 +634,43 @@ static Result run(const char *directory, bool write_artifacts) {
     D_58a4 = 0;
     D_5891 = 1;
     D_5f5e[5]._a = (u16)conversation_id;
+    D_5f5e[5]._0 = 1;
+    D_5f5e[5]._c = 5;
+    D_659e[5] = D_5c5a[5]._0_tile = 0x44;
+    if (!strncmp(scenario.name, "join_", 5)) {
+        if (strcmp(scenario.name, "join_nomatch"))
+            strcpy(D_55a8_party[15].name, "Nora");
+        D_55a8_party[15].mapId = 13;
+        if (!strcmp(scenario.name, "join_full"))
+            D_585b = 6;
+        D_5c5a[5]._5 = 77;
+        D_5d5e[5].type[0] = 1;
+    }
+    if (!strncmp(scenario.name, "beggar_", 7)) {
+        D_659e[5] = D_5c5a[5]._0_tile = 0x6c;
+        D_588b = !strcmp(scenario.name, "beggar_early") ? 99 : 100;
+        if (!strcmp(scenario.name, "beggar_insufficient"))
+            D_57aa = 99;
+    }
+    if (!strncmp(scenario.name, "guards_", 7)) {
+        for (int i = 1; i < 32; ++i) {
+            D_5f5e[i]._0 = i % 7 != 0;
+            D_5f5e[i]._a = i % 2 ? 0xfe : 2;
+            D_659e[i] = i % 5 == 0   ? 0x70
+                        : i % 5 == 1 ? 0xd8
+                        : i % 5 == 2 ? 0xfc
+                        : i % 5 == 3 ? 0x44
+                                     : 0x10;
+            D_5d5e[i].time[0] = i % 3 == 0 ? 0 : i;
+            D_5d5e[i].x[0] = i;
+        }
+        D_5f5e[5]._a = (u16)conversation_id;
+    }
+    if (!strcmp(scenario.name, "give_caps")) {
+        memset(D_57c0, 99, sizeof(D_57c0));
+        D_57a8 = D_57aa = 9999;
+        D_57ac = D_57ad = D_57ae = D_57af = D_57b0 = D_57b1 = 99;
+    }
     if (scenario.introduced)
         D_5bda[48] = 32;
     D_4aee = D_4aef = D_4af1 = D_4af2 = D_4af3 = D_4af4 = D_4af5 = 0;
@@ -596,6 +723,7 @@ static Result run(const char *directory, bool write_artifacts) {
         save_pixels(directory, "conversation.tlk-entry", scenario.bytes, (int)scenario.size, 1);
         save_pixels(directory, "normal.font", normal_original, 1024, 1);
         save_pixels(directory, "runes.font", rune_original, 1024, 1);
+        save_game(directory, "initial-game.bin");
         path_join(path, sizeof(path), directory, "keys.tsv");
         FILE *keys_file = fopen(path, "wb");
         if (!keys_file)
@@ -656,6 +784,7 @@ static Result run(const char *directory, bool write_artifacts) {
         assert(input_count == 2 && !strcmp(input_strings[0], "ABCDEFGHIJKLMNO") &&
                !strcmp(input_strings[1], "BYE"));
     if (write_artifacts) {
+        save_game(directory, "final-game.bin");
         save_pixels(directory, "frame.bin", g_linearEgaBuffer0, 320, 200);
         save_pixels(directory, "window.bin", result.pixels, TEXT_W, TEXT_H);
         if (fclose(trace) || fclose(snapshots))
@@ -674,7 +803,7 @@ static Result run(const char *directory, bool write_artifacts) {
             "\"scrolls\":%u,\"snapshots\":%u,"
             "\"trace_hash\":%u,\"pixel_hash\":%u,\"keys_consumed\":%d,\"karma\":%d,"
             "\"gold\":%d,\"keys\":%d,\"introduced_flags\":%u,\"keyboard_clear\":\"native_stub\","
-            "\"world_rendering\":false,\"recruitment_guards\":\"unsupported\","
+            "\"world_rendering\":false,\"recruitment_guards\":\"native\","
             "\"context\":{\"map\":13,\"npc_slot\":5,\"party\":[\"Avatar\",\"Iolo\",\"Shamino\"],"
             "\"gold\":100,\"karma\":50,\"keys\":0,\"introduced\":%d}}\n",
             REFERENCE_SOURCE_ID, scenario.name, seed, conversation_id,
@@ -756,10 +885,14 @@ int main(int argc, char **argv) {
     }
     if (!only && (start_x != 0 || start_y != 12))
         fail("custom cursor positions require --case or --tlk");
-    const char *cases[] = {"questions",   "fallback", "scroll",      "pause_interrupt",
-                           "pause_full",  "editing",  "input_limit", "introduction",
-                           "runes",       "ask_name", "payment",     "nested",
-                           "left_editing"};
+    const char *cases[] = {"questions",       "fallback",     "scroll",
+                           "pause_interrupt", "pause_full",   "editing",
+                           "input_limit",     "introduction", "runes",
+                           "ask_name",        "payment",      "nested",
+                           "left_editing",    "join_success", "join_full",
+                           "join_nomatch",    "guards_met",   "guards_first",
+                           "beggar_reward",   "beggar_early", "beggar_insufficient",
+                           "give_caps",       "give_growth"};
     int count = 0;
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
         if (only && strcmp(only, cases[i]))

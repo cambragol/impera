@@ -52,15 +52,9 @@ uses the latest bytes and fonts, and stale action links are disabled.
 
 ## Scope and remaining work
 
-Ordinary text, topics/questions, name input, timing, rune output and simple
-sandbox payment/inventory/karma changes now follow native execution. Recruitment
-and guards fail explicitly outside the pixel window in Workshop; they continue
-to call the actual game routines in Impera.
-
-The current Workshop sandbox is still a conversation-only context. Loading the
-selected NPC's complete party, location, introduction history, rules and inventory,
-including beggar-specific payment consequences and world action outcomes, remains
-phase 4. No project, mod package, game files or real save are written by Playtest.
+Phase 4 adds [isolated NPC/game context](workshop-native-dialogue-context.md),
+including shared native payment, inventory, recruitment and guard effects.
+No project, mod package, game files or real save are written by Playtest.
 
 Phase 5 will finish presentation and consolidate the auxiliary window, including
 the actual frame crop and zoom controls, and retire the separate selected-response
@@ -72,7 +66,7 @@ Playtest runtime.
 - The independent reference preserves pre-extraction native dialogue, text,
   input, matching and constant tables. It does not call the new interpreter.
 - Full engine-adapter parity compares complete artifacts byte-for-byte.
-- Workshop host parity replays the same 14 conversations with virtual time.
+- Workshop host parity replays the expanded native corpus with virtual time.
   Each glyph/scroll boundary must match indexed pixels, cursor, font, operands,
   source offsets and time. Branch/opcode order, final state and input consumption
   must also match.

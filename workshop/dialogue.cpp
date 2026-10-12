@@ -441,9 +441,7 @@ QVector<Issue> Document::issues() const {
                 out.append({true, e, QString("Missing question %1").arg(dest)});
             if (x.opcode == 134 && (U5::byte(x.bytes, 1) & 127) >= 48 &&
                 (U5::byte(x.bytes, 1) & 127) < 64)
-                out.append({false, e,
-                            "Inventory operand extends beyond the equipment array; "
-                            "engine writes adjacent state"});
+                out.append({true, e, "Invalid equipment item"});
             if (x.opcode == 133) {
                 for (int j = 1; j <= 3; ++j) {
                     int c = U5::byte(x.bytes, j) & 127;

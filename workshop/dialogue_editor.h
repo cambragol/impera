@@ -17,6 +17,7 @@ class ConversationEditor : public QWidget {
     bool flush();
     ~ConversationEditor() override;
     void focusCharacter();
+    void setCharacterIdentity(int);
 
   protected:
     void hideEvent(QHideEvent *) override;
@@ -94,6 +95,8 @@ class ConversationEditor : public QWidget {
     void addTopic(bool reply);
     void deleteSelected();
     void resetSimulation();
+    void loadTestContext();
+    QComboBox *testNpc = nullptr;
     void appendTranscript(const QVector<Dialogue::Line> &lines);
     bool attempt(const std::function<void()> &operation);
 };

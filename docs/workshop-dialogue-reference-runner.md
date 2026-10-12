@@ -161,9 +161,10 @@ and colors, restored font buffers, and scenario-specific decisions/effects.
   integration remains part of the later shared-core work and phase 6.
 - This is the post-resource-load native conversation path. Native disk selection,
   map-facing Talk command prechecks, special engine-controlled NPC/shop paths,
-  recruitment, guards, and a complete mutable world/save context are not yet
-  covered. Recruitment/guard opcodes fail explicitly instead of returning a
-  fabricated success. Do not describe a custom run as full-world parity.
+  and a complete moving world/save context remain outside its scope. Phase 4 adds
+  recruitment, guards, beggar payments and all valid inventory operands, with full
+  initial/final private game-state artifacts. See [context validation](workshop-native-dialogue-context.md).
+  Do not describe a custom run as full-world parity.
 - Rendering uses an EGA gameplay profile, real fonts, the native frame, and the
   bottom-row initial cursor. Other video-driver modes and real-time scheduler
   jitter are outside phase 1's reference.

@@ -13,6 +13,7 @@
 #include "talk.h"
 #include "text/text_window.h"
 #include "text/dialogue_runtime.h"
+#include "text/dialogue_game.h"
 #include "town.h"
 
 #define TALK_KEY_NAME 0
@@ -383,6 +384,7 @@ int TALK_041c_TalkCmd(void)
 }
 
 static ImperaTalk nativeTalk(void);
+static ImperaDialogueGame dialogueGame(void);
 static int TALK_0f32_ProcessChar(byte ch) {
     ImperaTalk s = nativeTalk();
     return IMPERA_TalkCharacter(&s, ch);
@@ -412,132 +414,6 @@ static int TALK_0b04(void) {
 static int TALK_0a3c(void) {
     ImperaTalk s = nativeTalk();
     return IMPERA_TalkFarewell(&s);
-}
-static void TALK_0682(byte param_1)
-{
-    if (param_1 < 0x40)
-    {
-        ULTIMA_3ef0_IncreaseByte(&D_57c0[param_1], 1, 99);
-        return;
-    }
-
-    switch (param_1)
-    {
-    case 0x41:
-        ULTIMA_3f14_IncreaseInt(&D_57a8, 1, 9999);
-        ULTIMA_2900_UpdateVitalsDisplay();
-        break;
-    case 0x42:
-        ULTIMA_3f14_IncreaseInt(&D_57aa, 1, 9999);
-        ULTIMA_2900_UpdateVitalsDisplay();
-        break;
-    case 0x43:
-        ULTIMA_3ef0_IncreaseByte(&D_57ac, 1, 99);
-        break;
-    case 0x44:
-        ULTIMA_3ef0_IncreaseByte(&D_57ad, 1, 99);
-        break;
-    case 0x45:
-        ULTIMA_3ef0_IncreaseByte(&D_57ae, 1, 99);
-        break;
-    case 0x46:
-        ULTIMA_3ef0_IncreaseByte(&D_57af, 1, 99);
-        break;
-    case 0x47:
-        ULTIMA_3ef0_IncreaseByte(&D_57b0, 1, 99);
-        break;
-    case 0x48:
-        D_57bc = 0xff;
-        break;
-    case 0x49:
-        D_57ba = 0xff;
-        break;
-    case 0x4a:
-        D_57be = 0xff;
-        break;
-    case 0x4b:
-        ULTIMA_3ef0_IncreaseByte(&D_57b1, 1, 99);
-        break;
-    }
-}
-static int TALK_080a_Join(void)
-{
-    int local_30; // 30..2f
-    byte* local_2e;   // 2e..2d
-    char local_2c[4]; // 2c..29
-    S_55a8 local_28;  // 28..09 (size: 0x20)
-    char local_8[4];  // 08..05
-    int local_4;      // 04..03
-
-    local_2e = D_bcde;
-    local_4 = 0xf;
-
-    if (D_585b == 6)
-    {
-        ULTIMA_266c_GetChar();
-        ULTIMA_1850_PrintString(_TEXT(0x9348, "\"Thou hast no room for me in thy party! "));
-        ULTIMA_1850_PrintString(_TEXT(0x9372, "Seek me again if one of thy members doth leave\nthee."));
-
-        return 0;
-    }
-
-    TALK_075a_SelectNthTalkString(0);
-
-    local_30 = 0;
-
-    // 3 bytes
-    memcpy(local_8, D_bcde, 3);
-    local_30 += 3;
-    D_bcde += 3;
-
-    local_8[3] = 0;
-    local_2c[3] = 0;
-
-    // c7e6
-    while (1)
-    {
-        // 3 bytes
-        memcpy(local_2c, D_55a8_party[local_4].name, 3);
-
-        // c805
-        if (TALK_0000_CompareStringNoCase(local_8, local_2c) != 0)
-        {
-            // local_30 = DI;
-            break;
-        }
-
-        if (--local_4 == 0)
-        {
-            // c824
-            TALK_0574_BuildOrPrintWord(0x22);
-            TALK_0574_BuildOrPrintWord(10);
-            ULTIMA_1850_PrintString(_TEXT(0x93a8, "\nSystem Error -\nNo Match!"));
-            D_bcde = local_2e;
-            // local_30 = DI;
-
-            // -> c8b3
-            return 1;
-        }
-    }
-
-    // c848
-    D_55a8_party[local_4].mapId = 0;
-
-    local_28 = D_55a8_party[local_4];
-    D_55a8_party[local_4] = D_55a8_party[D_585b];
-    D_55a8_party[D_585b] = local_28;
-
-    D_585b++;
-
-    TOWN_0052_SetNpcKilled(D_bcdc);
-    TOWN_00b0_DespawnNpc(D_bcdc);
-
-    ULTIMA_2900_UpdateVitalsDisplay();
-    TALK_04e2_PrintWord();
-
-    D_bcde = local_2e;
-
-    return 1;
 }
 static void talkPrint(void *host, uint16_t ch) {
     (void)host;
@@ -586,17 +462,13 @@ static void talkClear(void *host) {
 }
 static int talkIntroduced(void *host) {
     (void)host;
-    uint32_t flags;
-    memcpy(&flags, &D_5bda[(D_5893_map_id - 1) * 4], 4);
-    return (flags & ((uint32_t)1 << D_bcdc)) != 0;
+    ImperaDialogueGame g = dialogueGame();
+    return IMPERA_GameMet(&g);
 }
 static void talkIntroduce(void *host) {
     (void)host;
-    uint32_t flags;
-    byte *p = &D_5bda[(D_5893_map_id - 1) * 4];
-    memcpy(&flags, p, 4);
-    flags |= (uint32_t)1 << D_bcdc;
-    memcpy(p, &flags, 4);
+    ImperaDialogueGame g = dialogueGame();
+    IMPERA_GameIntroduce(&g);
 }
 static int talkParty(void *host) {
     (void)host;
@@ -617,31 +489,65 @@ static void talkChangeKarma(void *host, int amount) {
     else
         ULTIMA_3f36_DecreaseByte(&D_5888, -amount);
 }
+static int gameRandom(void *h, int low, int high) {
+    (void)h;
+    return ULTIMA_2092_RandomRange(low, high);
+}
+static void gameVitals(void *h) {
+    (void)h;
+    ULTIMA_2900_UpdateVitalsDisplay();
+}
+static ImperaDialogueGame dialogueGame(void) {
+    ImperaDialogueGame g = {0};
+    g.party = (uint8_t *)D_55a8_party;
+    g.partyCount = &D_585b;
+    g.food = (uint8_t *)&D_57a8;
+    g.gold = (uint8_t *)&D_57aa;
+    g.equipment = D_57c0;
+    g.supplies[2] = &D_57ac;
+    g.supplies[3] = &D_57ad;
+    g.supplies[4] = &D_57ae;
+    g.supplies[5] = &D_57af;
+    g.supplies[6] = &D_57b0;
+    g.supplies[7] = &D_57bc;
+    g.supplies[8] = &D_57ba;
+    g.supplies[9] = &D_57be;
+    g.supplies[10] = &D_57b1;
+    g.karma = &D_5888;
+    g.turn = &D_588b;
+    g.map = &D_5893_map_id;
+    g.killed = D_5b5a;
+    g.met = D_5bda;
+    g.actors = (uint8_t *)D_5c5a;
+    g.npcs = (uint8_t *)D_5f5e;
+    g.schedules = (uint8_t *)D_5d5e;
+    g.shapes = D_659e;
+    g.dirty = &D_24e6;
+    g.npc = D_bcdc;
+    g.random = gameRandom;
+    g.vitals = gameVitals;
+    return g;
+}
 static int talkPay(void *host, int amount) {
     (void)host;
-    if (D_57aa < amount)
-        return 1;
-    D_57aa -= amount;
-    ULTIMA_2900_UpdateVitalsDisplay();
-    if ((D_5c5a[D_5f5e[D_bcdc]._c]._0_tile & 0xfc) == TILE_ACTOR_BEGGAR && D_588b >= 100) {
-        D_588b = 0;
-        ULTIMA_3ef0_IncreaseByte(&D_5888, 1, 99);
-        if (!D_57aa)
-            ULTIMA_3ef0_IncreaseByte(&D_5888, 2, 99);
-    }
-    return 0;
+    ImperaDialogueGame g = dialogueGame();
+    return IMPERA_GamePay(&g, amount);
 }
 static void talkGive(void *host, uint8_t code) {
     (void)host;
-    TALK_0682(code);
+    ImperaDialogueGame g = dialogueGame();
+    IMPERA_GameGive(&g, code);
 }
 static int talkJoin(void *host) {
     (void)host;
-    return TALK_080a_Join();
+    ImperaDialogueGame g = dialogueGame();
+    ImperaTalk s = nativeTalk();
+    return IMPERA_GameJoin(&g, &s);
 }
 static void talkGuards(void *host) {
     (void)host;
-    TOWN_0958();
+    ImperaDialogueGame g = dialogueGame();
+    IMPERA_GameGuards(&g);
 }
 static int talkGreeting(void *host) {
     (void)host;

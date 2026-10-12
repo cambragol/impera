@@ -15,6 +15,8 @@ class NativeTextWindow {
     NativeTextWindow(const QByteArray &normal, const QByteArray &runes, int row = 12);
     void print(uint16_t ch);
     void printString(const char *);
+    void setPosition(int x, int y) { IMPERA_TextPosition(&window, x, y); }
+    void setRows(int rows) { window.bottom = uint8_t(window.top + rows - 1); }
     uint16_t *advanceFlag() { return &advance; }
     void setSleeper(std::function<void(int)> fn);
     void setObserver(std::function<void(const QString &, int)> fn) { observer = std::move(fn); }
