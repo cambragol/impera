@@ -1781,7 +1781,15 @@ QWidget *WorkshopWindow::stateEditor() {
         sp->setRange(0, width == 1 ? 255 : 65535);
         sp->setValue(width == 1 ? U5::byte(project.data("INIT.GAM"), off)
                                 : U5::word(project.data("INIT.GAM"), off));
-        sp->setToolTip(help + QString(" (offset 0x%1)").arg(off, 4, 16, QChar('0')));
+        int maximum = off == 0x2d7                   ? 13
+                      : off == 0x2d8                 ? 28
+                      : off == 0x2d9                 ? 23
+                      : off == 0x2db                 ? 59
+                      : off == 0x2e2                 ? 99
+                      : off == 0x202 || off == 0x204 ? 9999
+                                                     : sp->maximum();
+        sp->setMaximum(qMax(maximum, sp->value())); // Preserve unusual inherited values.
+        sp->setToolTip(help);
         form->addRow(label, sp);
         if (off == 0x2b5) {
             sp->setReadOnly(true);
@@ -1793,6 +1801,8 @@ QWidget *WorkshopWindow::stateEditor() {
                     bytes[off] = char(value);
                 else
                     U5::setWord(bytes, off, value);
+                if (off == 0x2d9)
+                    bytes[0x2da] = char(value); // The engine keeps a second copy of the hour.
                 edit({{"INIT.GAM", bytes}}, "Set " + label);
             });
     };
@@ -1820,9 +1830,6 @@ QWidget *WorkshopWindow::stateEditor() {
                             "Blood moss",     "Black pearl", "Nightshade", "Mandrake root"};
     for (int i = 0; i < 8; i++)
         numeric(qform, quests, reagents[i], 0x2aa + i, 1, {});
-    numeric(qform, quests, "Keys", 0x206, 1, {});
-    numeric(qform, quests, "Gems", 0x207, 1, {});
-    numeric(qform, quests, "Torches", 0x208, 1, {});
     for (int i = 0; i < 3; i++)
         numeric(qform, quests, QString("Prevent Shadowlord visits %1").arg(i + 1), 0x322 + i, 1,
                 "255 prevents visits");
@@ -1949,7 +1956,7 @@ QWidget *WorkshopWindow::stateEditor() {
     }
     connect(selector, &QComboBox::currentIndexChanged, characters,
             [=](int i) { detail->setCurrentIndex(i); });
-    tabs->addTab(characters, "Characters");
+    tabs->addTab(characters, "Party members");
     return tabs;
 }
 QWidget *WorkshopWindow::npcEditor(const QString &name) {

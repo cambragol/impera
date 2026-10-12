@@ -3031,6 +3031,14 @@ int main(int argc, char **argv) {
             auto findCanvas = [&] {
                 return dynamic_cast<MapCanvas *>(active()->findChild<QWidget *>("mapCanvas"));
             };
+            auto addMenu = active()->findChild<QToolButton *>("mapAddMenu");
+            check(addMenu && addMenu->menu(), "Add menu missing");
+            QString previous;
+            for (auto action : addMenu->menu()->actions()) {
+                check(QString::compare(previous, action->text(), Qt::CaseInsensitive) <= 0,
+                      "Add menu is not alphabetized");
+                previous = action->text();
+            }
             auto palette = active()->findChild<QListWidget *>("mapPalette");
             palette->setCurrentRow(9);
 
@@ -3462,6 +3470,36 @@ int main(int argc, char **argv) {
                              ->currentWidget()
                              ->findChild<QSpinBox *>("startingField_206");
             check(field, "Typed starting supplies control missing");
+            auto statePage = w.findChild<QStackedWidget *>("workspaces")->currentWidget();
+            auto tabs = statePage->findChild<QTabWidget *>();
+            check(
+                tabs &&
+                    [&] {
+                        for (int i = 0; i < tabs->count(); ++i)
+                            if (tabs->tabText(i) == "Party members")
+                                return true;
+                        return false;
+                    }(),
+                "Party member tab label is wrong");
+            check(tabs->widget(0)->findChildren<QSpinBox *>().size() == 13,
+                  "Party, time, and supplies page is empty or incomplete");
+            auto hour = tabs->widget(0)->findChild<QSpinBox *>("startingField_2d9");
+            auto before = w.projectForTests().data("INIT.GAM");
+            hour->setValue(12);
+            auto expected = before;
+            expected[0x2d9] = expected[0x2da] = 12;
+            check(w.projectForTests().data("INIT.GAM") == expected,
+                  "Starting hour edit changed unrelated bytes or missed the hour copy");
+            for (auto action : w.findChildren<QAction *>())
+                if (action->text().startsWith("Undo ")) {
+                    action->trigger();
+                    break;
+                }
+            check(w.projectForTests().data("INIT.GAM") == before, "Starting time undo failed");
+
+            field = w.findChild<QStackedWidget *>("workspaces")
+                        ->currentWidget()
+                        ->findChild<QSpinBox *>("startingField_206");
             field->setValue(1);
             check(U5::byte(w.projectForTests().data("INIT.GAM"), 0x206) == 1,
                   "Typed edit did not persist");

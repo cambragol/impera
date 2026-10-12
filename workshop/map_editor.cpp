@@ -1546,7 +1546,12 @@ void MapWorkspace::enableLocationModes(const QStringList &names, LocationLayerFa
     add->setToolTip("Place a new map item, then edit its properties on the right.");
     add->setPopupMode(QToolButton::InstantPopup);
     auto addMenu = new QMenu(add);
-    for (auto kind : Workshop::availableMapItems(*project, resource)) {
+    auto availableItems = Workshop::availableMapItems(*project, resource);
+    std::sort(availableItems.begin(), availableItems.end(), [](auto a, auto b) {
+        return QString::compare(Workshop::mapItemName(a), Workshop::mapItemName(b),
+                                Qt::CaseInsensitive) < 0;
+    });
+    for (auto kind : availableItems) {
         auto action = addMenu->addAction(Workshop::mapItemName(kind));
         action->setObjectName("addMapItem" + QString::number(int(kind)));
         connect(action, &QAction::triggered, this, [this, kind] { beginAdd(int(kind)); });
