@@ -173,6 +173,61 @@ if(U5D_BUILD_TESTS)
             "-Wl,--wrap=ULTIMA_1f12_GetCurrentTextX")
         add_test(NAME dialogue_runtime COMMAND impera_dialogue_test)
         set_tests_properties(dialogue_runtime PROPERTIES TIMEOUT 10)
+        # Independent reference: full native dispatch and framebuffer, observed without a port.
+        file(READ "${CMAKE_SOURCE_DIR}/src/talk.c" reference_talk_source)
+        set(reference_dispatch "if (TALK_0f32_ProcessChar(*D_bcde++) != 0)")
+        string(FIND "${reference_talk_source}" "${reference_dispatch}" reference_dispatch_position)
+        if(reference_dispatch_position LESS 0)
+            message(FATAL_ERROR "Native dialogue reference dispatch hook needs updating")
+        endif()
+        string(REPLACE "${reference_dispatch}"
+            "REFERENCE_TraceOpcode(D_bcde);\n        ${reference_dispatch}"
+            reference_talk_source "${reference_talk_source}")
+        string(REPLACE "local_4 = *D_bcde++;"
+            "REFERENCE_CheckCursor(D_bcde);\n        local_4 = *D_bcde++;"
+            reference_talk_source "${reference_talk_source}")
+        file(WRITE "${CMAKE_BINARY_DIR}/reference_talk.c" "${reference_talk_source}")
+        set(reference_source_hashes "")
+        foreach(source IN LISTS TEST_SOURCES)
+            # COPYONLY registers configure dependencies without duplicate directory properties.
+            configure_file("${CMAKE_SOURCE_DIR}/${source}"
+                "${CMAKE_BINARY_DIR}/reference-source-snapshot/${source}" COPYONLY)
+            file(SHA256 "${CMAKE_SOURCE_DIR}/${source}" source_hash)
+            string(APPEND reference_source_hashes "${source}:${source_hash}\n")
+        endforeach()
+        configure_file("${CMAKE_SOURCE_DIR}/tests/dialogue_reference.c"
+            "${CMAKE_BINARY_DIR}/reference-source-snapshot/runner.c" COPYONLY)
+        file(SHA256 "${CMAKE_SOURCE_DIR}/tests/dialogue_reference.c" runner_hash)
+        string(APPEND reference_source_hashes "runner:${runner_hash}")
+        file(GLOB_RECURSE reference_headers CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/src/*.h")
+        foreach(header IN LISTS reference_headers)
+            file(RELATIVE_PATH header_name "${CMAKE_SOURCE_DIR}" "${header}")
+            configure_file("${header}" "${CMAKE_BINARY_DIR}/reference-source-snapshot/${header_name}" COPYONLY)
+            file(SHA256 "${header}" header_hash)
+            string(APPEND reference_source_hashes "${header_name}:${header_hash}\n")
+        endforeach()
+        string(SHA256 reference_source_id "${reference_source_hashes}")
+        file(WRITE "${CMAKE_BINARY_DIR}/reference_provenance.h"
+            "#define REFERENCE_SOURCE_ID \"${reference_source_id}\"\n")
+        add_executable(impera_dialogue_reference tests/dialogue_reference.c ${DIALOGUE_TEST_SOURCES})
+        list(APPEND U5D_TARGETS impera_dialogue_reference)
+        target_include_directories(impera_dialogue_reference PRIVATE "${CMAKE_BINARY_DIR}")
+        target_compile_definitions(impera_dialogue_reference PRIVATE
+            TEST_GAME_DIR="${CMAKE_SOURCE_DIR}/Ultima 5")
+        foreach(symbol GRAP_PrintChar GRAP_ScrollWindow GRAP_SetPenColor GRAP_FillWindow GRAP_Line
+                       GRAP_Pset KEY_PollKey TIME_GetTicksMs TIME_SleepMs ULTIMA_2056_GetTime
+                       ULTIMA_266c_GetChar ULTIMA_3b1c_GetString ULTIMA_1b16_ClearKbdBuffer ULTIMA_5910_UpdateFrame)
+            target_link_options(impera_dialogue_reference PRIVATE "-Wl,--wrap=${symbol}")
+        endforeach()
+        file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/dialogue-reference-runtime")
+        add_test(NAME dialogue_reference COMMAND impera_dialogue_reference
+            --output "${CMAKE_BINARY_DIR}/dialogue-reference-runtime")
+        set_tests_properties(dialogue_reference PROPERTIES TIMEOUT 30)
+        add_test(NAME dialogue_reference_tlk COMMAND impera_dialogue_reference
+            --output "${CMAKE_BINARY_DIR}/dialogue-reference-tlk-runtime"
+            --tlk "${CMAKE_SOURCE_DIR}/Ultima 5/TOWNE.TLK" --npc 1
+            --script "${CMAKE_SOURCE_DIR}/tests/dialogue_reference_bye.tsv")
+        set_tests_properties(dialogue_reference_tlk PROPERTIES TIMEOUT 10)
         add_executable(impera_u4_transfer_test tests/u4_transfer_test.c ${TEST_SOURCES})
         list(APPEND U5D_TARGETS impera_u4_transfer_test)
         target_compile_definitions(impera_u4_transfer_test PRIVATE TEST_GAME_DIR="${CMAKE_SOURCE_DIR}/Ultima 5")

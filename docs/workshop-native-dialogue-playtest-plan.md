@@ -16,7 +16,8 @@ compiling the same functions over maintaining a second C++ interpretation of the
 Keep Qt as the presentation and host adapter. Preserve Workshop's standalone build
 without requiring SDL, the engine executable, or a separate installed helper.
 
-This document is a plan only. No runtime or UI implementation accompanies it.
+The plan's [phase 1 reference runner](workshop-dialogue-reference-runner.md) is
+implemented. Production Playtest UI/runtime changes have not begun.
 
 ## Findings in the current implementation
 

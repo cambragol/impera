@@ -10,8 +10,9 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Qt6 6.2 REQUIRED COMPONENTS Widgets)
+get_filename_component(workshop_engine_root "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/../src/vars.c" "${CMAKE_CURRENT_SOURCE_DIR}/../src/6000.c" "${CMAKE_CURRENT_SOURCE_DIR}/../src/dungeon.c")
+    "${workshop_engine_root}/src/vars.c" "${workshop_engine_root}/src/6000.c" "${workshop_engine_root}/src/dungeon.c")
 # Reuse the engine's equipment names rather than maintaining another authoring table.
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../src/vars.c" engine_names_source)
 string(FIND "${engine_names_source}" "char* D_17f6" equipment_begin)
@@ -145,7 +146,7 @@ if(BUILD_TESTING OR U5D_BUILD_TESTS)
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/engine_match_oracle.c"
         "#include <string.h>\ntypedef unsigned char byte;\nstatic byte DAT_000738d8[128];\n${matcher_function}\nint WorkshopEngineMatch(const byte*key,char*input){for(int i='a';i<='z';++i)DAT_000738d8[i]=2;return ULTIMA_6f1e((byte*)key,input); }\n")
     # Verify dialogue word layout against the engine's original word-buffer routines.
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../src/talk.c")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${workshop_engine_root}/src/talk.c")
     file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../src/talk.c" talk_source)
     string(FIND "${talk_source}" "static void TALK_04e2_PrintWord(void)" words_begin)
     string(FIND "${talk_source}" "static int TALK_0b04(void);" words_end)
