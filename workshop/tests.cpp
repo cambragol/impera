@@ -3033,9 +3033,9 @@ int main(int argc, char **argv) {
             check(window.projectForTests().data("TOWNE.DAT") == filled &&
                       canvas()->selection == QRect(1, 1, 2, 2),
                   "Fill redo lost data or selection");
-            active()->findChild<QPushButton *>("mapCopy")->click();
-            active()->findChild<QPushButton *>("mapClearSelection")->click();
-            active()->findChild<QPushButton *>("mapPaste")->click();
+            active()->findChild<QToolButton *>("mapCopy")->click();
+            active()->findChild<QToolButton *>("mapClearSelection")->click();
+            active()->findChild<QToolButton *>("mapPaste")->click();
             check(canvas()->pasting(), "Toolbar did not start paste");
             click(6, 6);
             check(window.projectForTests().data("TOWNE.DAT").count(char(9)) == 8,

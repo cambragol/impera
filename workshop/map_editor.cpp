@@ -1013,12 +1013,19 @@ MapWorkspace::MapWorkspace(
     auto centerLayout = new QVBoxLayout(center);
     centerLayout->setContentsMargins(0, 0, 0, 0);
     auto row = new QHBoxLayout;
+    row->setObjectName("mapLocationRow");
+    auto locationLabel = new QLabel(this);
+    locationLabel->setObjectName("mapLocationLabel");
+    locationLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    row->addWidget(locationLabel);
     page = new QComboBox;
     page->setToolTip("Switch floors within the current location. Choose another location in the "
                      "map list; edits and view state are preserved.");
     page->setObjectName("mapPage");
     populateFloors(qBound(0, navigation->value(resource + "/map"), int(document.pages.size() - 1)));
-    row->addWidget(page, 1);
+    page->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    page->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    row->addWidget(page);
     auto exportButton = new QPushButton("Export");
     exportButton->setToolTip("Export terrain, tile IDs, or the visible preview as a PNG.");
     auto exportMenu = new QMenu(exportButton);
@@ -1033,6 +1040,7 @@ MapWorkspace::MapWorkspace(
     previewExport->setToolTip("Export the visible canvas, including grid, markers and trigger "
                               "preview. Not suitable for terrain import.");
     exportButton->setMenu(exportMenu);
+    exportButton->setObjectName("mapExport");
     row->addWidget(exportButton);
     centerLayout->addLayout(row);
     auto tools = new QHBoxLayout;
@@ -1050,7 +1058,8 @@ MapWorkspace::MapWorkspace(
         "Select (V): drag a rectangle to copy or replace terrain.",
         "Rectangle (R): draw a filled rectangle with the current brush.",
         "Fill (F): replace connected tiles of the same kind with the current brush."};
-    for (int i = 0; i < names.size(); ++i) {
+    for (int i : {MapCanvas::InspectNpc, MapCanvas::Pencil, MapCanvas::Eyedropper,
+                  MapCanvas::Select, MapCanvas::Rectangle, MapCanvas::Fill, MapCanvas::Pan}) {
         auto button = new QToolButton;
         button->setObjectName(QString("mapTool%1").arg(i));
         button->setAccessibleName(names[i]);
@@ -1064,8 +1073,7 @@ MapWorkspace::MapWorkspace(
         tool->addButton(button, i);
         if (i == MapCanvas::InspectNpc && !project->resources.contains(companion) &&
             !resource.endsWith(".CBT")) {
-            button->setEnabled(false);
-            button->setToolTip("NPCs: this map has no NPC schedule or encounter data.");
+            button->setToolTip("Select / Move: inspect and move map items.");
         }
         tools->addWidget(button);
     }
@@ -1082,8 +1090,8 @@ MapWorkspace::MapWorkspace(
         scheduleLabel->setObjectName("mapScheduleLabel");
         scheduleLabel->setBuddy(schedule);
         scheduleLabel->setToolTip(schedule->toolTip());
-        row->insertWidget(1, scheduleLabel);
-        row->insertWidget(2, schedule);
+        row->insertWidget(2, scheduleLabel);
+        row->insertWidget(3, schedule);
     } else
         schedule->hide();
     tools->addStretch();
@@ -1093,23 +1101,59 @@ MapWorkspace::MapWorkspace(
     zoom->addItems({"Fit", "100%", "200%", "300%", "400%", "800%"});
     zoom->setToolTip(
         "Magnify tiles, or fit the whole map in the view. Ctrl+mouse wheel also zooms.");
-    auto copy = new QPushButton("Copy");
+    auto commandIcon = [](int command) {
+        QPixmap image(24, 24);
+        image.fill(Qt::transparent);
+        QPainter painter(&image);
+        painter.setPen(QPen(QColor("#e0e8f0"), 2));
+        if (command == 0) {
+            painter.drawRect(3, 3, 12, 14);
+            painter.drawRect(8, 7, 12, 14);
+        } else if (command == 1) {
+            painter.drawRect(5, 5, 14, 17);
+            painter.drawRect(9, 2, 6, 5);
+            painter.drawLine(8, 12, 16, 12);
+            painter.drawLine(8, 17, 16, 17);
+        } else {
+            painter.setPen(QPen(QColor("#e0e8f0"), 2, Qt::DashLine));
+            painter.drawRect(3, 3, 18, 18);
+            painter.setPen(QPen(QColor("#e0e8f0"), 2));
+            painter.drawLine(8, 8, 16, 16);
+            painter.drawLine(8, 16, 16, 8);
+        }
+        return QIcon(image);
+    };
+    auto copy = new QToolButton;
+    copy->setAccessibleName("Copy terrain");
+    copy->setIcon(commandIcon(0));
     copy->setToolTip("Copy the selected rectangle of terrain (Ctrl+C).");
     copy->setObjectName("mapCopy");
-    auto paste = new QPushButton("Paste");
+    auto paste = new QToolButton;
+    paste->setAccessibleName("Paste terrain");
+    paste->setIcon(commandIcon(1));
     paste->setToolTip("Place copied terrain on the map; click to apply, Esc to cancel (Ctrl+V).");
     paste->setObjectName("mapPaste");
-    auto clear = new QPushButton("Clear selection");
+    auto clear = new QToolButton;
+    clear->setAccessibleName("Clear selection");
+    clear->setIcon(commandIcon(2));
     clear->setToolTip("Remove the selection boundary without deleting terrain.");
     clear->setObjectName("mapClearSelection");
+    auto separator = new QFrame;
+    separator->setFrameShape(QFrame::VLine);
+    tools->insertWidget(tools->count() - 1, separator);
+    for (auto command : {copy, paste, clear}) {
+        command->setFixedSize(28, 28);
+        command->setIconSize({22, 22});
+    }
     tools->insertWidget(tools->count() - 1, copy);
     tools->insertWidget(tools->count() - 1, paste);
     tools->insertWidget(tools->count() - 1, clear);
     comparison = new QCheckBox("Highlight changes");
     comparison->setObjectName("mapComparison");
     comparison->setToolTip("Orange marks terrain that differs from original game files");
-    tools->insertWidget(tools->count() - 1, comparison);
-    tools->addWidget(zoom);
+    tools->addWidget(comparison);
+    row->insertStretch(row->count() - 1);
+    row->insertWidget(row->count() - 1, zoom);
     canvas = new MapCanvas;
     // Overworld membership comes only from decoded world maps, not unused icons/chunks.
     for (const QString &name : {QString("BRIT.DAT"), QString("UNDER.DAT")}) {
@@ -1268,18 +1312,20 @@ MapWorkspace::MapWorkspace(
     split->setSizes({190, 780, 220});
     connect(tileSearch, &QLineEdit::textChanged, this, [this] { filterPalette(); });
     connect(paletteFilter, &QComboBox::currentIndexChanged, this, [this] { filterPalette(); });
-    connect(copy, &QPushButton::clicked, this, [this] { canvas->copySelection(); });
-    connect(paste, &QPushButton::clicked, this, [this] {
+    connect(copy, &QToolButton::clicked, this, [this] { canvas->copySelection(); });
+    connect(paste, &QToolButton::clicked, this, [this] {
         canvas->setFocus();
         canvas->beginPaste();
     });
-    connect(clear, &QPushButton::clicked, this, [this] { canvas->clearSelection(); });
+    connect(clear, &QToolButton::clicked, this, [this] { canvas->clearSelection(); });
     connect(comparison, &QCheckBox::toggled, this, [this](bool enabled) {
         canvas->comparison = enabled;
         canvas->update();
         minimap->refresh();
         saveView();
     });
+    connect(QApplication::clipboard(), &QClipboard::dataChanged, this,
+            [this] { updateSelection(); });
     canvas->selectionChanged = [this] {
         updateSelection();
         minimap->update();
@@ -1356,7 +1402,7 @@ MapWorkspace::MapWorkspace(
                                                                     : 0);
         if (resource.endsWith(".CBT"))
             refreshCombat();
-        findChild<QPushButton *>("mapPaste")->setEnabled(i != MapCanvas::InspectNpc);
+        findChild<QToolButton *>("mapPaste")->setEnabled(i != MapCanvas::InspectNpc);
         canvas->update();
         canvas->setCursor(i == 2 ? Qt::OpenHandCursor : Qt::CrossCursor);
         saveView();
@@ -1493,6 +1539,8 @@ void MapWorkspace::enableLocationModes(const QStringList &names, LocationLayerFa
     canvas->prepareSelection = [this](QPoint cell) { return selectMapItem(cell); };
     auto add = new QToolButton;
     add->setText("Add…");
+    add->setIcon(style()->standardIcon(QStyle::SP_FileDialogNewFolder));
+    add->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     add->setObjectName("mapAddMenu");
     add->setToolTip("Place a new map item, then edit its properties on the right.");
     add->setPopupMode(QToolButton::InstantPopup);
@@ -1517,9 +1565,12 @@ void MapWorkspace::enableLocationModes(const QStringList &names, LocationLayerFa
     extras->setMenu(menu);
     if (auto row = findChild<QHBoxLayout *>("mapToolRow")) {
         row->insertWidget(7, add);
-        row->insertWidget(8, extras);
+        auto divider = new QFrame;
+        divider->setFrameShape(QFrame::VLine);
+        row->insertWidget(7, divider);
     }
-    extras->setVisible(!menu->isEmpty());
+    extras->setParent(this);
+    extras->hide();
     canvas->deleteItem = [this] { deleteSelectedItem(); };
     auto remove = new QToolButton;
     remove->setObjectName("mapDeleteItem");
@@ -1531,6 +1582,8 @@ void MapWorkspace::enableLocationModes(const QStringList &names, LocationLayerFa
         if (canvas->tool == MapCanvas::InspectNpc)
             deleteSelectedItem();
     });
+    remove->setFixedSize(28, 28);
+    remove->setIconSize({22, 22});
     if (auto row = findChild<QHBoxLayout *>("mapToolRow"))
         row->insertWidget(9, remove);
     auto markers = new QCheckBox("Contents markers");
@@ -1542,8 +1595,24 @@ void MapWorkspace::enableLocationModes(const QStringList &names, LocationLayerFa
         canvas->showContentsMarkers = enabled;
         canvas->update();
     });
-    if (auto row = findChild<QHBoxLayout *>("mapToolRow"))
-        row->insertWidget(10, markers);
+    markers->setParent(this);
+    markers->hide();
+    auto viewOptions = new QToolButton;
+    viewOptions->setObjectName("mapViewOptions");
+    viewOptions->setIcon(style()->standardIcon(QStyle::SP_FileDialogContentsView));
+    viewOptions->setToolTip("View and map item options");
+    viewOptions->setAccessibleName("View options");
+    viewOptions->setPopupMode(QToolButton::InstantPopup);
+    auto viewMenu = new QMenu(viewOptions);
+    auto markerAction = viewMenu->addAction("Contents markers");
+    markerAction->setCheckable(true);
+    markerAction->setChecked(true);
+    connect(markerAction, &QAction::toggled, markers, &QCheckBox::setChecked);
+    for (auto action : menu->actions())
+        viewMenu->addAction(action);
+    viewOptions->setMenu(viewMenu);
+    if (auto row = findChild<QHBoxLayout *>("mapLocationRow"))
+        row->addWidget(viewOptions);
     tool->button(MapCanvas::InspectNpc)
         ->setToolTip("Select / Move — select an NPC, sign or map item and drag to move it.");
     tool->button(MapCanvas::InspectNpc)->setAccessibleName("Select / Move");
@@ -1584,17 +1653,17 @@ void MapWorkspace::applyLocationMode() {
         button->setVisible(true);
     }
     tool->button(MapCanvas::InspectNpc)->setEnabled(locationModes->count() > 1);
-    schedule->setEnabled(!externalMode() && activeMode == 1 && !resource.endsWith(".CBT"));
+    schedule->setEnabled(project->resources.contains(npcResource) && !resource.endsWith(".CBT"));
     const bool showSchedule =
-        activeMode == 1 && !externalMode() && project->resources.contains(npcResource);
+        !resource.endsWith(".CBT") && project->resources.contains(npcResource);
     schedule->setVisible(showSchedule);
     if (auto label = findChild<QLabel *>("mapScheduleLabel"))
         label->setVisible(showSchedule);
-    comparison->setVisible(activeMode == 0);
+    comparison->setVisible(true);
     for (auto name : {"mapCopy", "mapPaste", "mapClearSelection"})
-        findChild<QPushButton *>(name)->setVisible(activeMode == 0);
-    comparison->setEnabled(activeMode == 0);
-    findChild<QPushButton *>("mapPaste")->setEnabled(activeMode == 0);
+        findChild<QToolButton *>(name)->setEnabled(activeMode == 0);
+    comparison->setEnabled(true);
+    findChild<QToolButton *>("mapPaste")->setEnabled(activeMode == 0);
     if (!externalMode()) {
         canvas->tool = activeMode == 0 ? terrainTool : MapCanvas::InspectNpc;
         inspector->setCurrentIndex(activeMode);
@@ -1822,6 +1891,12 @@ void MapWorkspace::populateFloors(int index) {
         }
     }
     page->setCurrentIndex(page->findData(index));
+    if (auto label = findChild<QLabel *>("mapLocationLabel")) {
+        const QString location = current.name.section(" — ", 0, 0);
+        label->setText(location + (page->count() > 1 ? ":" : ""));
+        label->setToolTip(location);
+    }
+    page->setVisible(page->count() > 1);
 }
 void MapWorkspace::selectPage(int index) {
     if (locationModes && !flushLocationMode()) {
@@ -1892,6 +1967,11 @@ void MapWorkspace::updateSelection() {
         for (int i = 0; i < canvas->ids.size(); ++i)
             changed += canvas->ids[i] != canvas->original[i];
     auto area = canvas->selection;
+    findChild<QToolButton *>("mapCopy")->setEnabled(!area.isEmpty());
+    findChild<QToolButton *>("mapClearSelection")->setEnabled(!area.isEmpty());
+    findChild<QToolButton *>("mapPaste")->setEnabled(
+        canvas->tool != MapCanvas::InspectNpc && QApplication::clipboard()->mimeData() &&
+        QApplication::clipboard()->mimeData()->hasFormat(canvas->clipboardMime));
     selectionLabel->setText((area.isEmpty() ? QString("No selection")
                                             : QString("Selection: %1 × %2 at %3, %4")
                                                   .arg(area.width())
@@ -1967,7 +2047,7 @@ void MapWorkspace::loadPage() {
         npcGhosts->setChecked(state.ghosts);
     }
     inspector->setCurrentIndex(canvas->tool == MapCanvas::InspectNpc ? 1 : 0);
-    findChild<QPushButton *>("mapPaste")->setEnabled(canvas->tool != MapCanvas::InspectNpc);
+    findChild<QToolButton *>("mapPaste")->setEnabled(canvas->tool != MapCanvas::InspectNpc);
     refreshNpcs();
     setBrush(state.brush);
     canvas->setCursor(canvas->tool == 2 ? Qt::OpenHandCursor : Qt::CrossCursor);
