@@ -1906,6 +1906,8 @@ int main(int argc, char **argv) {
                 tile.fill(QColor(i % 256, i / 256, 64));
                 tiles.append(tile);
             }
+            for (int id : {0xc8, 0xc9, 257, 0xd8, 0x00})
+                tiles[id].setPixelColor(0, 0, Qt::black);
             const auto images = Workshop::dungeonFeatureImages(tiles);
             check(images.size() == 256, "Missing dungeon feature artwork");
             for (const auto &image : images)
@@ -1913,9 +1915,21 @@ int main(int argc, char **argv) {
             check(images[0].pixelColor(0, 0) == tiles[0x45].pixelColor(0, 0) &&
                       images[0x40].pixelColor(0, 0) == tiles[257].pixelColor(0, 0),
                   "Dungeon artwork does not use project floor and actor chest tiles");
-            check(images[0xa0] != images[0xa1] && images[0x10] != images[0x18] &&
-                      images[0x40] != images[0x70] && images[0xb0] != images[0xb1],
-                  "Dungeon variants lost their visual distinction");
+            check(images[0xa0] != images[0xa1], "Room number badges are indistinguishable");
+            check(images[0x10] != images[0x18], "Ceiling opening marker is missing");
+            check(images[0x40] != images[0x70], "Open chest marker is missing");
+            check(images[0xb0] != images[0xb1], "Wall message marker is missing");
+            for (int feature : {0x10, 0x20, 0x40, 0x50, 0x80})
+                check(images[feature].pixelColor(0, 0) == QColor(Qt::black),
+                      "Dungeon sprite black background was replaced or recolored");
+            const auto originalFont = QApplication::font();
+            auto differentFont = originalFont;
+            differentFont.setLetterSpacing(QFont::AbsoluteSpacing, 8);
+            differentFont.setStretch(200);
+            QApplication::setFont(differentFont);
+            const auto repeat = Workshop::dungeonFeatureImages(tiles);
+            QApplication::setFont(originalFont);
+            check(images == repeat, "Dungeon badge rendering depends on native font metrics");
         });
         test("Dungeon UI edits, undo and room return", [] {
             QTemporaryDir dir;

@@ -12,29 +12,22 @@ QVector<QImage> dungeonFeatureImages(const QVector<QImage> &tiles) {
                                   0x00, 0x45, 0xb8, 0x4f, 0x4d, 0x4e, 0xb8, 0xb8};
     for (int value = 0; value < 256; ++value) {
         const int kind = value >> 4, variant = value & 15;
-        QImage image = tiles[0x45]
+        QImage image = tiles[artwork[kind]]
                            .scaled(32, 32, Qt::IgnoreAspectRatio, Qt::FastTransformation)
                            .convertToFormat(QImage::Format_ARGB32);
-        QImage overlay = tiles[artwork[kind]].convertToFormat(QImage::Format_ARGB32);
-        const bool wall = kind == 11 || kind == 12 || kind == 13;
-        for (int y = 0; y < overlay.height(); ++y)
-            for (int x = 0; x < overlay.width(); ++x) {
-                QColor color = overlay.pixelColor(x, y);
-                if (!wall && kind != 0 && color.rgb() == QColor(Qt::black).rgb())
-                    color.setAlpha(0);
-                if (kind == 8 && color.alpha()) {
-                    const QColor colors[] = {QColor("#ff55ff"), QColor("#55ff55"),
-                                             QColor("#ff5555"), QColor("#5555ff")};
-                    color = colors[qMin(variant & 7, 3)];
-                }
-                overlay.setPixelColor(x, y, color);
-            }
+        // Keep the source artwork's black pixels opaque, including sprite backgrounds.
+        if (kind == 8) {
+            const QColor colors[] = {QColor("#ff55ff"), QColor("#55ff55"), QColor("#ff5555"),
+                                     QColor("#5555ff")};
+            for (int y = 0; y < image.height(); ++y)
+                for (int x = 0; x < image.width(); ++x)
+                    if (image.pixelColor(x, y).rgb() != QColor(Qt::black).rgb())
+                        image.setPixelColor(x, y, colors[qMin(variant & 7, 3)]);
+        }
         QPainter painter(&image);
-        if (kind != 0 && kind != 9)
-            painter.drawImage(image.rect(), overlay);
         QString badge;
         if (kind == 3)
-            badge = "↕";
+            badge = QChar(0x2195);
         if (kind == 6 && (variant & 7))
             badge = (variant & 7) == 2 ? "B" : "T";
         if (kind == 7)
@@ -52,15 +45,28 @@ QVector<QImage> dungeonFeatureImages(const QVector<QImage> &tiles) {
         if (kind == 8 && (variant & 7) >= 4)
             badge = "?";
         if (!badge.isEmpty()) {
-            auto font = painter.font();
-            font.setPixelSize(11);
-            font.setBold(true);
-            painter.setFont(font);
-            const int width = qMax(11, painter.fontMetrics().horizontalAdvance(badge) + 2);
-            QRect box(32 - width, 20, width, 12);
-            painter.fillRect(box, QColor(0, 0, 0, 220));
-            painter.setPen(Qt::white);
-            painter.drawText(box, Qt::AlignCenter, badge);
+            // Fixed pixel glyphs keep badges legible and identical on every platform.
+            // Native font metrics can clip every glyph in a small badge on Windows.
+            static const QMap<QChar, QString> glyphs = {
+                {'0', "111101101101111"}, {'1', "010110010010111"},
+                {'2', "111001111100111"}, {'3', "111001111001111"},
+                {'4', "101101111001001"}, {'5', "111100111001111"},
+                {'6', "111100111101111"}, {'7', "111001010010010"},
+                {'8', "111101111101111"}, {'9', "111101111001111"},
+                {'B', "110101110101110"}, {'T', "111010010010010"},
+                {'O', "111101101101111"}, {'M', "101111111101101"},
+                {'S', "111100111001111"}, {'H', "101101111101101"},
+                {'?', "110001010000010"}, {QChar(0x2195), "010111010111010"}};
+            const int width = badge.size() * 8 + 2;
+            const QRect box(32 - width, 20, width, 12);
+            painter.fillRect(box, Qt::black);
+            for (int character = 0; character < badge.size(); ++character) {
+                const auto pixels = glyphs.value(badge[character]);
+                for (int pixel = 0; pixel < pixels.size(); ++pixel)
+                    if (pixels[pixel] == '1')
+                        painter.fillRect(box.x() + 1 + character * 8 + (pixel % 3) * 2,
+                                         box.y() + 1 + (pixel / 3) * 2, 2, 2, Qt::white);
+            }
         }
         if (value < 0x90 && (value & 8)) {
             painter.setPen(QPen(QColor("#55ffff"), 2));
