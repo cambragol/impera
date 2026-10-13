@@ -46,6 +46,7 @@ class WorkshopWindow : public QMainWindow {
     QMap<QString, int> editorState;
     QMap<QString, MapViewState> mapViewStates;
     QByteArray mapPanelState;
+    int mapPaletteWidth = -1;
     bool guard(const std::function<void()> &operation);
     bool canLeave();
     bool reviewPackage(bool launch);

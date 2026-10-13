@@ -3302,6 +3302,7 @@ int main(int argc, char **argv) {
             check(width > 300, "Panel resize was not applied");
             window.selectResource("KEEP.DAT");
             app.processEvents();
+            waitFor([&] { return qAbs(splitter()->sizes().last() - width) <= 2; });
             check(qAbs(splitter()->sizes().last() - width) <= 2,
                   "Changing map resets the tile picker width");
             check(splitter()->findChild<QComboBox *>("mapPaletteFilter")->currentText() == "Location" &&
@@ -3310,8 +3311,11 @@ int main(int argc, char **argv) {
                   "Changing maps resets filter, tool or tile");
             window.selectResource("TILES.16");
             app.processEvents();
+            window.resize(1540, 900);
+            app.processEvents();
             window.selectResource("TOWNE.DAT");
             app.processEvents();
+            waitFor([&] { return qAbs(splitter()->sizes().last() - width) <= 2; });
             check(qAbs(splitter()->sizes().last() - width) <= 2,
                   "Returning from another workspace resets the tile picker width");
         });

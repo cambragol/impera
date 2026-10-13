@@ -880,8 +880,10 @@ void WorkshopWindow::rebuildEditor() {
     flushDraft = {};
     QPoint scrollPosition;
     if (auto previous = content->currentWidget())
-        if (auto split = previous->findChild<QSplitter *>("mapPanelSplitter"))
+        if (auto split = previous->findChild<QSplitter *>("mapPanelSplitter")) {
             mapPanelState = split->saveState();
+            mapPaletteWidth = split->sizes().last();
+        }
     auto oldView = content->currentWidget()
                        ? content->currentWidget()->findChild<QScrollArea *>("canvasView")
                        : nullptr;
@@ -909,8 +911,24 @@ void WorkshopWindow::rebuildEditor() {
     if (auto map = dynamic_cast<MapWorkspace *>(w->findChild<QWidget *>("mapWorkspace")))
         map->useSharedNavigation();
     if (auto split = w->findChild<QSplitter *>("mapPanelSplitter")) {
-        if (!mapPanelState.isEmpty())
+        if (!mapPanelState.isEmpty()) {
             split->restoreState(mapPanelState);
+            // Native layouts settle after showing the workspace. Preserve a pixel width,
+            // rather than letting the new layout rescale the serialized splitter ratios.
+            const int width = mapPaletteWidth;
+            QTimer::singleShot(0, w, [w, split, width] {
+                if (w->layout())
+                    w->layout()->activate();
+                if (auto map = split->parentWidget(); map && map->layout())
+                    map->layout()->activate();
+                const auto sizes = split->sizes();
+                int available = 0;
+                for (int size : sizes)
+                    available += size;
+                if (sizes.size() == 3 && width > 0)
+                    split->setSizes({sizes[0], qMax(0, available - sizes[0] - width), width});
+            });
+        }
     }
     if (auto scenes = w->findChild<QComboBox *>("sceneSelector"))
         connect(scenes, &QComboBox::currentIndexChanged, w, [this] {
