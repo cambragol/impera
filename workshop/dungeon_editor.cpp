@@ -329,6 +329,9 @@ DungeonWorkspace::DungeonWorkspace(
     side->addWidget(brushPreview);
     auto subtype = new QComboBox;
     subtype->setObjectName("dungeonSubtype");
+    subtype->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    subtype->setMinimumContentsLength(12);
+    subtype->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     subtype->setToolTip("Low feature bits: room number 1–16 for room doors (encoded 0–15); "
                         "otherwise feature-specific subtype, message, or ceiling opening flag.");
     side->addWidget(new QLabel("Brush variant / room:"));
@@ -351,7 +354,8 @@ DungeonWorkspace::DungeonWorkspace(
     side->addWidget(warning);
     side->addStretch();
     inspectors->addWidget(featurePanel);
-    inspectors->setMinimumWidth(300);
+    inspectors->setObjectName("dungeonInspector");
+    inspectors->setFixedWidth(300);
     split->addWidget(inspectors);
     canvas->prepareSelection = [=](QPoint cell) {
         if (inspectors->currentWidget()->objectName() == "mapPositionEditor")

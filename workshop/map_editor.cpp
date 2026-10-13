@@ -1304,8 +1304,19 @@ MapWorkspace::MapWorkspace(
     split->addWidget(right);
     split->setStretchFactor(1, 1);
     split->setSizes({190, 780, 220});
-    connect(tileSearch, &QLineEdit::textChanged, this, [this] { filterPalette(); });
-    connect(paletteFilter, &QComboBox::currentIndexChanged, this, [this] { filterPalette(); });
+    if (states->contains("map/editor")) {
+        const auto shared = states->value("map/editor");
+        paletteFilter->setCurrentIndex(qBound(0, shared.paletteFilter, 2));
+        tileSearch->setText(shared.tileSearch);
+    }
+    connect(tileSearch, &QLineEdit::textChanged, this, [this] {
+        (*states)["map/editor"].tileSearch = tileSearch->text();
+        filterPalette();
+    });
+    connect(paletteFilter, &QComboBox::currentIndexChanged, this, [this] {
+        (*states)["map/editor"].paletteFilter = paletteFilter->currentIndex();
+        filterPalette();
+    });
     connect(copy, &QToolButton::clicked, this, [this] { canvas->copySelection(); });
     connect(paste, &QToolButton::clicked, this, [this] {
         canvas->setFocus();
@@ -2042,6 +2053,15 @@ void MapWorkspace::saveView() {
     if (!externalMode())
         s.npc = canvas->selectedNpc;
     s.ghosts = npcGhosts->isChecked();
+    auto &shared = (*states)["map/editor"];
+    shared.brush = canvas->brush;
+    shared.tool = canvas->tool;
+    shared.zoom = canvas->zoom;
+    shared.fit = view->fitting;
+    shared.comparison = canvas->comparison;
+    shared.ghosts = npcGhosts->isChecked();
+    shared.paletteFilter = paletteFilter->currentIndex();
+    shared.tileSearch = tileSearch->text();
     if (isVisible())
         s.center = view->mapCenter();
 }
@@ -2049,6 +2069,15 @@ void MapWorkspace::loadPage() {
     restoring = true;
     key = resource + "/" + QString::number(currentPage());
     auto state = states->value(key);
+    if (states->contains("map/editor")) {
+        const auto shared = states->value("map/editor");
+        state.brush = shared.brush;
+        state.tool = shared.tool;
+        state.zoom = shared.zoom;
+        state.fit = shared.fit;
+        state.comparison = shared.comparison;
+        state.ghosts = shared.ghosts;
+    }
     const auto &mp = document.pages[currentPage()];
     canvas->side = mp.side;
     minimap->setVisible(resource == "BRIT.DAT" || resource == "UNDER.DAT");

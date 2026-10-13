@@ -1933,6 +1933,20 @@ int main(int argc, char **argv) {
                       window.findChild<QComboBox *>("dungeonZoom") &&
                       !window.findChild<QLabel *>("dungeonCellDetails")->text().contains("Feature byte"),
                   "Dungeon visual palette, preview or zoom is missing");
+            window.resize(1400, 900);
+            window.show();
+            QApplication::processEvents();
+            auto inspector = window.findChild<QStackedWidget *>("dungeonInspector");
+            const int inspectorWidth = inspector->width();
+            auto cells = canvas->ids;
+            for (int feature = 0; feature < 256; ++feature) {
+                canvas->ids[0] = char(feature);
+                canvas->inspect(0, 0, feature);
+                QApplication::processEvents();
+                check(inspector->width() == inspectorWidth,
+                      "Dungeon inspector width changes with inspected feature");
+            }
+            canvas->ids = cells;
             canvas->selection = QRect(0, 0, 1, 1);
             check(canvas->copySelection(), "Dungeon copy failed");
             MapCanvas terrain;
@@ -3264,12 +3278,22 @@ int main(int argc, char **argv) {
             check(split, "Map panel splitter missing");
             split->setSizes({0, 650, 370});
             app.processEvents();
+            auto canvas = dynamic_cast<MapCanvas *>(split->findChild<QWidget *>("mapCanvas"));
+            auto filter = split->findChild<QComboBox *>("mapPaletteFilter");
+            filter->setCurrentText("Location");
+            split->findChild<QListWidget *>("mapPalette")->setCurrentRow(5);
+            split->findChild<QToolButton *>("mapTool6")->click();
+            check(canvas->tool == MapCanvas::Fill, "Tool fixture failed");
             const int width = split->sizes().last();
             check(width > 300, "Panel resize was not applied");
             window.selectResource("KEEP.DAT");
             app.processEvents();
             check(qAbs(splitter()->sizes().last() - width) <= 2,
                   "Changing map resets the tile picker width");
+            check(splitter()->findChild<QComboBox *>("mapPaletteFilter")->currentText() == "Location" &&
+                      dynamic_cast<MapCanvas *>(splitter()->findChild<QWidget *>("mapCanvas"))->brush == 5 &&
+                      dynamic_cast<MapCanvas *>(splitter()->findChild<QWidget *>("mapCanvas"))->tool == MapCanvas::Fill,
+                  "Changing maps resets filter, tool or tile");
             window.selectResource("TILES.16");
             app.processEvents();
             window.selectResource("TOWNE.DAT");
@@ -3359,12 +3383,12 @@ int main(int argc, char **argv) {
             active()->findChild<QListWidget *>("mapPalette")->setCurrentRow(11);
             page->setCurrentIndex(0);
             app.processEvents();
-            check(findCanvas()->brush == 9, "Floor navigation did not restore per-page brush");
+            check(findCanvas()->brush == 11, "Floor navigation reset the shared brush");
             auto filter = active()->findChild<QComboBox *>("mapPaletteFilter");
             auto tiles = active()->findChild<QListWidget *>("mapPalette");
             filter->setCurrentText("Location");
             check(!tiles->item(0)->isHidden() && tiles->item(9)->isHidden() &&
-                      tiles->item(0x27)->isHidden() && findCanvas()->brush == 9,
+                      tiles->item(0x27)->isHidden() && findCanvas()->brush == 11,
                   "Usage filter must reflect restored maps without resetting the brush");
             filter->setCurrentIndex(0);
             auto mini = active()->findChild<QWidget *>("mapMinimap");

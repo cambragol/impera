@@ -10,6 +10,8 @@ struct MapViewState {
     QRect selection;
     QPoint keyboardCell = {0, 0};
     int brush = 1, tool = 0, schedule = 0, npc = -1;
+    int paletteFilter = 0;
+    QString tileSearch;
     bool ghosts = false;
     QPointF center = {-1, -1}; // Map cells, independent of display scale.
 };
