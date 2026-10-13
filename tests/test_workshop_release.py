@@ -92,6 +92,15 @@ class WorkshopReleaseTest(unittest.TestCase):
         builds = workflow['jobs']['build']
         self.assertEqual({p['platform'] for p in builds['strategy']['matrix']['include']},
                          {'linux-x86_64', 'windows-x86_64', 'macos-x86_64', 'macos-arm64'})
+        self.assertEqual({p['platform']: p['qt_arch'] for p in builds['strategy']['matrix']['include']},
+                         {'linux-x86_64': 'linux_gcc_64',
+                          'windows-x86_64': 'win64_msvc2022_64',
+                          'macos-x86_64': 'clang_64', 'macos-arm64': 'clang_64'})
+        qt_install = next(s for s in builds['steps']
+                          if s.get('uses', '').startswith('jurplel/install-qt-action@'))
+        self.assertRegex(qt_install['uses'], r'@[0-9a-f]{40}$')
+        self.assertEqual(qt_install['with']['version'], '6.8.3')
+        self.assertNotIn('modules', qt_install['with'])
         steps = {s.get('name'): s for s in builds['steps']}
         # One root build includes both products; native validation runs on every event.
         self.assertIn('IMPERA_BUILD_WORKSHOP=ON', steps['Configure']['run'])
