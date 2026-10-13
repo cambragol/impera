@@ -135,7 +135,7 @@ Use **Encounter** mode for combat maps, sharing the exact same selected map and 
 
 Use marker colors, shapes and labels together so meaning does not depend on color alone. Selected triggers highlight their related cells. A read-only **trigger result preview** can show before/after terrain without applying those changes to the base map.
 
-Before implementing trigger editing, verify the exact correspondence of the eight replacement tiles, trigger records and both changed-position sets against engine code and the audited Python editor. The current row labels alone are insufficient to establish runtime behavior. Do not treat every metadata byte as a position or every out-of-range coordinate as an error.
+Before implementing trigger editing, verify the exact correspondence of the eight replacement tiles, trigger records and both changed-position sets against engine code and the native Workshop codec. The current row labels alone are insufficient to establish runtime behavior. Do not treat every metadata byte as a position or every out-of-range coordinate as an error.
 
 Dragging a marker changes only its verified coordinates. Terrain edits preserve all 21 metadata bytes after each row's 11 terrain bytes. Marker edits preserve unrelated metadata, unknown fields and padding. Sentinel/disabled records remain in an Advanced section; draw only coordinates valid for the 11×11 map. Do not clamp unusual values to the nearest tile or guess which values mean absent.
 

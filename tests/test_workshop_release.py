@@ -93,23 +93,43 @@ class WorkshopReleaseTest(unittest.TestCase):
         self.assertEqual({p['platform'] for p in builds['strategy']['matrix']['include']},
                          {'linux-x86_64', 'windows-x86_64', 'macos-x86_64', 'macos-arm64'})
         steps = {s.get('name'): s for s in builds['steps']}
-        for name in ('Configure Workshop', 'Build Workshop', 'Workshop tests',
-                     'Package Workshop with Qt runtime', 'Workshop package startup smoke check',
-                     'Combined distribution startup smoke check'):
+        # One root build includes both products; native validation runs on every event.
+        self.assertIn('IMPERA_BUILD_WORKSHOP=ON', steps['Configure']['run'])
+        self.assertIn('IMPERA_WORKSHOP_DEPLOY_QT=ON', steps['Configure']['run'])
+        commands = [s.get('run', '') for s in builds['steps']]
+        self.assertEqual(sum(command.startswith('cmake -S ') for command in commands), 1)
+        self.assertEqual(sum(command.startswith('cmake --build ') for command in commands), 1)
+        self.assertEqual(sum(command.startswith('ctest ') for command in commands), 1)
+        for name in ('Configure', 'Build', 'Tests', 'Native executable startup'):
             self.assertNotIn('continue-on-error', steps[name])
             self.assertNotIn('if', steps[name])
+        self.assertEqual(steps['Tests']['env']['QT_QPA_PLATFORM'], 'offscreen')
+        release_steps = builds['steps'][builds['steps'].index(steps['Package']):]
+        for step in release_steps:
+            self.assertNotIn('continue-on-error', step)
+            self.assertTrue(step['if'].startswith("startsWith(github.ref, 'refs/tags/v')"))
+        self.assertIn('--build release-build/workshop', steps['Package Workshop with Qt runtime']['run'])
         release = workflow['jobs']['release']
         self.assertEqual(release['needs'], 'build')
+        self.assertEqual(release['if'], "startsWith(github.ref, 'refs/tags/v')")
         self.assertIn('--with-workshop', next(s['run'] for s in release['steps']
                                             if s.get('name') == 'Assemble release downloads'))
-        self.assertIn('IMPERA_WORKSHOP_DEPLOY_QT=ON', steps['Configure Workshop']['run'])
+        events = workflow.get('on', workflow.get(True))
+        self.assertEqual(events['push']['branches'], ['main'])
+        self.assertEqual(events['push']['tags'], ['v*'])
+        self.assertIn('workflow_dispatch', events)
+        for event in ('push', 'pull_request'):
+            self.assertIn('src/**', events[event]['paths'])
+            self.assertIn('workshop/**', events[event]['paths'])
+        self.assertEqual(workflow['permissions'], {'contents': 'read'})
+        self.assertEqual(release['permissions'], {'contents': 'write'})
+        self.assertIn('github.ref', workflow['concurrency']['group'])
+        self.assertIn("!startsWith(github.ref, 'refs/tags/')", workflow['concurrency']['cancel-in-progress'])
         smoke = steps['Workshop package startup smoke check']['run']
         self.assertEqual(smoke.count("'--playtest-smoke-test'"), 3)
         self.assertIn('timeout=60', smoke)
         self.assertIn('PASS native dialogue packaged smoke test', smoke)
-        standalone = yaml.safe_load((ROOT / '.github/workflows/workshop.yml').read_text())
-        self.assertEqual(set(standalone['jobs']['workshop']['strategy']['matrix']['os']),
-                         {'ubuntu-24.04', 'windows-2022', 'macos-15-intel', 'macos-15'})
+
 
 
 if __name__ == '__main__':

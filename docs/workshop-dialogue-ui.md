@@ -4,7 +4,7 @@ Original conversation-model design and engine audit. The model and structured ed
 
 ## What the game actually stores
 
-Studied `src/talk.c`, `src/6000.c:ULTIMA_6f1e`, `src/vars.c:D_24ea` / `D_4aa8`, the audited Python editors, Workshop's native codec, and all four original TLK resources (135 conversations: 48 TOWNE, 15 DWELLING, 40 CASTLE, 32 KEEP).
+Studied `src/talk.c`, `src/6000.c:ULTIMA_6f1e`, `src/vars.c:D_24ea` / `D_4aa8`, Workshop's native codec, and all four original TLK resources (135 conversations: 48 TOWNE, 15 DWELLING, 40 CASTLE, 32 KEEP).
 
 A TLK header contains a count and (dialogue ID, byte offset) pairs. IDs identify conversations, not settlement NPC indices: settlement NPC records link to them. A conversation has:
 

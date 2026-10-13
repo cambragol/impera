@@ -1,34 +1,33 @@
-name: Build releases
+name: Build and test
 on:
   push:
+    branches: [main]
     tags: ['v*']
+    paths:
+      - '.github/workflows/release.yml'
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'src/**'
+      - 'workshop/**'
+      - 'tests/**'
+      - 'scripts/**'
+      - 'textures/**'
+      - 'packaging/**'
   pull_request:
     paths:
       - '.github/workflows/release.yml'
-      - 'cmake/**'
       - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'src/**'
       - 'workshop/**'
-      - 'src/mod/**'
-      - 'src/text/**'
-      - 'src/vars.c'
-      - 'src/6000.c'
-      - 'scripts/package-workshop.py'
-      - 'scripts/package-release.py'
-      - 'scripts/assemble-release.py'
-      - 'scripts/check-combined-release.py'
-      - 'scripts/build-appimage.py'
-      - 'scripts/embed-cursors.py'
-      - 'scripts/generate-icons.py'
-      - 'scripts/verify-package-icons.py'
-      - 'src/common/icon*'
-      - 'src/key/**'
-      - 'src/graphics/**'
-      - 'src/common/engine_settings*'
-      - 'textures/tilesets/**'
-      - 'textures/cursors/**'
-      - 'packaging/**'
       - 'tests/**'
+      - 'scripts/**'
+      - 'textures/**'
+      - 'packaging/**'
   workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 permissions:
   contents: read
 jobs:
@@ -71,11 +70,31 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev libwayland-dev libxkbcommon-dev libdrm-dev libgbm-dev libgl1-mesa-dev libegl1-mesa-dev
       - name: Configure
-        run: cmake -S . -B release-build -DCMAKE_BUILD_TYPE=Release -DIMPERA_BUNDLED_SDL=ON -DU5D_BUILD_TESTS=ON
+        run: cmake -S . -B release-build -DCMAKE_BUILD_TYPE=Release -DIMPERA_BUNDLED_SDL=ON -DU5D_BUILD_TESTS=ON -DIMPERA_BUILD_WORKSHOP=ON -DIMPERA_WORKSHOP_DEPLOY_QT=ON
       - name: Build
         run: cmake --build release-build --config Release --parallel 3
       - name: Tests
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: ctest --test-dir release-build -C Release --output-on-failure
+      - name: Native executable startup
+        shell: python
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          import os, pathlib, subprocess
+          build = pathlib.Path('release-build')
+          if os.name == 'nt':
+              engine = build / 'Release/ultima5.exe'
+              workshop = build / 'workshop/Release/ImperaWorkshop.exe'
+          elif '${{ runner.os }}' == 'macOS':
+              engine = build / 'ultima5'
+              workshop = build / 'workshop/ImperaWorkshop.app/Contents/MacOS/ImperaWorkshop'
+          else:
+              engine = build / 'ultima5'
+              workshop = build / 'workshop/ImperaWorkshop'
+          for executable in (engine, workshop):
+              subprocess.run([str(executable.resolve()), '--help'], check=True, timeout=30)
       - name: Embedded cursor consistency
         run: python scripts/embed-cursors.py --check
       - name: Generated icon consistency
@@ -89,11 +108,12 @@ jobs:
           python tests/test_release_workflow.py
           python tests/test_workshop_release.py
       - name: Package
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
         run: python scripts/package-release.py --build release-build --platform ${{ matrix.platform }} ${{ runner.os == 'Windows' && '--unpacked' || '' }}
       - name: Windows and macOS package startup smoke check
-        if: runner.os != 'Linux'
+        if: startsWith(github.ref, 'refs/tags/v') && runner.os != 'Linux'
         shell: python
         run: |
           import os, pathlib, subprocess, tarfile, tempfile
@@ -110,46 +130,41 @@ jobs:
                                       env={**os.environ, 'HOME': str(runtime)}, timeout=30)
               assert 'Usage: ultima5' in result.stdout, result.stdout + result.stderr
       - name: Verify packaged native icon
-        if: runner.os != 'Linux'
+        if: startsWith(github.ref, 'refs/tags/v') && runner.os != 'Linux'
         run: python scripts/verify-package-icons.py --platform ${{ matrix.platform }} --package-root dist
       - name: Build Linux AppImage
-        if: runner.os == 'Linux'
+        if: startsWith(github.ref, 'refs/tags/v') && runner.os == 'Linux'
         run: python scripts/build-appimage.py dist/*-linux-x86_64.tar.gz
       - name: AppImage startup smoke check
-        if: runner.os == 'Linux'
+        if: startsWith(github.ref, 'refs/tags/v') && runner.os == 'Linux'
         run: |
           XDG_DATA_HOME="$RUNNER_TEMP/impera-smoke" dist/*.AppImage --appimage-extract-and-run --help > "$RUNNER_TEMP/impera-help.txt"
           grep -q 'Usage: ultima5' "$RUNNER_TEMP/impera-help.txt"
       - name: Verify AppImage icon
-        if: runner.os == 'Linux'
+        if: startsWith(github.ref, 'refs/tags/v') && runner.os == 'Linux'
         run: python scripts/verify-package-icons.py --platform linux-x86_64 --package-root dist
       - name: Remove internal Linux archive
-        if: runner.os == 'Linux'
+        if: startsWith(github.ref, 'refs/tags/v') && runner.os == 'Linux'
         run: rm dist/*-linux-x86_64.tar.gz dist/*-linux-x86_64.tar.gz.sha256
       - name: Stage direct Windows download
-        if: runner.os == 'Windows'
+        if: startsWith(github.ref, 'refs/tags/v') && runner.os == 'Windows'
         shell: python
         run: |
           import pathlib, shutil
           shutil.move(str(next(pathlib.Path('dist').glob('Impera-*-windows-x86_64'))), 'windows-artifact')
       - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/v')
         with:
           name: Impera-${{ matrix.platform }}
           path: ${{ runner.os == 'Windows' && 'windows-artifact/' || 'dist/*' }}
           if-no-files-found: error
-      - name: Configure Workshop
-        run: cmake -S workshop -B workshop-release-build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DIMPERA_WORKSHOP_DEPLOY_QT=ON
-      - name: Build Workshop
-        run: cmake --build workshop-release-build --config Release --parallel 3
-      - name: Workshop tests
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: ctest --test-dir workshop-release-build -C Release --output-on-failure
       - name: Package Workshop with Qt runtime
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
-        run: python scripts/package-workshop.py --build workshop-release-build --platform ${{ matrix.platform }}
+        run: python scripts/package-workshop.py --build release-build/workshop --platform ${{ matrix.platform }}
       - name: Workshop package startup smoke check
+        if: startsWith(github.ref, 'refs/tags/v')
         shell: python
         env:
           QT_QPA_PLATFORM: offscreen
@@ -179,18 +194,21 @@ jobs:
                                       capture_output=True, text=True, check=True, timeout=60)
               assert 'PASS native dialogue packaged smoke test' in result.stdout, result.stdout + result.stderr
       - name: Verify Workshop native icon
+        if: startsWith(github.ref, 'refs/tags/v')
         run: python scripts/verify-package-icons.py --workshop --platform ${{ matrix.platform }} --package-root workshop-dist
       - name: Stage direct Windows Workshop download
-        if: runner.os == 'Windows'
+        if: startsWith(github.ref, 'refs/tags/v') && runner.os == 'Windows'
         shell: python
         run: |
           import pathlib, shutil
           shutil.move(str(next(pathlib.Path('workshop-dist').glob('ImperaWorkshop-*'))), 'workshop-windows-artifact')
       - name: Combined distribution startup smoke check
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
         run: python scripts/check-combined-release.py --platform ${{ matrix.platform }}
       - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/v')
         with:
           name: Impera-Workshop-${{ matrix.platform }}
           path: ${{ runner.os == 'Windows' && 'workshop-windows-artifact/' || 'workshop-dist/*' }}
