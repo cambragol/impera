@@ -1,8 +1,11 @@
 #include "save_slots.h"
+#include "mod/contents.h"
+#include "mod/runtime.h"
 #if defined(TARGET_SDL)
 #include "engine_settings.h"
 #include "file.h"
 #include "savegame.h"
+#include "npc.h"
 #include "graphics/grap_sdl.h"
 #include "graphics/grap_buf.h"
 #include "key/mouse.h"
@@ -173,8 +176,13 @@ bool SLOTS_Write(const char* id,const char* name,const char* thumbnail)
 }
 bool SLOTS_CreateInitial(void)
 {
-    /* Character creation has initialized the complete pair of world lists. */
-    if(!storage()) return false;
+    /* Always resolve new-game templates afresh; never seed from old saves. */
+    if(!storage() || !MOD_InitializeWorldObjects(D_b21e)) return false;
+    /* A world start must serialize the same objects in SAVED.GAM's resident
+     * list and SAVED.OOL's world list. */
+    if(D_5893_map_id == 0)
+        memcpy(D_5c5a, D_b21e + (D_5895_map_level ? 256 : 0), 256);
+    if(!NPC_InitializeNewGame()) return false;
     SLOTS_ResetTime();
     char name[sizeof(D_55a8_party[0].name)+1];
     memcpy(name,D_55a8_party[0].name,sizeof(D_55a8_party[0].name));name[sizeof(name)-1]=0;
@@ -190,7 +198,13 @@ static bool SLOTS_Load_Impl(const char* id)
     /* Validate both files before replacing the working save. */
     for(int i=0;i<2;i++) {
         path(p,sizeof(p),dir,files[i]);FILE* f=FILE_Open(p,"rb");if(!f) return false;
-        bool ok=fseek(f,0,SEEK_END)==0 && ftell(f)==(i?512:0x1060);fclose(f);if(!ok) return false;
+        bool ok = fseek(f, 0, SEEK_END) == 0 &&
+                  (i ? ftell(f) == 512
+                     : (ftell(f) >= 0x1060 && fseek(f, 0x1060, SEEK_SET) == 0 &&
+                        CONTENTS_ReadState(f, 0)));
+        fclose(f);
+        if (!ok)
+            return false;
     }
     /* Stage the complete working save, including its clock, before installation. */
     const char* working[]={"SAVED.GAM","SAVED.OOL","PLAYTIME"};
@@ -203,7 +217,8 @@ static bool SLOTS_Load_Impl(const char* id)
         SDL_snprintf(backups[i],sizeof(backups[i]),"%s.previous",targets[i]);
         if(i<2) {
             path(p,sizeof(p),dir,working[i]);
-            if(!copy(p,stages[i],i?512:0x1060)) return false;
+            if (!copy(p, stages[i], i ? 512 : 0))
+                return false;
         } else {
             FILE* f=FILE_Open(stages[i],"w");if(!f) return false;
             bool ok=fprintf(f,"%llu\n",(unsigned long long)ms)>=0;
@@ -349,7 +364,10 @@ static bool validLegacy(void)
     for(int i=0;i<2;i++) {
         char filename[FILE_PATH_SIZE];path(filename,sizeof(filename),s_saveDir,files[i]);
         FILE* f=FILE_Open(filename,"rb");if(!f) return false;
-        bool ok=fseek(f,0,SEEK_END)==0 && ftell(f)==(i?512:0x1060);
+        bool ok = fseek(f, 0, SEEK_END) == 0 &&
+                  (i ? ftell(f) == 512
+                     : (ftell(f) >= 0x1060 && fseek(f, 0x1060, SEEK_SET) == 0 &&
+                        CONTENTS_ReadState(f, 0)));
         fclose(f);if(!ok) return false;
     }
     return true;

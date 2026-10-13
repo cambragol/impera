@@ -1,6 +1,7 @@
 #ifndef _STRUCTS_H
 #define _STRUCTS_H
 
+#include "text/text_window.h"
 #pragma pack(push, 1)
 
 // S_13bc
@@ -83,18 +84,7 @@ typedef struct VideoDriverParams
 	int _52d8_page;             // 52d8 1e
 } VideoDriverParams;            // size: 0x20?
 
-// 535e size: 8
-typedef struct TextWindow
-{
-	u8 left;   // 0
-	u8 top;    // 1
-	u8 right;  // 2
-	u8 bottom; // 3
-	u8 currentX; // 4
-	u8 currentY; // 5
-	u8 colors;  // 6; hi: bg, lo: fg
-	u8 flags; // 7; flags: bits 0..2
-} TextWindow;
+/* TextWindow is shared with the portable renderer (eight native bytes). */
 
 // 5c00: Actor. size: 8 "Obj"
 typedef struct ActorFmt // D_5c5a..

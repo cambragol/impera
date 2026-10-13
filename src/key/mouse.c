@@ -1,15 +1,16 @@
+#include "mouse.h"
 #include "common/common.h"
 #include "common/movement.h"
-#include "vars.h"
-#include "funcs.h"
-#include "macros.h"
-#include "tiles.h"
 #include "comsubs.h"
-#include "talk.h"
-#include "mouse.h"
-#include "graphics/grap_sdl.h"
-#include <SDL3/SDL.h>
 #include "cursor_assets.h"
+#include "funcs.h"
+#include "graphics/grap_sdl.h"
+#include "macros.h"
+#include "mod/contents_game.h"
+#include "talk.h"
+#include "tiles.h"
+#include "vars.h"
+#include <SDL3/SDL.h>
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_STATIC
 #define STBI_NO_LINEAR
@@ -314,6 +315,9 @@ int MOUSE_Action(int dx, int dy, bool mainAction)
          * list. Use the active party member's keyboard interaction range. */
         if ((D_ba14[D_589e].flags & COMBAT_FLAGS_PLAYER) &&
             (target<0 || target==D_589e) && ((!ox && !oy) || AdjacentDirection(ox,oy))) {
+            int contentsCommand = CONTENTS_GAME_Command(x, y);
+            if (contentsCommand)
+                return contentsCommand;
             for (int i=1;i<32;i++) {
                 ActorFmt* a=&D_5c5a[i];
                 if (!a->_0_tile || a->_2_x!=x || a->_3_y!=y) continue;
@@ -335,6 +339,9 @@ int MOUSE_Action(int dx, int dy, bool mainAction)
     int x = D_5896_map_x + dx, y = D_5897_map_y + dy;
     if (!dx && !dy) {
         int tile = *ULTIMA_4402_GetTileAddr(x, y);
+        int contentsCommand = CONTENTS_GAME_Command(x, y);
+        if (contentsCommand)
+            return contentsCommand;
         for (int i = 1; i < 32; i++) {
             ActorFmt* a = &D_5c5a[i];
             if (a->_2_x == x && a->_3_y == y && a->_4_z == D_5895_map_level &&
@@ -359,6 +366,9 @@ int MOUSE_Action(int dx, int dy, bool mainAction)
         }
         return 0;
     }
+    int contentsCommand = CONTENTS_GAME_Command(x, y);
+    if (contentsCommand)
+        return contentsCommand;
     for (int i = 1; i < 32; i++) {
         ActorFmt* a = &D_5c5a[i];
         if (a->_0_tile && a->_2_x == (byte)x && a->_3_y == (byte)y && a->_4_z == D_5895_map_level) {

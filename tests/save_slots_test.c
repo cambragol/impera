@@ -5,16 +5,73 @@
 #include <SDL3/SDL.h>
 #include "common/save_slots.h"
 #include "common/file.h"
+#include "mod/package.h"
+#include "mod/runtime.h"
+#include "mod/world_resources.h"
+#include "graphics/widescreen.h"
+#include "outsubs.h"
 #include "graphics/grap_sdl.h"
 #include "graphics/grap_buf.h"
 #include "graphics/grap.h"
 #include "funcs.h"
 #include "savegame.h"
+#include "npc.h"
 #include "vars.h"
 #include "key/key.h"
 #include "event/event.h"
 void GRAP_SDL_Initialize(void);
 void GRAP_SDL_Cleanup(void);
+static void writeResourcePackage(const char *path, const char *name,
+                                 const byte *base, const byte *changed, size_t size) {
+    FILE *f = fopen(path, "wb");assert(f);
+    assert(fwrite("IMOD0001",1,8,f)==8);
+    assert(FILE_WriteU32LE(f,4) && FILE_WriteU32LE(f,1));
+    assert(fwrite("Test",1,4,f)==4);
+    size_t length=strlen(name);assert(FILE_WriteU32LE(f,(u32)length));
+    assert(fwrite(name,1,length,f)==length);
+    assert(FILE_WriteU32LE(f,(u32)size) && FILE_WriteU32LE(f,(u32)size));
+    assert(FILE_WriteU32LE(f,MOD_Crc32(base,size)) && FILE_WriteU32LE(f,MOD_Crc32(changed,size)));
+    assert(FILE_WriteU32LE(f,1) && FILE_WriteU32LE(f,0) && FILE_WriteU32LE(f,(u32)size));
+    assert(fwrite(changed,1,size,f)==size);assert(!fclose(f));
+}
+static void engineWorldIndex(void) {
+    assert(SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "U5D_MODS_DIR", "world-game/Mods", true));
+    assert(SDL_CreateDirectory("world-game/Mods"));
+    byte original[U5_WORLD_INDEX_OFFSET+256]={0}, changed[sizeof(original)];
+    memcpy(original+U5_WORLD_INDEX_OFFSET,U5_BritanniaDefaultIndex,256);
+    memcpy(changed,original,sizeof(original));
+    memset(changed+U5_WORLD_INDEX_OFFSET,255,256);
+    changed[U5_WORLD_INDEX_OFFSET]=1;changed[U5_WORLD_INDEX_OFFSET+255]=0;
+    FILE *f=fopen("world-game/DATA.OVL","wb");assert(f);
+    assert(fwrite(original,1,sizeof(original),f)==sizeof(original));assert(!fclose(f));
+    f=fopen("world-game/BRIT.DAT","wb");assert(f);
+    for(int i=0;i<65536;++i) assert(fputc(i>=256 && i<512?7:5,f)!=EOF);
+    assert(!fclose(f));writeResourcePackage("world-game/Mods/index.imperamod","DATA.OVL",original,changed,sizeof(original));
+    const char *exported=getenv("IMPERA_WORLD_TEST_PACKAGE");
+    if(exported) {
+        FILE *input=fopen(exported,"rb"),*output=fopen("world-game/Mods/index.imperamod","wb");
+        assert(input && output);byte buffer[4096];size_t n;
+        while((n=fread(buffer,1,sizeof(buffer),input))) assert(fwrite(buffer,1,n,output)==n);
+        assert(!ferror(input));assert(!fclose(input));assert(!fclose(output));
+    }
+    FILE_SetDataDirectory("world-game");assert(MOD_LoadedCount()==1);
+    D_5893_map_id=0;D_5895_map_level=0;D_589b=0;D_589c=0;
+    OUTSUBS_01b4(-1,-1);
+    for(int i=0;i<768;++i) assert(D_6608[i]==(i<256?7:1));
+    /* Expanded viewport reads the same index outside the resident map. */
+    D_5896_map_x=240;D_5897_map_y=240;assert(WIDE_MapTile(0,0)==5);
+    changed[U5_WORLD_INDEX_OFFSET+255]=1;
+    writeResourcePackage("world-game/Mods/index.imperamod","DATA.OVL",original,changed,sizeof(original));FILE_SetDataDirectory("world-game");
+    assert(WIDE_MapTile(0,0)==7); /* remount invalidates extended block cache */
+    remove("world-game/Mods/index.imperamod");remove("world-game/DATA.OVL");
+    FILE_SetDataDirectory("world-game");assert(MOD_LoadedCount()==0);
+    OUTSUBS_01b4(-1,-1);
+    for(int i=0;i<512;++i) assert(D_6608[i]==1); /* original water chunks restored */
+    assert(WIDE_MapTile(0,0)==5);
+    FILE_SetDataDirectory(NULL);remove("world-game/BRIT.DAT");
+    SDL_RemovePath("world-game/Mods");SDL_RemovePath("world-game");
+    assert(SDL_UnsetEnvironmentVariable(SDL_GetEnvironment(), "U5D_MODS_DIR"));
+}
 static void writeWorld(const char* file,byte value,int bytes)
 {
     FILE* f=FILE_Open(file,"wb");assert(f);
@@ -117,6 +174,7 @@ static Uint32 input(void* unused,SDL_TimerID id,Uint32 interval)
 int main(void)
 {
     assert(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO));GRAP_Initialize();ULTIMA_1158_InitTimer();
+    engineWorldIndex();
     assert(SDL_CreateDirectory("SAVEGAME"));
     SDL_EnumerateDirectory("SAVEGAME/slots",cleanup,NULL);
     writeWorld("SAVEGAME/BRIT.OOL",0x12,256);
@@ -233,9 +291,71 @@ int main(void)
     SLOTS_LocationName(255,0,location,sizeof(location));assert(!strcmp(location,"Unknown Location"));
     SDL_EnumerateDirectory("SAVEGAME/slots",cleanup,NULL);
     strcpy(D_55a8_party[0].name,"New Hero");D_57a8=678;D_5893_map_id=13;D_5895_map_level=0;
-    memset(D_b21e,0,256);memset(D_b31e,0xab,256);
     writeWorld("SAVEGAME/BRIT.OOL",0x12,256);writeWorld("SAVEGAME/UNDER.OOL",0x34,256);
+    assert(SLOTS_Write("9999","Pre-mod save",NULL));
+    assert(SDL_CreateDirectory("starting-game/Mods"));
+    assert(SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "U5D_MODS_DIR", "starting-game/Mods", true));
+    byte objectBase[256],britObjects[256],underObjects[256];
+    memset(objectBase,0xab,256);memset(britObjects,0x23,256);memset(underObjects,0x45,256);
+    const char *objectFiles[]={"INIT.OOL","BRIT.OOL","UNDER.OOL"};
+    for(int i=0;i<3;i++) {
+        char objectPath[128];SDL_snprintf(objectPath,sizeof(objectPath),"starting-game/%s",objectFiles[i]);
+        writeWorld(objectPath,0xab,256);
+    }
+    writeResourcePackage("starting-game/Mods/brit.imperamod","BRIT.OOL",objectBase,britObjects,256);
+    writeResourcePackage("starting-game/Mods/under.imperamod","UNDER.OOL",objectBase,underObjects,256);
+    byte npcBase[4608]={0}, npcChanged[4608];
+    memcpy(npcChanged,npcBase,sizeof(npcChanged));
+    int npcStart=4*576;
+    for(int slot=5;slot<=8;slot++) {
+        int record=npcStart+slot*16;
+        for(int phase=0;phase<3;phase++) {
+            npcChanged[record+3+phase]=(byte)(10+slot);
+            npcChanged[record+6+phase]=(byte)(12+slot);
+            npcChanged[record+9+phase]=(byte)(slot==7?1:0);
+        }
+        npcChanged[npcStart+512+slot]=(byte)(slot==6?128:80);
+        npcChanged[npcStart+544+slot]=(byte)(slot==6?0:42);
+    }
+    f=fopen("starting-game/DWELLING.NPC","wb");assert(f);
+    assert(fwrite(npcBase,1,sizeof(npcBase),f)==sizeof(npcBase));fclose(f);
+    f=fopen("starting-game/TOWNE.NPC","wb");assert(f);
+    assert(fwrite(npcBase,1,sizeof(npcBase),f)==sizeof(npcBase));fclose(f);
+    writeResourcePackage("starting-game/Mods/npcs.imperamod","DWELLING.NPC",npcBase,npcChanged,sizeof(npcChanged));
+    FILE_SetDataDirectory("starting-game");assert(MOD_LoadedCount()==3);
+    assert(SLOTS_Load("9999"));
+    f=FILE_Open("SAVEGAME/SAVED.OOL","rb");assert(f);
+    for(int i=0;i<512;i++) assert(fgetc(f)==(i<256?0x12:0x34));fclose(f);
+    assert(SLOTS_Delete("9999"));
+    memset(D_b21e,0xee,512);
+    D_5893_map_id=0;D_5895_map_level=0;memset(D_5c5a,0xee,256);
+    assert(SLOTS_CreateInitial());assert(!memcmp(D_5c5a,britObjects,256));
+    D_5895_map_level=255;
+    assert(SLOTS_CreateInitial());assert(!memcmp(D_5c5a,underObjects,256));
+    SDL_EnumerateDirectory("SAVEGAME/slots",cleanup,NULL);
+    D_5893_map_id=13;D_5895_map_level=0;memset(D_5c5a,0x77,256);
+    memset(D_b21e,0xee,512);
+    writeWorld("SAVEGAME/BRIT.OOL",0x12,256);writeWorld("SAVEGAME/UNDER.OOL",0x34,256);
+    memset(D_5b5a,0,sizeof(D_5b5a));D_5b5a[12*4+1]=1; /* NPC 8 was already removed. */
+    D_587f=8;
     assert(SLOTS_CreateInitial());
+    for(int i=0;i<8;i++) assert(((byte*)D_5c5a)[i]==0x77); /* Party actor remains intact. */
+    assert(D_5893_map_id==13 && D_5895_map_level==0 && D_587f==8 && D_57a8==678);
+    for(int slot=5;slot<=6;slot++) {
+        int actor=D_5f5e[slot]._c;assert(actor>0 && actor<32);
+        assert(D_5f5e[slot]._0 && D_5c5a[actor]._0_tile==(slot==5?80:128));
+        assert(D_5c5a[actor]._2_x==10+slot && D_5c5a[actor]._3_y==12+slot);
+        assert(D_5f5e[slot]._a==(slot==5?42:0));
+    }
+    assert(D_5f5e[7]._0 && !D_5f5e[7]._c); /* Another floor is not spawned here. */
+    assert(!D_5f5e[8]._0 && !D_659e[8]);
+    /* A bad/missing bank must fail before replacing any resident actors. */
+    ActorFmt residents[32];memcpy(residents,D_5c5a,sizeof(residents));
+    D_5893_map_id=17;assert(!NPC_InitializeNewGame());
+    assert(!memcmp(residents,D_5c5a,sizeof(residents)));D_5893_map_id=13;
+    f=FILE_Open("SAVEGAME/BRIT.OOL","rb");assert(f);assert(fgetc(f)==0x12);fclose(f);
+    f=FILE_Open("SAVEGAME/UNDER.OOL","rb");assert(f);assert(fgetc(f)==0x34);fclose(f);
+    remove("SAVEGAME/BRIT.OOL");remove("SAVEGAME/UNDER.OOL");
     D_57a8=789;D_5893_map_id=2;D_5896_map_x=15;D_5897_map_y=30;
     assert(SLOTS_CreateInitial());
     SDL_EnumerateDirectory("SAVEGAME/slots",initialSlots,NULL);assert(initialCount==2);
@@ -246,7 +366,21 @@ int main(void)
     assert(FILE_ReadSavegameFile("SAVED.GAM")==0);assert(D_57a8==789);
     assert(!strcmp(D_55a8_party[0].name,"New Hero"));assert(D_5893_map_id==2);
     f=FILE_Open("SAVEGAME/SAVED.OOL","rb");assert(f);
-    for(int i=0;i<512;i++) assert(fgetc(f)==(i<256?0:0xab));fclose(f);
+    for(int i=0;i<512;i++) assert(fgetc(f)==(i<256?0x23:0x45));fclose(f);
+    const char *hut=strcmp(initialIds[0],initialIds[1])>0?initialIds[1]:initialIds[0];
+    assert(SLOTS_Load(hut));assert(FILE_ReadSavegameFile("SAVED.GAM")==0);
+    assert(D_5893_map_id==13 && D_5f5e[5]._0 && D_5f5e[6]._0);
+    assert(D_5c5a[D_5f5e[5]._c]._0_tile==80 && D_5c5a[D_5f5e[6]._c]._0_tile==128);
+    FILE_SetDataDirectory(NULL);
+    remove("starting-game/Mods/brit.imperamod");remove("starting-game/Mods/under.imperamod");
+    for(int i=0;i<3;i++) {
+        char objectPath[128];SDL_snprintf(objectPath,sizeof(objectPath),"starting-game/%s",objectFiles[i]);
+        remove(objectPath);
+    }
+    remove("starting-game/Mods/npcs.imperamod");
+    remove("starting-game/DWELLING.NPC");remove("starting-game/TOWNE.NPC");
+    SDL_RemovePath("starting-game/Mods");SDL_RemovePath("starting-game");
+    assert(SDL_UnsetEnvironmentVariable(SDL_GetEnvironment(), "U5D_MODS_DIR"));
     /* Older two-line metadata remains loadable. */
     const char* latest=strcmp(initialIds[0],initialIds[1])>0?initialIds[0]:initialIds[1];
     char meta[512];SDL_snprintf(meta,sizeof(meta),"SAVEGAME/slots/%s/meta.txt",latest);

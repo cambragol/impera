@@ -10,6 +10,7 @@
 #include "grap_sdl.h"
 #include "widescreen.h"
 #include "tileset.h"
+#include "text/text_window.h"
 #include "vars.h"
 #include "funcs.h"
 #include "macros.h"
@@ -71,7 +72,7 @@ typedef struct ActorVisual {
     Uint32 sprite[36*36], terrain[36*36];
 } ActorVisual;
 static ActorVisual s_previousActors[32];
-static Uint32 s_egaPalette[16];
+#define s_egaPalette IMPERA_TextPalette
 
 static void PatchActor(SDL_Surface* surface, const ActorVisual* actor, const Uint32* pixels, int left, int top, int right, int bottom)
 {
@@ -263,12 +264,6 @@ void GRAP_SDL_SetPixelUI(bool enabled)
 
 int windowWidth = 1280;
 int windowHeight = 960;
-
-static Uint32 s_egaPalette[16] =
-{
-    0xff000000, 0xff0000aa, 0xff00aa00, 0xff00aaaa, 0xffaa0000, 0xffaa00aa, 0xffaa5500, 0xffaaaaaa,
-    0xff555555, 0xff5555ff, 0xff55ff55, 0xff55ffff, 0xffff5555, 0xffff55ff, 0xffffff55, 0xffffffff,
-};
 
 void GRAP_SDL_FlushFrame(void);
 

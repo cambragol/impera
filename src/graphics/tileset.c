@@ -1,4 +1,7 @@
 #include "tileset.h"
+#include "mod/runtime.h"
+#include "mod/package.h"
+#include "mod/tileset_resources.h"
 #include "common/file.h"
 #include "grap_buf.h"
 #include "grap_sdl.h"
@@ -14,6 +17,7 @@
 #define TILE_SPRITE_FLAG 0x800000u
 static int selected;
 static unsigned revision;
+static unsigned mountedRevision;
 static char customPath[FILE_PATH_SIZE];
 enum
 {
@@ -228,6 +232,27 @@ static SDL_Surface *load(const char *filename)
 {
     char paths[4][FILE_PATH_SIZE];
     int count = 0;
+    const ModTilesetSheet *sheet = MOD_TilesetSheet(filename);
+    int overridden = 0;
+    FILE *mod = sheet ? MOD_OpenResource(sheet->resource, &overridden) : NULL;
+    if (overridden) {
+        SDL_Surface *image = NULL;
+        if (mod && fseek(mod, 0, SEEK_END) == 0) {
+            long length = ftell(mod);
+            if (length > 0 && length <= MOD_MAX_RESOURCE && fseek(mod, 0, SEEK_SET) == 0) {
+                void *bytes = SDL_malloc((size_t)length);
+                if (bytes && fread(bytes, 1, (size_t)length, mod) == (size_t)length) {
+                    SDL_IOStream *stream = SDL_IOFromConstMem(bytes, (size_t)length);
+                    if (stream)
+                        image = SDL_LoadPNG_IO(stream, true);
+                }
+                SDL_free(bytes);
+            }
+        }
+        if (mod)
+            fclose(mod);
+        return image;
+    }
     const char *custom = SDL_getenv("IMPERA_TILESETS");
     if (custom)
         SDL_snprintf(paths[count++], FILE_PATH_SIZE, "%s/%s", custom, filename);
@@ -383,11 +408,12 @@ bool TILESET_Select(int choice)
 {
     if (choice < 0 || choice >= TILESET_COUNT)
         return false;
-    if (choice == selected && choice != TILESET_CUSTOM)
+    if (choice == selected && choice != TILESET_CUSTOM && mountedRevision == MOD_Revision())
         return true;
     if (choice == 0)
     {
         selected = 0;
+        mountedRevision = MOD_Revision();
         revision++;
         TILESET_Refresh();
         return true;
@@ -435,6 +461,7 @@ bool TILESET_Select(int choice)
     else
     {
         selected = choice;
+        mountedRevision = MOD_Revision();
         revision++;
         TILESET_Refresh();
         debug("Selected %s tileset", names[choice]);

@@ -1,9 +1,10 @@
 #include "common/common.h"
 #include "common/movement.h"
 #include "funcs.h"
-#include "vars.h"
 #include "macros.h"
+#include "mod/contents_game.h"
 #include "tiles.h"
+#include "vars.h"
 
 #include "combat.h"
 #include "comsubs.h"
@@ -445,6 +446,8 @@ static void SJOG_0646_SearchInDungeon(void)
 
     local_a = D_5876;
     local_c = D_5878;
+    if (CONTENTS_GAME_Interact(0, local_a & 7, local_c & 7, local_10 - 1))
+        return;
     local_e = GetDungeonMap(local_a & 7, local_c & 7, (uint)D_5895_map_level);
     local_4 = D_55a8_party[local_10].dex;
     local_6 = (D_5895_map_level * 2 - local_4 + 0x1e) >> 1;
@@ -660,6 +663,8 @@ void SJOG_095c_SearchCmd(void)
         return;
     }
 
+    if (CONTENTS_GAME_Interact(0, local_a, local_c, local_e))
+        return;
     local_10 = *ULTIMA_4402_GetTileAddr(local_a, local_c);
 
     for (local_6 = 1; local_6 < 0x20; local_6++)
@@ -818,6 +823,8 @@ static void SJOG_0c3e_JimmyInDungeon(void)
 
     local_8 = D_5896_map_x;
     local_a = D_5897_map_y;
+    if (CONTENTS_GAME_Interact(3, local_8, local_a, local_c))
+        return;
     local_e = GetDungeonMap(local_8 & 7, local_a & 7, (uint)D_5895_map_level);
     local_4 = D_55a8_party[local_c].dex;
     local_6 = (D_5895_map_level * 2 - local_4 + 0x1e) >> 1;
@@ -895,6 +902,8 @@ void SJOG_0d4a_JimmyCmd(void)
     // cd02
     local_8 = D_5896_map_x + D_5876;
     local_a = D_5897_map_y + D_5878;
+    if (CONTENTS_GAME_Interact(3, local_8, local_a, -1))
+        return;
     local_6 = *ULTIMA_4402_GetTileAddr(local_8, local_a);
     switch (local_6)
     {
@@ -1200,6 +1209,8 @@ static void SJOG_12d4_OpenInDungeon(void)
     int local_6;
     int local_4;
 
+    if (CONTENTS_GAME_Interact(1, D_5896_map_x, D_5897_map_y, -1))
+        return;
     local_6 = GetDungeonMap2(D_5896_map_x, D_5897_map_y, D_5895_map_level);
     if ((local_6 & 0xf0) == 0x40)
     {
@@ -1246,6 +1257,8 @@ void SJOG_1374_OpenCmd(void)
 
     local_6 = D_5896_map_x + D_5876;
     local_8 = D_5897_map_y + D_5878;
+    if (CONTENTS_GAME_Interact(1, local_6, local_8, -1))
+        return;
     local_4 = *ULTIMA_4402_GetTileAddr(local_6, local_8);
     switch (local_4)
     {
@@ -1499,6 +1512,8 @@ static void SJOG_179e_GetInDungeon(void)
 
     ULTIMA_1850_PrintString(_TEXT(0x8da4, "Get\n"));
 
+    if (CONTENTS_GAME_Interact(2, D_5896_map_x, D_5897_map_y, -1))
+        return;
     local_a = GetDungeonMap2(D_5896_map_x, D_5897_map_y, D_5895_map_level);
     if ((local_a & 0xf0) == 0x40)
     {
@@ -1576,6 +1591,8 @@ void SJOG_18ce_GetCmd(void)
     local_e = local_10 + D_5897_map_y;
     ULTIMA_1850_PrintString(_TEXT(0x8de6, "\n"));
 
+    if (CONTENTS_GAME_Interact(2, local_a, local_e, -1))
+        return;
     // 1921 (NOT MATCHING: loop)
     for (local_6 = 1; local_6 < 0x20; local_6++)
     {

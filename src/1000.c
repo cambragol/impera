@@ -12,6 +12,7 @@
 #include "time/time.h"
 
 #include "font.h"
+#include "text/text_window.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -292,320 +293,58 @@ int ULTIMA_16a6_GetDefaultDrive(void)
 // REGION: TEXT
 //
 
-static void ULTIMA_17f4_ApplyCharEffects(byte* es, int di);
 static void ULTIMA_1f77_ConvertCharCoordToPixel(TextWindow* window, int* pAX, int* pBX, int* pCX, int* pDX);
 
-// ASM
-void ULTIMA_16ba_PrintChar(uint ch)
-{
-    int iVar4;
-    byte bVar6;
-    int uVar7;
-    TextWindow* text_window;
-
-    bVar6 = ch;
-    text_window = D_539a_currentTextWindow;
-    if (ch > 0x7f)
-    {
-        if (ch == CTRL_CHAR_CLEAR_WINDOW) // clear text window
-        {
-            int ax, bx, cx, dx;
-
-            text_window->currentX = 0;
-            text_window->currentY = 0;
-            DRV_2d((text_window->colors >> 4) & 0xf);
-            ULTIMA_1f77_ConvertCharCoordToPixel(text_window, &ax, &bx, &cx, &dx);
-            DRV_3f(ax, bx, cx, dx, 0);
-            DRV_2d(D_52da_pen_color);
-            return;
-        }
-        if (ch == CTRL_CHAR_TOGGLE_UNDERLINE) // toggle underline
-        {
-            D_53a4_underline ^= 1;
-            text_window->flags ^= 1; // underline
-            return;
-        }
-        if (ch == CTRL_CHAR_TOGGLE_INVERSION) // toggle inversion
-        {
-            D_53a8_inverse ^= 1;
-            text_window->flags ^= 4; // inverse
-            return;
-        }
-        if (ch == CTRL_CHAR_CENTER_TEXT) // center text
-        {
-            D_53a6 = 1;
-            text_window->flags |= 2;
-            return;
-        }
-        if (ch == CTRL_CHAR_UNCENTER_TEXT) // uncenter text
-        {
-            D_53a6 = 0;
-            text_window->flags &= 0xfd;
-            return;
-        }
-        ch &= 0x7f;
-    }
-
-    if (ch != 0xa)
-    {
-        if (ch == 0xd)
-        {
-            goto LAB_1000_1745;
-        }
-
-        // Render Character
-        uVar7 = bVar6 * 8;
-        if (D_52ba_vdp._52c8_videoDriverSelection == VDP_VIDEO_HERC)
-        {
-            uVar7 = bVar6 * 24;
-        }
-        ULTIMA_17f4_ApplyCharEffects(D_5398_currentCharset, uVar7);
-
-        // es = 5398
-        // di = uVar7
-        // dl = [D_53aa_text_fg_color]
-        // dh = [D_53ab_text_bg_color]
-        // al = [text_window + current_x] + [text_window + left]
-        // ah = 0
-        // bl = [text_window + current_y] + [text_window + top]
-        // bh = 0
-        DRV_5d(D_5398_currentCharset, uVar7, D_53aa_text_fg_color, D_53ab_text_bg_color,
-               text_window->currentX + text_window->left, text_window->currentY + text_window->top);
-
-        iVar4 = 4;
-        if (D_52ba_vdp._52c8_videoDriverSelection == VDP_VIDEO_HERC)
-        {
-            iVar4 = 12;
-        }
-
-        memcpy(D_5398_currentCharset + uVar7, D_53ea, iVar4 * 2);
-
-        text_window = D_539a_currentTextWindow;
-        if (D_538e == 0)
-        {
-            return;
-        }
-
-        text_window->currentX++;
-        if ((char)(text_window->currentX + text_window->left) <= text_window->right)
-        {
-            return;
-        }
-    }
-
-    text_window->currentY++;
-#if defined(ENABLE_SPEED_FIX)
-    TIME_SleepMs(10);
-#endif
-
-LAB_1000_1745:
-    text_window->currentX = 0;
-    if (text_window->bottom < text_window->currentY + text_window->top)
-    {
-        int ax, bx, cx, dx;
-        ULTIMA_1f77_ConvertCharCoordToPixel(text_window, &ax, &bx, &cx, &dx);
-        text_window->currentY--;
-#if defined(ENABLE_SPEED_FIX)
-        TIME_SleepMs(10);
-#endif
-        DRV_27(ax, bx, cx, dx, -8);
-    }
+/* Native globals remain the engine adapter; the portable core owns no globals. */
+static void textDraw(void *host, byte *font, int offset, byte fg, byte bg, int x, int y) {
+    (void)host;
+    DRV_5d(font, offset, fg, bg, x, y);
 }
-
-// ASM
-// ptr = (es:)di
-static void ULTIMA_17f4_ApplyCharEffects(byte* es, int di)
-{
-    int size;
-    byte* ptr = es + di;
-
-    size = 4;
-    if (D_52ba_vdp._52c8_videoDriverSelection == VDP_VIDEO_HERC)
-    {
-        size = 12;
-    }
-
-    memcpy(D_53ea, ptr, size * 2);
-
-    if (D_53a4_underline != 0)
-    {
-        if (D_52ba_vdp._52c8_videoDriverSelection == VDP_VIDEO_HERC)
-        {
-            // herc
-            *(u16*)&ptr[0x16] = 0xffff;
-        }
-        else
-        {
-            // ega/cga/t1k
-            ptr[7] = 0xff;
-        }
-    }
-
-    if (D_53a8_inverse != 0)
-    {
-        size = 4;
-        if (D_52ba_vdp._52c8_videoDriverSelection == VDP_VIDEO_HERC)
-        {
-            // herc
-            size = 12;
-        }
-
-        size *= 2;
-        for (; size > 0; size--)
-        {
-            *ptr = ~*ptr;
-            ptr++;
-        }
-    }
+static void textClear(void *host, int x1, int y1, int x2, int y2, byte color) {
+    (void)host;
+    DRV_2d(color);
+    DRV_3f(x1, y1, x2, y2, 0);
+    DRV_2d(D_52da_pen_color);
+}
+static void textScroll(void *host, int x1, int y1, int x2, int y2, int amount) {
+    (void)host;
+    DRV_27(x1, y1, x2, y2, amount);
+}
+static void textSleep(void *host, int ms) {
+    (void)host;
+    TIME_SleepMs(ms);
+}
+static ImperaText nativeText(void) {
+    ImperaText s = {0};
+    s.window = &D_539a_currentTextWindow;
+    s.font = &D_5398_currentCharset;
+    s.savedGlyph = D_53ea;
+    s.advance = &D_538e;
+    s.underline = &D_53a4_underline;
+    s.center = &D_53a6;
+    s.inverse = &D_53a8_inverse;
+    s.foreground = &D_53aa_text_fg_color;
+    s.background = &D_53ab_text_bg_color;
+    s.hercules = D_52ba_vdp._52c8_videoDriverSelection == VDP_VIDEO_HERC;
+#if defined(ENABLE_SPEED_FIX)
+    s.speedFix = 1;
+#endif
+    s.draw = textDraw;
+    s.clear = textClear;
+    s.scroll = textScroll;
+    s.sleep = textSleep;
+    return s;
+}
+void ULTIMA_16ba_PrintChar(uint ch) {
+    ImperaText s = nativeText();
+    IMPERA_TextPrint(&s, ch);
 }
 
 // CHECKED (NOT MATCHING: register, loop optimization)
 // 0000:1850
-void ULTIMA_1850_PrintString(char* param_1)
-{
-    int local_44;
-    char local_42[40];
-    uint local_1a;
-    int local_18;
-    int local_16;
-    int local_14;
-    TextWindow* local_12;
-    int local_10;
-    int local_e;
-    int local_c;
-    int local_a;
-    int local_8;
-    int local_6;
-    int local_4;
-
-    // debug("GRAP_PrintString(%s)", param_1);
-
-    local_8 = 0;
-    local_a = 0;
-    local_4 = 0;
-    if (*param_1 != '\0')
-    {
-        // 1872
-        local_12 = &D_535e_textWindows[D_5386_current_text_window_idx];
-        local_1a = local_12->flags & 2;
-        local_44 = (uint)local_12->right - (uint)local_12->left; // text_window_width = r - l;
-
-        // 189a
-        do
-        {
-            if (local_4 != 0)
-            {
-                ULTIMA_16ba_PrintChar('\n');
-            }
-
-            // 18a7 (NOT MATCHING: si register)
-            local_4 = local_6 = local_14 = 0;
-            local_10 =
-                local_44 - ULTIMA_1f12_GetCurrentTextX(); // remaining_length = text_window_length - column
-
-            for (local_c = 0; param_1[local_8] != '\n' && param_1[local_8] != '\r' && param_1[local_8] != '\0' &&
-                              local_c <= local_10;
-                 local_8++, local_c++)
-            {
-                local_42[local_c] = param_1[local_8];
-            }
-
-            // 18f4 (after loop)
-            if (local_c == 0)
-            {
-                if (param_1[local_8] != '\0')
-                {
-                    ULTIMA_16ba_PrintChar((byte)param_1[local_8++]);
-                }
-                else
-                {
-                    local_a++;
-                }
-            }
-            else
-            {
-                // 191c
-                if (local_c > local_10)
-                {
-                    // 1927
-                    local_18 = local_c;
-                    local_16 = local_8;
-
-                    // 1939 (NOT MATCHING: optimization)
-                    for (; param_1[local_8] != ' ' && local_c != 0 && param_1[local_8] != '\n' &&
-                           param_1[local_8] != '\0' && param_1[local_8] != '\r';
-                         local_c--, local_8--)
-                    {
-                    }
-
-                    // 1968
-                    if (local_c == 0)
-                    {
-                        local_c = local_18;
-                        local_8 = local_16;
-
-                        if (local_12->currentX != 0)
-                        {
-                            ULTIMA_16ba_PrintChar('\n');
-                            local_6 = 1;
-                        }
-                    }
-                    else
-                    {
-                        // 1996
-                        do
-                        {
-                            local_c--;
-                        } while (local_42[local_c] == ' ' || local_42[local_c] == '\r' || local_42[local_c] == '\n');
-
-                        if (param_1[local_8] != '\0')
-                            local_8++;
-
-                        // 19bf
-                        if (local_c < local_10)
-                            local_4++;
-                    }
-
-                    // 19ca
-                    if (local_c > local_10)
-                        local_c--;
-                }
-                else
-                {
-                    local_c--;
-                }
-
-                // 19d5
-                if (local_1a != 0)
-                {
-                    if (local_c > local_44)
-                    {
-                        ULTIMA_16ba_PrintChar('\n');
-                    }
-
-                    // 19ea
-                    ULTIMA_1bf2_SetTextPosition((local_10 - local_c) / 2, ULTIMA_1cee_GetCurrentTextY());
-                }
-
-                // 19fd (NOT MATCHING: loop optimization)
-                if (local_6 != 0)
-                {
-                    // 1a03
-                    for (; local_42[local_14] == ' '; local_14++)
-                    {
-                    }
-                }
-
-                // 1a14 (NOT MATCHING: loop optimization)
-                for (; local_14 <= local_c; local_14++)
-                {
-                    // 1a1c
-                    ULTIMA_16ba_PrintChar((byte)local_42[local_14]);
-                }
-            }
-        } while (local_a == 0);
-    }
-    return;
+void ULTIMA_1850_PrintString(char *str) {
+    ImperaText s = nativeText();
+    IMPERA_TextString(&s, str);
 }
 
 // CHECKED (NOT MATCHING: optimization)
@@ -781,11 +520,7 @@ void ULTIMA_1bf2_SetTextPosition(int x, int y)
     debug("ULTIMA_1bf2_SetTextPosition(%d,%d)", x, y);
 #endif
 
-    if ((byte)x + D_539a_currentTextWindow->left < 40 && (byte)y + D_539a_currentTextWindow->top < 25)
-    {
-        D_539a_currentTextWindow->currentX = x;
-        D_539a_currentTextWindow->currentY = y;
-    }
+    IMPERA_TextPosition(D_539a_currentTextWindow, x, y);
 }
 
 static byte ULTIMA_1c5b_ClipTextWindow(int* x1, int* y1, int* x2, int* y2);
@@ -1059,31 +794,6 @@ static void ULTIMA_1f77_ConvertCharCoordToPixel(TextWindow* window, int* pAX, in
 
 void ULTIMA_1fa0_Backspace(int char_count)
 {
-    u16 local_4;
-    TextWindow* local_6;
-    int local_8;
-    int local_a;
-
-    if ((ULTIMA_1f12_GetCurrentTextX() != 0 || ULTIMA_1cee_GetCurrentTextY() != 0) && char_count != 0)
-    {
-        local_4 = D_538e;
-        local_6 = &D_535e_textWindows[D_5386_current_text_window_idx];
-        D_538e = 0;
-
-        for (local_8 = 0; local_8 < char_count; local_8++)
-        {
-            local_a = ULTIMA_1f12_GetCurrentTextX();
-            ULTIMA_16ba_PrintChar(' ');
-            if (local_a != 0)
-            {
-                ULTIMA_1bf2_SetTextPosition(local_a - 1, ULTIMA_1cee_GetCurrentTextY());
-            }
-            else
-            {
-                ULTIMA_1bf2_SetTextPosition(local_6->right - local_6->left, ULTIMA_1cee_GetCurrentTextY() - 1);
-            }
-        }
-
-        D_538e = local_4;
-    }
+    ImperaText s = nativeText();
+    IMPERA_TextBackspace(&s, char_count);
 }

@@ -1,8 +1,9 @@
 #include "common/common.h"
 #include "funcs.h"
-#include "vars.h"
 #include "macros.h"
+#include "mod/contents_game.h"
 #include "tiles.h"
+#include "vars.h"
 
 #include "cast.h"
 #include "cast2.h"
@@ -225,6 +226,18 @@ static int CAST_02d2_AnSanct(void)
         local_c = D_24d6[D_6603];
         local_e = D_24de[D_6603];
 
+        if (CONTENTS_GAME_Interact(4, D_5896_map_x, D_5897_map_y, -1))
+        {
+            CONTENTS_GAME_Interact(1, D_5896_map_x, D_5897_map_y, -1);
+            return -1;
+        }
+        if (CONTENTS_GAME_Interact(4, (D_5896_map_x + local_c) & 7, (D_5897_map_y + local_e) & 7,
+                                   -1))
+        {
+            CONTENTS_GAME_Interact(1, (D_5896_map_x + local_c) & 7, (D_5897_map_y + local_e) & 7,
+                                   -1);
+            return -1;
+        }
         local_4 = &GetDungeonMap(D_5896_map_x, D_5897_map_y, D_5895_map_level);
 
         if ((*local_4 & 0xf0) != 0x40)
@@ -260,6 +273,11 @@ static int CAST_02d2_AnSanct(void)
 
         local_8 = 0;
 
+        if (CONTENTS_GAME_Interact(4, D_5876, D_5878, -1))
+        {
+            CAST2_0000_CastEffect(2);
+            return 1;
+        }
         local_4 = ULTIMA_4402_GetTileAddr(D_5876, D_5878);
 
         if (*local_4 == TILE_MAP_DOOR_B9 || *local_4 == TILE_MAP_DOOR_BB)

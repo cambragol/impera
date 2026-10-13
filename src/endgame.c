@@ -1,7 +1,8 @@
 #include "common/common.h"
 #include "funcs.h"
-#include "vars.h"
 #include "macros.h"
+#include "mod/runtime.h"
+#include "vars.h"
 
 #include <stdlib.h>
 
@@ -492,11 +493,12 @@ static void ENDGAME_RunMain(void)
 
     // aabc
     ULTIMA_3ae6(0x28);
-    ULTIMA_1850_PrintString((char*)D_b21e);
+    ULTIMA_1850_PrintString((char *)MOD_SceneMessage("ENDMSG.DAT", 0, (char *)D_b21e));
     ULTIMA_1850_PrintString(D_55a8_party[0].name);
     ULTIMA_1850_PrintString(_TEXT(0x84ae, "!\"\n\n"));
     ULTIMA_266c_GetChar();
-    ULTIMA_1850_PrintString((char*)&D_b21e[0x21]);
+    ULTIMA_1850_PrintString(
+        (char *)MOD_SceneMessage("ENDMSG.DAT", 0 + (0x21), (char *)&D_b21e[0x21]));
 
     do
     {
@@ -515,7 +517,8 @@ static void ENDGAME_RunMain(void)
     // ab0c
     if (local_4 == 0x4e)
     {
-        ULTIMA_1850_PrintString((char*)&D_b21e[0x49]);
+        ULTIMA_1850_PrintString(
+            (char *)MOD_SceneMessage("ENDMSG.DAT", 0 + (0x49), (char *)&D_b21e[0x49]));
 
         do
         {
@@ -556,21 +559,28 @@ static void ENDGAME_RunMain(void)
         local_6->_3_y = 4;
         local_6->_6 = 0;
 
-        ULTIMA_1850_PrintString((char*)&D_b21e[0xab]);
+        ULTIMA_1850_PrintString(
+            (char *)MOD_SceneMessage("ENDMSG.DAT", 0 + (0xab), (char *)&D_b21e[0xab]));
         ULTIMA_3ae6(0x28);
         ULTIMA_1850_PrintString(_TEXT(0x84cc, "\n\nHe says:\n\n"));
         ULTIMA_266c_GetChar();
-        ULTIMA_1850_PrintString((char*)&D_b21e[0xd3]);
+        ULTIMA_1850_PrintString(
+            (char *)MOD_SceneMessage("ENDMSG.DAT", 0 + (0xd3), (char *)&D_b21e[0xd3]));
         ULTIMA_266c_GetChar();
-        ULTIMA_1850_PrintString((char*)&D_b21e[0x128]);
+        ULTIMA_1850_PrintString(
+            (char *)MOD_SceneMessage("ENDMSG.DAT", 0 + (0x128), (char *)&D_b21e[0x128]));
         ULTIMA_266c_GetChar();
-        ULTIMA_1850_PrintString((char*)&D_b21e[0x167]);
+        ULTIMA_1850_PrintString(
+            (char *)MOD_SceneMessage("ENDMSG.DAT", 0 + (0x167), (char *)&D_b21e[0x167]));
         ULTIMA_266c_GetChar();
-        ULTIMA_1850_PrintString((char*)&D_b21e[0x1c9]);
+        ULTIMA_1850_PrintString(
+            (char *)MOD_SceneMessage("ENDMSG.DAT", 0 + (0x1c9), (char *)&D_b21e[0x1c9]));
         ULTIMA_266c_GetChar();
-        ULTIMA_1850_PrintString((char*)&D_b21e[0x211]);
+        ULTIMA_1850_PrintString(
+            (char *)MOD_SceneMessage("ENDMSG.DAT", 0 + (0x211), (char *)&D_b21e[0x211]));
         ULTIMA_266c_GetChar();
-        ULTIMA_1850_PrintString((char*)&D_b21e[0x24b]);
+        ULTIMA_1850_PrintString(
+            (char *)MOD_SceneMessage("ENDMSG.DAT", 0 + (0x24b), (char *)&D_b21e[0x24b]));
 
         D_5c5a[6]._1_animTile = D_5c5a[6]._0_tile = TILE_ACTOR_GEM;
 
@@ -623,7 +633,8 @@ static void ENDGAME_RunMain(void)
     // bad endgame
     ULTIMA_1850_PrintString(_TEXT(0x84da, "\"I see...\n"));
     ULTIMA_3ae6(0x28);
-    ULTIMA_1850_PrintString((char*)&D_b21e[0x2d5]);
+    ULTIMA_1850_PrintString(
+        (char *)MOD_SceneMessage("ENDMSG.DAT", 0 + (0x2d5), (char *)&D_b21e[0x2d5]));
     D_5c5a[0]._3_y--;
     ENDGAME_04fe();
 

@@ -1,8 +1,10 @@
 #include "common/common.h"
-#include "vars.h"
 #include "funcs.h"
 #include "macros.h"
+#include "mod/runtime.h"
+#include "mod/world_resources.h"
 #include "tiles.h"
+#include "vars.h"
 
 #include <string.h>
 
@@ -59,7 +61,11 @@ static void OUTSUBS_0098(char* param_1/*file_name*/, int param_2/*layer?*/, int 
 
     if (*param_1 == 'B') // "BRIT.DAT"
     {
-        local_4 = D_3876[(byte)(param_3 >> 8)];
+#if defined(TARGET_SDL)
+        local_4 = MOD_BritanniaIndex()[(byte)(param_3 >> 8)];
+#else
+        local_4 = U5_BritanniaDefaultIndex[(byte)(param_3 >> 8)];
+#endif
         if (local_4 == 0xff)
         {
             memset(&D_6608[param_2 * 0x100], 1, 0x100);
@@ -253,7 +259,8 @@ int OUTSUBS_0388_EnterTown(char* param_1)
 
     for (local_6 = 0; local_6 < 0x20; local_6++)
     {
-        if (D_1e8a[local_6] == D_5896_map_x && (D_1eb2[local_6] == D_5897_map_y))
+        if (MOD_TableValue(7, (local_6), D_1e8a[local_6]) == D_5896_map_x &&
+            (MOD_TableValue(8, (local_6), D_1eb2[local_6]) == D_5897_map_y))
             break;
     }
 

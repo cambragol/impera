@@ -4,6 +4,8 @@
 #include "macros.h"
 #include "tiles.h"
 
+#include "common/file.h"
+#include <string.h>
 #include "npc.h"
 #include "town.h"
 
@@ -54,6 +56,37 @@ void NPC_0000_LoadNpcFile(void)
     }
 
     D_5893_map_id++;
+}
+
+int NPC_InitializeNewGame(void)
+{
+    static const char *files[] = {"TOWNE.NPC", "DWELLING.NPC", "CASTLE.NPC", "KEEP.NPC"};
+    byte record[0x240];
+    if (D_5893_map_id == 0 || D_5893_map_id > 32) return 1;
+    int location = D_5893_map_id - 1;
+    FILE *file = FILE_Open(files[location / 8], "rb");
+    if (!file) {
+        DEBUG_Error("Cannot initialize starting NPCs from %s", files[location / 8]);
+        return 0;
+    }
+    int ok = fseek(file, (location % 8) * sizeof(record), SEEK_SET) == 0 &&
+             fread(record, 1, sizeof(record), file) == sizeof(record) && !ferror(file);
+    fclose(file);
+    if (!ok) {
+        DEBUG_Error("Starting location NPC definitions are incomplete in %s", files[location / 8]);
+        return 0;
+    }
+    memcpy(D_5d5e, record, 0x200);
+    memcpy(D_659e, record + 0x200, 0x20);
+    for (int i = 0; i < 32; ++i) {
+        D_5f5e[i]._a = record[0x220 + i];
+        if (i && TOWN_0000_CheckNpcKilled(i)) D_659e[i] = 0;
+    }
+    NPC_00d6(D_587f);
+    TOWN_1694();
+    debug("Initialized starting settlement NPCs: map=%u floor=%u hour=%u", D_5893_map_id,
+          D_5895_map_level, D_587f);
+    return 1;
 }
 
 void NPC_00d6(int param_1)

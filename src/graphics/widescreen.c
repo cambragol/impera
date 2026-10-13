@@ -1,12 +1,14 @@
+#include "widescreen.h"
 #include "common/common.h"
 #include "common/file.h"
-#include "vars.h"
 #include "funcs.h"
-#include "macros.h"
-#include "tiles.h"
 #include "grap_buf.h"
+#include "macros.h"
+#include "mod/contents_game.h"
+#include "mod/runtime.h"
+#include "tiles.h"
 #include "tileset.h"
-#include "widescreen.h"
+#include "vars.h"
 #include <string.h>
 
 static int s_actorTiles[32];
@@ -42,21 +44,23 @@ static byte WorldTile(int x, int y)
     static byte blocks[256][256];
     static byte loaded[256];
     static int level = -1;
+    static unsigned revision;
     x &= 255;
     y &= 255;
     int block = (y / 16) * 16 + x / 16;
-    if (level != D_5895_map_level) {
+    if (level != D_5895_map_level || revision != MOD_Revision()) {
         memset(loaded, 0, sizeof(loaded));
         level = D_5895_map_level;
+        revision = MOD_Revision();
     }
     if (((x - D_589b) & 255) < 32 && ((y - D_589c) & 255) < 32)
         return *ULTIMA_4402_GetTileAddr(x, y);
     if (!loaded[block]) {
-        if (!level && D_3876[block] == 255)
+        if (!level && MOD_BritanniaIndex()[block] == 255)
             memset(blocks[block], 1, 256);
         else {
             FILE* file = FILE_Open(level ? "UNDER.DAT" : "BRIT.DAT", "rb");
-            if (!file || fseek(file, (level ? block : D_3876[block]) * 256, SEEK_SET) != 0 ||
+            if (!file || fseek(file, (level ? block : MOD_BritanniaIndex()[block]) * 256, SEEK_SET) != 0 ||
                 fread(blocks[block], 1, 256, file) != 256)
                 memset(blocks[block], 255, 256);
             if (file) fclose(file);
@@ -244,6 +248,11 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
                 byte tile = WIDE_MapTile(dx, dy);
                 if (tile == 255) continue;
                 int idx = D_b11e[WIDE_GroundTile(dx,dy)];
+                int loot = CONTENTS_GAME_Shape(
+                    D_5893_map_id ? D_5896_map_x + dx : (D_5896_map_x + dx) & 255,
+                    D_5893_map_id ? D_5897_map_y + dy : (D_5897_map_y + dy) & 255);
+                if (loot)
+                    sprites[row * l.columns + col] = 256 + loot;
                 for (int actor = 31; actor >= 0; actor--) {
                     ActorFmt* a = &D_5c5a[actor];
                     int ax = a->_2_x - D_5896_map_x, ay = a->_3_y - D_5897_map_y;

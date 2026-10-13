@@ -1,8 +1,10 @@
-#include "common/common.h"
+#include "mod/contents.h"
 #include "audio/audio.h"
+#include "common/common.h"
 #include "funcs.h"
-#include "vars.h"
 #include "macros.h"
+#include "mod/runtime.h"
+#include "vars.h"
 
 #include <string.h>
 
@@ -50,6 +52,7 @@ static void DUNGEON_0000(byte param_1)
     memset(D_ad14, 0, 0x160);
 
     ULTIMA_256e_ReadFileFromDisk(/*0x2c6a*/ "DUNGEON.CBT", D_ad14, 0x160, local_a);
+    CONTENTS_BeginEncounter(2, (unsigned)(local_a / 0x160));
 
     D_5894 = D_5893_map_id;
     local_6 = D_5896_map_x;
@@ -78,6 +81,7 @@ static void DUNGEON_0000(byte param_1)
         GetDungeonMap((uint)local_6, (uint)local_8, (uint)D_5895_map_level) &= 0xaf;
     }
 
+    CONTENTS_EndEncounter();
     D_5897_map_y = local_8;
     D_5896_map_x = local_6;
     D_5893_map_id = D_5894;
@@ -1672,8 +1676,8 @@ int DUNGEON_1c6a_Klimb(int param_1, int param_2)
 
 void DUNGEON_1d08_Exit(void)
 {
-    D_5896_map_x = D_1e8a[D_5893_map_id - 1];
-    D_5897_map_y = D_1eb2[D_5893_map_id - 1];
+    D_5896_map_x = MOD_TableValue(7, (D_5893_map_id - 1), D_1e8a[D_5893_map_id - 1]);
+    D_5897_map_y = MOD_TableValue(8, (D_5893_map_id - 1), D_1eb2[D_5893_map_id - 1]);
 
     ULTIMA_1850_PrintString(_TEXT(0x6c84, "\nExit to "));
     if (D_5895_map_level != 0)

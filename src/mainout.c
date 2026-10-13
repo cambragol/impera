@@ -1,6 +1,7 @@
-#include "common/common.h"
 #include "audio/audio.h"
+#include "common/common.h"
 #include "common/movement.h"
+#include "mod/runtime.h"
 #if defined(TARGET_SDL)
 #include "key/mouse.h"
 #include "key/key.h"
@@ -649,7 +650,8 @@ static int MAINOUT_0790_LoadDungeon(char* param_1)
     ULTIMA_1850_PrintString(param_1);
     for (local_4 = 0x20; local_4 < 0x28; local_4++)
     {
-        if (D_1e8a[local_4] == D_5896_map_x && D_1eb2[local_4] == D_5897_map_y)
+        if (MOD_TableValue(7, (local_4), D_1e8a[local_4]) == D_5896_map_x &&
+            MOD_TableValue(8, (local_4), D_1eb2[local_4]) == D_5897_map_y)
             break;
     }
 

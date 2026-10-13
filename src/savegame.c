@@ -1,5 +1,7 @@
 #include "common/common.h"
+#include "mod/contents.h"
 #include "vars.h"
+#include <SDL3/SDL.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -46,6 +48,13 @@ int FILE_ReadSavegameFile(char* fileName)
         return -1;
     }
 
+    if (fseek(stream, 0x1060, SEEK_SET) || !CONTENTS_ReadState(stream, 0) ||
+        fseek(stream, 0, SEEK_SET))
+    {
+        DEBUG_Error("Invalid map contents save state");
+        fclose(stream);
+        return -1;
+    }
     ASSERT(sizeof(S_55a8) == 0x20);
 
     READ_16(D_55a6);
@@ -180,6 +189,11 @@ int FILE_ReadSavegameFile(char* fileName)
     int pos = (int)ftell(stream);
     debug("Party serializer file=%s final offset=%d expected=4192",fileName,pos);
 
+    fseek(stream, 0x1060, SEEK_SET);
+    if (FILE_NameEqual(fileName, "INIT.GAM"))
+        CONTENTS_Reset();
+    else
+        CONTENTS_ReadState(stream, 1);
     fclose(stream);
 
     //ASSERT(pos == 0x1060);
@@ -201,7 +215,13 @@ int FILE_WriteSavegameFile(char* fileName)
     }
 
     debug("Serialize party save file=%s map=%u level=%u position=%u,%u",fileName,D_5893_map_id,D_5895_map_level,D_5896_map_x,D_5897_map_y);
-    stream = FILE_Open(fileName, "wb");
+    char target[FILE_PATH_SIZE], stage[FILE_PATH_SIZE], backup[FILE_PATH_SIZE];
+    if (FILE_ResolvePath(fileName, target, sizeof(target), 1))
+        return -1;
+    if (SDL_snprintf(stage, sizeof(stage), "%s.pending", target) >= (int)sizeof(stage) ||
+        SDL_snprintf(backup, sizeof(backup), "%s.previous", target) >= (int)sizeof(backup))
+        return -1;
+    stream = fopen(stage, "wb");
     if (!stream) { DEBUG_Error("Cannot open party save %s",fileName);return -1; }
 
     ASSERT(sizeof(S_55a8) == 0x20);
@@ -338,12 +358,33 @@ int FILE_WriteSavegameFile(char* fileName)
     int pos = (int)ftell(stream);
     debug("Party serializer file=%s final offset=%d expected=4192",fileName,pos);
 
-    int failed = ferror(stream);
+    int failed = ferror(stream) || !CONTENTS_WriteState(stream);
     if (fclose(stream) != 0) failed = 1;
 
     ASSERT(pos == 0x1060);
 
-    return failed ? -1 : 0;
+    if (failed)
+    {
+        SDL_RemovePath(stage);
+        return -1;
+    }
+    SDL_PathInfo info;
+    int existed = SDL_GetPathInfo(target, &info);
+    if (existed && !SDL_RenamePath(target, backup))
+    {
+        SDL_RemovePath(stage);
+        return -1;
+    }
+    if (!SDL_RenamePath(stage, target))
+    {
+        if (existed)
+            SDL_RenamePath(backup, target);
+        SDL_RemovePath(stage);
+        return -1;
+    }
+    if (existed)
+        SDL_RemovePath(backup);
+    return 0;
 }
 
 #endif

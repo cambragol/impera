@@ -538,13 +538,18 @@ The release build pins SDL 3.4.18 and SDL_mixer 3.2.4, links them statically,
 and includes built-in WAV, MP3 and Ogg Vorbis decoding. Linux releases provide
 only an AppImage (plus its checksum). Original Ultima 5 game files,
 music, saves and personal settings are never included in the packages.
+Every platform also includes a separate **Impera Workshop** editor download:
+`ImperaWorkshop-<version>-<platform>`. Workshop bundles its Qt 6 runtime; no
+separate Qt installation is needed. Linux Workshop ships as an AppImage,
+Windows as a portable ZIP (launch `Run Workshop.cmd`), and macOS as an app bundle
+in a `.tar.gz` archive. Neither application includes original game assets.
 ScaleFX is not part of these releases.
 
 To test a build, open **Actions → Build releases → Run workflow**, select the
 branch, and download its platform artifacts when all jobs finish. GitHub wraps
 Actions downloads in a ZIP; the Windows artifact contains the executable
 directly. Release assets have no extra wrapper: one Windows ZIP, one Linux
-AppImage, and one macOS archive per architecture, with checksums. To make a
+AppImage, and one macOS archive per architecture **for each application**, with checksums. To make a
 release after merging, tag the desired commit:
 
 ```sh
@@ -559,7 +564,7 @@ GitHub Release. If none exists, it creates a **draft**; otherwise it reuses the
 existing release, whether draft or published. Reruns replace matching assets
 and their checksums. Download and test each platform before publishing a new
 draft from GitHub's Releases page. A failed platform build prevents release
-creation. Release jobs use GitHub's built-in token; no personal token is needed.
+creation; Workshop builds, tests and packaged startup checks must also succeed. Release jobs use GitHub's built-in token; no personal token is needed.
 Manual workflow runs only upload artifacts and do not create a release.
 
 Tag runs use the workflow and source code recorded in that tag. Rerunning an
@@ -567,15 +572,18 @@ older tag does not pick up later workflow fixes; use a new tag for a new build,
 or upload recovered packages to the existing release with
 `gh release upload TAG FILES... --clobber`.
 
-Launch the download for your platform:
+Each platform download is one archive containing **Impera, Impera Workshop, and
+an empty `Mods` folder**. Extract the whole archive and keep its contents together.
+Launch the application you want:
 
 - **Windows:** run `Run Impera.cmd` from the extracted folder. Saves and logs stay in this folder; cursor assets are embedded.
-- **macOS:** extract the archive, move `Impera.app` to Applications, and open it.
+- **macOS:** keep `Impera.app`, `ImperaWorkshop.app`, and `Mods` in the extracted
+  folder. You can move that whole folder to Applications, then open either app.
   Requires macOS 12 or newer; choose the Intel or Apple Silicon download. Settings, saves and
   logs live in `~/Library/Application Support/Impera`.
-- **Linux:** download the `.AppImage`, make it executable with
-  `chmod +x Impera-*.AppImage`, then double-click it or run `./Impera-*.AppImage`.
-  If FUSE is unavailable, run `./Impera-*.AppImage --appimage-extract-and-run`
+- **Linux:** extract the `.tar.gz` archive and run `Impera.AppImage` or
+  `ImperaWorkshop.AppImage` from that folder.
+  If FUSE is unavailable, run `./Impera.AppImage --appimage-extract-and-run`
   instead.
   Settings, saves and logs live in `$XDG_DATA_HOME/impera`, or `~/.local/share/impera` by default.
   Linux builds target Ubuntu 22.04 or newer compatible systems. The AppImage
@@ -598,7 +606,8 @@ python scripts/package-release.py --build release-build --platform linux-x86_64 
 
 Use `windows-x86_64`, `macos-x86_64`, or `macos-arm64` when building natively on
 those platforms. CMake downloads pinned dependencies on the first build.
-Packaging requires Python 3.9 or newer and writes archives to `dist/`.
+Engine packaging requires Python 3.9 or newer and writes archives to `dist/`.
+Combined release assembly requires Python 3.12 or newer.
 To produce the Linux AppImage from that archive:
 
 ```sh
@@ -637,6 +646,19 @@ matching. Its original linker has not been found, so perfect binary matching is
 not currently possible. FM-TOWNS disassembly is also used as a reference where
 needed. See upstream for current decompilation progress and its original
 project documentation.
+
+## Modding with Impera Workshop
+
+**Impera Workshop** is a native desktop modding application for maps, NPCs,
+combat setup, DOS graphics, conversations, story, bitmap fonts, starting world
+objects, shop stock/prices and location entrances. It edits
+projects and exports `.imperamod` packages while keeping original files untouched.
+See [Workshop build and authoring instructions](workshop/README.md).
+
+Place packages in the **`Mods` folder beside the Impera executable (or AppImage/app bundle)**
+and restart Impera. Packages load automatically; incompatible or conflicting
+packages are skipped and explained in `LOG.TXT`. Existing saves retain their
+saved state. See [mod loading and package format](docs/mod-packages.md).
 
 ## Credits
 

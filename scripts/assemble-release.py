@@ -5,6 +5,8 @@ import hashlib
 import re
 import shutil
 import zipfile
+import tarfile
+import tempfile
 from pathlib import Path
 
 PLATFORMS = {'linux-x86_64': '.AppImage', 'macos-x86_64': '.tar.gz',
@@ -14,9 +16,11 @@ WINDOWS_FILES = {'Impera.exe', 'Run Impera.cmd', 'README.md',
                  'Licenses/dr_libs.txt', 'Licenses/stb_vorbis.txt'}
 
 
-def assemble(artifacts, version, output):
+def assemble(artifacts, version, output, with_workshop=False):
     version = re.sub(r'[^A-Za-z0-9._-]', '-', version)
     expected = {f'Impera-{p}' for p in (*PLATFORMS, 'windows-x86_64')}
+    if with_workshop:
+        expected |= {f'Impera-Workshop-{p}' for p in (*PLATFORMS, 'windows-x86_64')}
     if {p.name for p in artifacts.iterdir()} != expected:
         raise ValueError('Missing or unexpected platform artifacts')
     output.mkdir(parents=True, exist_ok=True)
@@ -43,11 +47,113 @@ def assemble(artifacts, version, output):
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     (output / (archive.name + '.sha256')).write_text(f'{digest}  {archive.name}\n')
 
+    if with_workshop:
+        assemble_workshop(artifacts, version, output)
+        combine_downloads(version, output)
+
+
+def assemble_workshop(artifacts, version, output):
+    for platform, suffix in PLATFORMS.items():
+        source = artifacts / f'Impera-Workshop-{platform}'
+        name = f'ImperaWorkshop-{version}-{platform}{suffix}'
+        if {p.name for p in source.iterdir()} != {name, name + '.sha256'}:
+            raise ValueError(f'Unexpected Workshop release files for {platform}')
+        digest = hashlib.sha256((source / name).read_bytes()).hexdigest()
+        if (source / (name + '.sha256')).read_text().strip() != f'{digest}  {name}':
+            raise ValueError(f'Checksum mismatch for {name}')
+        shutil.copy2(source / name, output / name)
+        shutil.copy2(source / (name + '.sha256'), output / (name + '.sha256'))
+    source = artifacts / 'Impera-Workshop-windows-x86_64'
+    files = {p.relative_to(source).as_posix() for p in source.rglob('*') if p.is_file()}
+    required = {'bin/ImperaWorkshop.exe', 'bin/Qt6Core.dll', 'bin/Qt6Gui.dll',
+                'bin/Qt6Widgets.dll', 'plugins/platforms/qwindows.dll',
+                'bin/qt.conf', 'README.md', 'Run Workshop.cmd', 'Licenses/Qt-runtime.txt'}
+    def allowed(file):
+        return (file in required or file.startswith('Licenses/Qt/') or
+                file.startswith(('bin/', 'plugins/')) and file.endswith('.dll'))
+    if not required <= files or any(not allowed(f) for f in files) or any(p.is_symlink() for p in source.rglob('*')):
+        raise ValueError('Unexpected or incomplete Windows Workshop package contents')
+    name = f'ImperaWorkshop-{version}-windows-x86_64'
+    archive = output / (name + '.zip')
+    with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as bundle:
+        for file in sorted(files):
+            bundle.write(source / file, f'{name}/{file}')
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    (output / (archive.name + '.sha256')).write_text(f'{digest}  {archive.name}\n')
+
+
+def combine_downloads(version, output, platforms=None):
+    """One portable distribution per platform, with a writable external Mods folder."""
+    for platform in platforms or (*PLATFORMS, 'windows-x86_64'):
+        name = f'Impera-{version}-{platform}'
+        suffix = '.zip' if platform.startswith('windows') else PLATFORMS[platform]
+        engine = output / (name + suffix)
+        workshop = output / (f'ImperaWorkshop-{version}-{platform}' + suffix)
+        for source in (engine, workshop):
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            if Path(str(source) + '.sha256').read_text().strip() != f'{digest}  {source.name}':
+                raise ValueError(f'Checksum mismatch for {source.name}')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            stage = root / name
+            stage.mkdir()
+            (stage / 'Mods').mkdir()
+            if platform.startswith('linux'):
+                shutil.copy2(engine, stage / 'Impera.AppImage')
+                shutil.copy2(workshop, stage / 'ImperaWorkshop.AppImage')
+                for executable in stage.glob('*.AppImage'):
+                    executable.chmod(0o755)
+            else:
+                for archive, folder in ((engine, 'engine'), (workshop, 'workshop')):
+                    destination = root / folder
+                    if suffix == '.zip':
+                        with zipfile.ZipFile(archive) as stream:
+                            stream.extractall(destination)
+                    else:
+                        with tarfile.open(archive) as stream:
+                            stream.extractall(destination, filter='data')
+                engine_root = root / 'engine' / name
+                editor_root = root / 'workshop' / f'ImperaWorkshop-{version}-{platform}'
+                shutil.copytree(engine_root, stage, dirs_exist_ok=True, symlinks=True)
+                shutil.copy2(editor_root / 'README.md', stage / 'Workshop-README.md')
+                shutil.copytree(editor_root / 'Licenses', stage / 'Licenses/Workshop', symlinks=True)
+                if platform.startswith('windows'):
+                    shutil.copytree(editor_root / 'bin', stage, dirs_exist_ok=True)
+                    shutil.copytree(editor_root / 'plugins', stage / 'plugins')
+                    (stage / 'qt.conf').write_text('[Paths]\nPrefix=.\nPlugins=plugins\n')
+                    (stage / 'Run Workshop.cmd').write_text(
+                        '@echo off\r\n"%~dp0ImperaWorkshop.exe" %*\r\n', newline='')
+                else:
+                    shutil.copytree(editor_root / 'ImperaWorkshop.app', stage / 'ImperaWorkshop.app',
+                                    symlinks=True)
+            (stage / 'INSTALL.txt').write_text(
+                'Impera and Impera Workshop\n\n'
+                'Launch either application from this folder.\n'
+                'Place .imperamod packages in the Mods folder beside Impera, then restart it.\n'
+                'Select your own Ultima 5 game files when Impera asks for them.\n')
+            if (stage / 'Mods').is_symlink() or list((stage / 'Mods').iterdir()):
+                raise ValueError('Release Mods folder must be empty')
+            archive = output / (name + ('.zip' if platform.startswith('windows') else '.tar.gz'))
+            if platform.startswith('windows'):
+                with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as stream:
+                    for path in sorted(stage.rglob('*')):
+                        stream.write(path, path.relative_to(root))
+            else:
+                with tarfile.open(archive, 'w:gz') as stream:
+                    stream.add(stage, arcname=name)
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+            (output / (archive.name + '.sha256')).write_text(f'{digest}  {archive.name}\n')
+            for previous in (engine, workshop):
+                if previous != archive:
+                    previous.unlink()
+                    Path(str(previous) + '.sha256').unlink()
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--artifacts', type=Path, required=True)
     parser.add_argument('--version', required=True)
+    parser.add_argument('--with-workshop', action='store_true')
     parser.add_argument('--output', type=Path, default=Path('dist'))
     args = parser.parse_args()
-    assemble(args.artifacts, args.version, args.output)
+    assemble(args.artifacts, args.version, args.output, args.with_workshop)
