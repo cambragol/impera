@@ -29,7 +29,40 @@ void KEY_Cleanup(void)
 
 static int s_gameplayInput;
 void KEY_SDL_SetGameplayInput(int enabled) { s_gameplayInput=enabled; }
-static u16 s_lastDownKeycode = 0;
+#define KEY_QUEUE_CAPACITY 128
+static u16 s_pendingKeys[KEY_QUEUE_CAPACITY];
+static int s_keyHead, s_keyCount;
+
+static bool IsDirection(u16 key)
+{
+    return (key >= (0x100 | U5_KEY_LEFT) && key <= (0x100 | U5_KEY_DOWN)) ||
+           (key >= (0x100 | U5_KEY_HOME) && key <= (0x100 | U5_KEY_PGDN));
+}
+
+static void QueueKey(u16 key)
+{
+    if (!key) return;
+    /* Keep arrow chords and movement repeats coalesced, as before, without
+     * overwriting dialogue text collected during sound/animation delays. */
+    if (s_keyCount && IsDirection(key)) {
+        int last = (s_keyHead + s_keyCount - 1) % KEY_QUEUE_CAPACITY;
+        if (IsDirection(s_pendingKeys[last])) {
+            s_pendingKeys[last] = key;
+            return;
+        }
+    }
+    if (s_keyCount == KEY_QUEUE_CAPACITY) return;
+    s_pendingKeys[(s_keyHead + s_keyCount++) % KEY_QUEUE_CAPACITY] = key;
+}
+
+static u16 TakeKey(void)
+{
+    if (!s_keyCount) return 0;
+    u16 key = s_pendingKeys[s_keyHead];
+    s_keyHead = (s_keyHead + 1) % KEY_QUEUE_CAPACITY;
+    --s_keyCount;
+    return key;
+}
 static u16 s_heldMovementKey;
 static SDL_Keycode s_heldSDLKey;
 static Uint64 s_nextMovement;
@@ -71,7 +104,7 @@ void KEY_SDL_ReleaseKey(SDL_Keycode key)
 
 void KEY_SDL_ClearInput(void)
 {
-    s_lastDownKeycode = 0;
+    s_keyHead = s_keyCount = 0;
     KEY_SDL_ReleaseKey(0);
 }
 
@@ -160,15 +193,14 @@ void KEY_SDL_ProcessKeyDown(SDL_KeyboardEvent ev)
     int arrow=ArrowIndex(ev.key);
     if(arrow>=0) { s_arrows[arrow]=true;key=ArrowDirection(key); }
     if ((key == U5_KEY_CTRL_O || key == U5_KEY_CTRL_W || key == U5_KEY_CTRL_L) && ev.repeat) return;
-    bool direction = (key >= (0x100 | U5_KEY_LEFT) && key <= (0x100 | U5_KEY_DOWN)) ||
-                     (key >= (0x100 | U5_KEY_HOME) && key <= (0x100 | U5_KEY_PGDN));
+    bool direction = IsDirection(key);
     if ((GRAP_SDL_CustomMovementSpeed() || GRAP_SDL_SmoothMovementEnabled()) && direction) {
         if (ev.repeat) return; /* use our timer rather than OS keyboard repeat */
         s_heldMovementKey = key;
         s_heldSDLKey = ev.key;
         s_nextMovement = SDL_GetTicks() + GRAP_SDL_MovementInterval();
     } else if (!ev.repeat && !direction) KEY_SDL_ReleaseKey(0);
-    s_lastDownKeycode = key;
+    QueueKey(key);
 }
 
 extern void EVT_Yield(void);
@@ -181,21 +213,22 @@ int KEY_PollKey(void)
 
 	EVT_Yield();
 
-    if (!s_lastDownKeycode && s_heldMovementKey && SDL_GetTicks() >= s_nextMovement) {
-        s_lastDownKeycode = s_heldMovementKey;
+    u16 key = TakeKey();
+    if (!key && s_heldMovementKey && SDL_GetTicks() >= s_nextMovement) {
+        key = s_heldMovementKey;
         s_nextMovement = SDL_GetTicks() + GRAP_SDL_MovementInterval();
     }
 
     // special keystroke
-    if (s_lastDownKeycode & 0x100)
+    if (key & 0x100)
     {
-        s_lastDownKeycode &= 0xff;
+        key &= 0xff;
         D_538a = 1;
     }
 
     if(s_gameplayInput && !EVT_ImmediateExitEnabled() &&
-       (s_lastDownKeycode==U5_KEY_CTRL_W || s_lastDownKeycode==U5_KEY_CTRL_L)) {
-        bool loading=s_lastDownKeycode==U5_KEY_CTRL_L;
+       (key==U5_KEY_CTRL_W || key==U5_KEY_CTRL_L)) {
+        bool loading=key==U5_KEY_CTRL_L;
         KEY_SDL_ClearInput();
         /* Disable the shortcuts while the browser owns keyboard input. */
         s_gameplayInput=0;
@@ -205,15 +238,15 @@ int KEY_PollKey(void)
         s_gameplayInput=1;
         return 0;
     }
-    if (s_lastDownKeycode == U5_KEY_CTRL_O) {
+    if (key == U5_KEY_CTRL_O) {
+        KEY_SDL_ClearInput();
         /* Open at an input boundary, preserving the suspended game screen. */
         ENGINE_ShowOptions(!EVT_ImmediateExitEnabled());
         return 0;
     }
 
-    if(s_lastDownKeycode && s_gameplayInput) debug("Gameplay key=%d repeat=%d",s_lastDownKeycode,s_heldMovementKey!=0);
-    ret = s_lastDownKeycode;
-    s_lastDownKeycode = 0;
+    if(key && s_gameplayInput) debug("Gameplay key=%d repeat=%d",key,s_heldMovementKey!=0);
+    ret = key;
     if (!ret) {
         ret = MOUSE_PollCommand();
         if (ret) D_538a = 1;

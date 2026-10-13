@@ -564,6 +564,26 @@ int main(int argc, char** argv)
     ticks+=400;
     assert(MOUSE_PollCommand()==0); /* discard stale click targets */
     D_5896_map_x--;
+    /* Queued text preserves order, ignores unmapped keys, wraps, and clears. */
+    KEY_SDL_ClearInput();
+    for (int batch = 0; batch < 4; ++batch) {
+        for (int i = 0; i < 80; ++i) {
+            SDL_KeyboardEvent text = {0};
+            text.key = SDLK_A + i % 26;
+            KEY_SDL_ProcessKeyDown(text);
+        }
+        SDL_KeyboardEvent unknown = {0};
+        unknown.key = SDLK_F12;
+        KEY_SDL_ProcessKeyDown(unknown);
+        for (int i = 0; i < 80; ++i)
+            assert(KEY_PollKey() == 'a' + i % 26);
+        assert(KEY_PollKey() == 0);
+    }
+    SDL_KeyboardEvent discarded = {0};
+    discarded.key = SDLK_A;
+    KEY_SDL_ProcessKeyDown(discarded);
+    KEY_SDL_ClearInput();
+    assert(KEY_PollKey() == 0);
     /* Perpendicular keyboard arrows use the same diagonal commands as mouse input. */
     extern void KEY_SDL_ReleaseKey(SDL_Keycode key);
     bool diagonalBefore=MOVEMENT_Diagonal();

@@ -10,6 +10,7 @@
 #include "audio/aud_sfx.h"
 #include "audio/pcspeaker.h"
 #include "vars.h"
+#include "key/key.h"
 
 static int queued, assigned;
 const char* __wrap_SDL_GetBasePath(void) { return "Alongside/"; }
@@ -75,7 +76,18 @@ int main(void)
     assert(queued==1); /* individual missing WAV synthesizes */
     AUDIO_DispatchWhiteNoise(2,20,3000); assert(queued==2); /* unmapped effects also synthesize */
     AUDIO_DispatchPulse(1193,1,100,20000,-4); assert(queued==3);
-    AUDIO_DispatchTone(1193,100); assert(queued==4);
+    /* Audio delays pump the SDL event loop before dialogue can consume typing. */
+    const char typed[] = "name\rjob\r";
+    for (size_t i = 0; i < sizeof(typed) - 1; ++i) {
+        SDL_Event key = {0};
+        key.type = SDL_EVENT_KEY_DOWN;
+        key.key.key = typed[i];
+        assert(SDL_PushEvent(&key));
+    }
+    AUDIO_DispatchTone(1193,200); assert(queued==4);
+    for (size_t i = 0; i < sizeof(typed) - 1; ++i)
+        assert(KEY_PollKey() == typed[i]);
+    assert(KEY_PollKey() == 0);
     AUDIO_DispatchSweepTone(1193,2386,1,40); assert(queued==5);
     AUDIO_PlayTitle1Sfx(); AUDIO_PlayTitle2Sfx(); assert(queued==5); /* No invented title definitions. */
     AUDIO_SetSoundEnabled(0);AUDIO_DispatchWhiteNoise(1,25,1000);assert(assigned==3);
