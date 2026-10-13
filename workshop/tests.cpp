@@ -1912,7 +1912,7 @@ int main(int argc, char **argv) {
             check(images.size() == 256, "Missing dungeon feature artwork");
             for (const auto &image : images)
                 check(!image.isNull() && image.size() == QSize(32, 32), "Invalid dungeon artwork");
-            check(images[0].pixelColor(0, 0) == tiles[0x45].pixelColor(0, 0) &&
+            check(images[0].pixelColor(0, 0) == tiles[68].pixelColor(0, 0) &&
                       images[0x40].pixelColor(0, 0) == tiles[257].pixelColor(0, 0),
                   "Dungeon artwork does not use project floor and actor chest tiles");
             check(images[0xa0] != images[0xa1], "Room number badges are indistinguishable");

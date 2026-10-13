@@ -8,7 +8,7 @@ QVector<QImage> dungeonFeatureImages(const QVector<QImage> &tiles) {
     U5::require(tiles.size() >= 512, "Dungeon artwork requires the complete Ultima 5 tileset");
     QVector<QImage> images;
     // Dungeon bytes are features, not terrain IDs. Each value retains its own visual slot.
-    static const int artwork[] = {0x45, 0xc8, 0xc9, 0xc8, 257,  0xd8, 0x8c, 257,
+    static const int artwork[] = {0x44, 0xc8, 0xc9, 0xc8, 257,  0xd8, 0x8c, 257,
                                   0x00, 0x45, 0xb8, 0x4f, 0x4d, 0x4e, 0xb8, 0xb8};
     for (int value = 0; value < 256; ++value) {
         const int kind = value >> 4, variant = value & 15;
