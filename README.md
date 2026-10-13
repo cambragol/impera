@@ -530,27 +530,41 @@ cmake --build build --parallel 4
 ctest --test-dir build --output-on-failure
 ```
 
-### Automated executable releases
+### Automated builds and releases
 
-GitHub Actions builds Windows x64, Linux x64, macOS Intel, and macOS Apple
-Silicon packages using [Build releases](.github/workflows/release.yml).
-The release build pins SDL 3.4.18 and SDL_mixer 3.2.4, links them statically,
-and includes built-in WAV, MP3 and Ogg Vorbis decoding. Linux releases provide
-only an AppImage (plus its checksum). Original Ultima 5 game files,
-music, saves and personal settings are never included in the packages.
-Every platform also includes a separate **Impera Workshop** editor download:
-`ImperaWorkshop-<version>-<platform>`. Workshop bundles its Qt 6 runtime; no
-separate Qt installation is needed. Linux Workshop ships as an AppImage,
-Windows as a portable ZIP (launch `Run Workshop.cmd`), and macOS as an app bundle
-in a `.tar.gz` archive. Neither application includes original game assets.
+[Build and test](.github/workflows/release.yml) is the single native CI workflow.
+It builds Impera and Impera Workshop together and runs their tests once per
+platform: Windows x64, Linux x64, macOS Intel, and macOS Apple Silicon. It runs
+for relevant pull requests, changes merged into `main`, version tags, and manual
+runs. To validate a branch, open **Actions → Build and test → Run workflow**.
+Each successful pull-request, `main`, or manual branch build also packages both
+applications and uploads four downloadable Actions artifacts: `Build-linux-x86_64`,
+`Build-windows-x86_64`, `Build-macos-x86_64`, and `Build-macos-arm64`. Download the
+artifact for your platform from the workflow run's **Artifacts** section. GitHub
+wraps artifacts in a ZIP; extract it, then extract the platform archive inside.
+Test archive versions include the built commit SHA. The packages include both
+applications, their runtime dependencies, an empty `Mods` folder, and a checksum.
+These runs do not create or modify a GitHub Release.
+
+The retired Python editors and their separate CI workflow have been removed;
+Python remains a tool for packaging scripts and regression tests. All builds run
+icon and packaged startup checks. Version tags beginning with `v` additionally
+upload the packages to a GitHub Release after every platform succeeds.
+The release build pins SDL 3.4.18 and SDL_mixer 3.2.4, links them statically, and
+includes built-in WAV, MP3 and Ogg Vorbis decoding. Workshop bundles Qt 6, so no
+separate Qt installation is needed.
+Each platform has one combined `Impera-<version>-<platform>` archive and its
+SHA-256 checksum:
+
+- Windows: a portable ZIP with `Impera.exe` and `ImperaWorkshop.exe`.
+- Linux: a `.tar.gz` with `Impera.AppImage` and `ImperaWorkshop.AppImage`.
+- macOS: a `.tar.gz` for each architecture with `Impera.app` and `ImperaWorkshop.app`.
+
+Each archive includes an empty `Mods` folder beside the applications. Original
+Ultima 5 game files, music, saves, and personal settings are never included.
 ScaleFX is not part of these releases.
 
-To test a build, open **Actions → Build releases → Run workflow**, select the
-branch, and download its platform artifacts when all jobs finish. GitHub wraps
-Actions downloads in a ZIP; the Windows artifact contains the executable
-directly. Release assets have no extra wrapper: one Windows ZIP, one Linux
-AppImage, and one macOS archive per architecture **for each application**, with checksums. To make a
-release after merging, tag the desired commit:
+To make a release after merging, tag the desired commit:
 
 ```sh
 git switch main
@@ -559,13 +573,13 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The workflow runs tests and attaches archives and SHA-256 checksums to a
-GitHub Release. If none exists, it creates a **draft**; otherwise it reuses the
-existing release, whether draft or published. Reruns replace matching assets
-and their checksums. Download and test each platform before publishing a new
-draft from GitHub's Releases page. A failed platform build prevents release
-creation; Workshop builds, tests and packaged startup checks must also succeed. Release jobs use GitHub's built-in token; no personal token is needed.
-Manual workflow runs only upload artifacts and do not create a release.
+The release job waits for both applications' builds, tests, and packaging checks
+on all four platforms before attaching the combined archives to a GitHub Release.
+If none exists, it creates a **draft**; otherwise it reuses the existing release,
+whether draft or published. Reruns replace matching assets and checksums. Download
+and test each platform before publishing a new draft from GitHub's Releases page.
+Release jobs use GitHub's built-in token; no personal token is needed.
+
 
 Tag runs use the workflow and source code recorded in that tag. Rerunning an
 older tag does not pick up later workflow fixes; use a new tag for a new build,

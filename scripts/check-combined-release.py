@@ -17,7 +17,7 @@ assembly = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(assembly)
 
 
-def check(platform, version):
+def check(platform, version, destination=None):
     version = re.sub(r'[^A-Za-z0-9._-]', '-', version)
     with tempfile.TemporaryDirectory() as temporary:
         output = Path(temporary).resolve()
@@ -59,13 +59,28 @@ def check(platform, version):
                {'LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH', 'DYLD_FRAMEWORK_PATH',
                 'QT_PLUGIN_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH'}}
         env['QT_QPA_PLATFORM'] = 'offscreen'
-        env['U5D_RUNTIME_DIR'] = str(output / 'runtime')
+        runtime = output / 'runtime'
+        runtime.mkdir()
+        env['U5D_RUNTIME_DIR'] = str(runtime)
         if os.name == 'nt':
             env['PATH'] = os.pathsep.join(p for p in env['PATH'].split(os.pathsep) if 'qt' not in p.lower())
         for command, expected in zip(commands, ('Usage: ultima5', 'PASS native dialogue packaged smoke test')):
-            result = subprocess.run(command, cwd=output, env=env, capture_output=True,
-                                    text=True, check=True, timeout=60)
+            try:
+                result = subprocess.run(command, cwd=output, env=env, capture_output=True,
+                                        text=True, timeout=60)
+            except subprocess.TimeoutExpired as error:
+                print(error.stdout or '', error.stderr or '', flush=True)
+                raise
+            print(result.stdout, end='')
+            print(result.stderr, end='')
+            result.check_returncode()
             assert expected in result.stdout, result.stdout + result.stderr
+        if destination is not None:
+            destination = Path(destination)
+            destination.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(archive, destination / archive.name)
+            checksum = Path(str(archive) + '.sha256')
+            shutil.copy2(checksum, destination / checksum.name)
         print(f'PASS combined {platform} applications and empty Mods folder')
 
 
@@ -73,7 +88,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--platform', required=True)
     parser.add_argument('--version', default=os.environ.get('RELEASE_VERSION'))
+    parser.add_argument('--output', type=Path, help='Keep the verified archive and checksum for CI downloads')
     args = parser.parse_args()
     if not args.version:
         parser.error('--version or RELEASE_VERSION is required')
-    check(args.platform, args.version)
+    check(args.platform, args.version, args.output)

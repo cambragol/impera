@@ -67,6 +67,7 @@ def assemble_workshop(artifacts, version, output):
     files = {p.relative_to(source).as_posix() for p in source.rglob('*') if p.is_file()}
     required = {'bin/ImperaWorkshop.exe', 'bin/Qt6Core.dll', 'bin/Qt6Gui.dll',
                 'bin/Qt6Widgets.dll', 'plugins/platforms/qwindows.dll',
+                'plugins/platforms/qoffscreen.dll',
                 'bin/qt.conf', 'README.md', 'Run Workshop.cmd', 'Licenses/Qt-runtime.txt'}
     def allowed(file):
         return (file in required or file.startswith('Licenses/Qt/') or
