@@ -3222,6 +3222,38 @@ int main(int argc, char **argv) {
                       canvas->height() <= view.viewport()->height(),
                   "Fit clipped map");
         });
+        test("Map tile picker width survives switching maps and workspaces", [&] {
+            QTemporaryDir dir;
+            fixture(dir.path());
+            file(dir.path() + "/TOWNE.DAT", QByteArray(16384, 5));
+            file(dir.path() + "/KEEP.DAT", QByteArray(16384, 5));
+            WorkshopWindow window;
+            check(window.openGame(dir.path()), "Panel width fixture load");
+            window.resize(1400, 900);
+            window.show();
+            window.selectResource("TOWNE.DAT");
+            app.processEvents();
+            auto splitter = [&] {
+                auto active = window.findChild<QStackedWidget *>("workspaces")->currentWidget();
+                return active->findChild<QSplitter *>("mapPanelSplitter");
+            };
+            auto split = splitter();
+            check(split, "Map panel splitter missing");
+            split->setSizes({0, 650, 370});
+            app.processEvents();
+            const int width = split->sizes().last();
+            check(width > 300, "Panel resize was not applied");
+            window.selectResource("KEEP.DAT");
+            app.processEvents();
+            check(qAbs(splitter()->sizes().last() - width) <= 2,
+                  "Changing map resets the tile picker width");
+            window.selectResource("TILES.16");
+            app.processEvents();
+            window.selectResource("TOWNE.DAT");
+            app.processEvents();
+            check(qAbs(splitter()->sizes().last() - width) <= 2,
+                  "Returning from another workspace resets the tile picker width");
+        });
         test("Map workspace brush, navigation and undo preserve view state", [&] {
             QTemporaryDir dir;
             fixture(dir.path());

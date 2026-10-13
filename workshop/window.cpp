@@ -671,7 +671,7 @@ void WorkshopWindow::rebuildTree() {
     const auto query = contentSearch->text();
     if (workspaceSelector->currentText() == "World") {
         for (const auto &label :
-             {"World maps", "Settlements", "Dungeons", "Combat maps"}) {
+             {"World maps", "Locations", "Dungeons", "Combat maps"}) {
             groups[label] = new QTreeWidgetItem(assets, {label});
             groups[label]->setExpanded(QString(label) != "Combat maps");
         }
@@ -879,6 +879,9 @@ void WorkshopWindow::rebuildEditor() {
     }
     flushDraft = {};
     QPoint scrollPosition;
+    if (auto previous = content->currentWidget())
+        if (auto split = previous->findChild<QSplitter *>("mapPanelSplitter"))
+            mapPanelState = split->saveState();
     auto oldView = content->currentWidget()
                        ? content->currentWidget()->findChild<QScrollArea *>("canvasView")
                        : nullptr;
@@ -905,6 +908,10 @@ void WorkshopWindow::rebuildEditor() {
     content->setCurrentWidget(w);
     if (auto map = dynamic_cast<MapWorkspace *>(w->findChild<QWidget *>("mapWorkspace")))
         map->useSharedNavigation();
+    if (auto split = w->findChild<QSplitter *>("mapPanelSplitter")) {
+        if (!mapPanelState.isEmpty())
+            split->restoreState(mapPanelState);
+    }
     if (auto scenes = w->findChild<QComboBox *>("sceneSelector"))
         connect(scenes, &QComboBox::currentIndexChanged, w, [this] {
             for (const auto &d : destinations)

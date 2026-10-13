@@ -961,6 +961,7 @@ MapWorkspace::MapWorkspace(
     auto layout = new QVBoxLayout(this);
     layout->setContentsMargins(10, 10, 10, 10);
     auto split = new QSplitter;
+    split->setObjectName("mapPanelSplitter");
     layout->addWidget(split, 1);
     auto left = new QWidget;
     auto leftLayout = new QVBoxLayout(left);
