@@ -119,7 +119,8 @@ class WorkshopReleaseTest(unittest.TestCase):
                                               'PASS native dialogue packaged smoke test')]:
                 path = root / folder / f'{product}-vtest-linux-x86_64.AppImage'
                 path.parent.mkdir()
-                path.write_text('#!/bin/sh\nprintf "%s\\n" "' + output + '"\n')
+                path.write_text('#!/bin/sh\n[ -d "$U5D_RUNTIME_DIR" ] || exit 1\n'
+                                'printf "%s\\n" "' + output + '"\n')
                 path.chmod(0o755)
             destination = root / 'downloads'
             check.check('linux-x86_64', 'vtest', destination)

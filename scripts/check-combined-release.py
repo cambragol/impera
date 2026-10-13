@@ -59,7 +59,9 @@ def check(platform, version, destination=None):
                {'LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH', 'DYLD_FRAMEWORK_PATH',
                 'QT_PLUGIN_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH'}}
         env['QT_QPA_PLATFORM'] = 'offscreen'
-        env['U5D_RUNTIME_DIR'] = str(output / 'runtime')
+        runtime = output / 'runtime'
+        runtime.mkdir()
+        env['U5D_RUNTIME_DIR'] = str(runtime)
         if os.name == 'nt':
             env['PATH'] = os.pathsep.join(p for p in env['PATH'].split(os.pathsep) if 'qt' not in p.lower())
         for command, expected in zip(commands, ('Usage: ultima5', 'PASS native dialogue packaged smoke test')):
