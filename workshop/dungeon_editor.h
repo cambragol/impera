@@ -1,6 +1,7 @@
 #pragma once
 #include "map_editor.h"
 namespace Workshop {
+QVector<QImage> dungeonFeatureImages(const QVector<QImage> &tiles);
 class DungeonDocument {
   public:
     explicit DungeonDocument(const Project *project);

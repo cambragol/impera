@@ -4,6 +4,72 @@
 #include "map_entities.h"
 #include "dungeon_names.h"
 namespace Workshop {
+QVector<QImage> dungeonFeatureImages(const QVector<QImage> &tiles) {
+    U5::require(tiles.size() >= 512, "Dungeon artwork requires the complete Ultima 5 tileset");
+    QVector<QImage> images;
+    // Dungeon bytes are features, not terrain IDs. Each value retains its own visual slot.
+    static const int artwork[] = {0x45, 0xc8, 0xc9, 0xc8, 257,  0xd8, 0x8c, 257,
+                                  0x00, 0x45, 0xb8, 0x4f, 0x4d, 0x4e, 0xb8, 0xb8};
+    for (int value = 0; value < 256; ++value) {
+        const int kind = value >> 4, variant = value & 15;
+        QImage image = tiles[0x45]
+                           .scaled(32, 32, Qt::IgnoreAspectRatio, Qt::FastTransformation)
+                           .convertToFormat(QImage::Format_ARGB32);
+        QImage overlay = tiles[artwork[kind]].convertToFormat(QImage::Format_ARGB32);
+        const bool wall = kind == 11 || kind == 12 || kind == 13;
+        for (int y = 0; y < overlay.height(); ++y)
+            for (int x = 0; x < overlay.width(); ++x) {
+                QColor color = overlay.pixelColor(x, y);
+                if (!wall && kind != 0 && color.rgb() == QColor(Qt::black).rgb())
+                    color.setAlpha(0);
+                if (kind == 8 && color.alpha()) {
+                    const QColor colors[] = {QColor("#ff55ff"), QColor("#55ff55"),
+                                             QColor("#ff5555"), QColor("#5555ff")};
+                    color = colors[qMin(variant & 7, 3)];
+                }
+                overlay.setPixelColor(x, y, color);
+            }
+        QPainter painter(&image);
+        if (kind != 0 && kind != 9)
+            painter.drawImage(image.rect(), overlay);
+        QString badge;
+        if (kind == 3)
+            badge = "↕";
+        if (kind == 6 && (variant & 7))
+            badge = (variant & 7) == 2 ? "B" : "T";
+        if (kind == 7)
+            badge = "O";
+        if (kind == 9)
+            badge = "?";
+        if (kind == 10 || kind == 15)
+            badge = QString::number(variant + 1);
+        if (kind == 11 && variant)
+            badge = "M";
+        if (kind == 12 || kind == 14)
+            badge = "S";
+        if (kind == 13)
+            badge = "H";
+        if (kind == 8 && (variant & 7) >= 4)
+            badge = "?";
+        if (!badge.isEmpty()) {
+            auto font = painter.font();
+            font.setPixelSize(11);
+            font.setBold(true);
+            painter.setFont(font);
+            const int width = qMax(11, painter.fontMetrics().horizontalAdvance(badge) + 2);
+            QRect box(32 - width, 20, width, 12);
+            painter.fillRect(box, QColor(0, 0, 0, 220));
+            painter.setPen(Qt::white);
+            painter.drawText(box, Qt::AlignCenter, badge);
+        }
+        if (value < 0x90 && (value & 8)) {
+            painter.setPen(QPen(QColor("#55ffff"), 2));
+            painter.drawEllipse(QRect(24, 2, 5, 5));
+        }
+        images.append(image);
+    }
+    return images;
+}
 DungeonDocument::DungeonDocument(const Project *p) : project(p) {
     U5::require(project->data("DUNGEON.DAT").size() == 4096,
                 "Dungeons must contain eight 512-byte blocks");
@@ -227,6 +293,17 @@ DungeonWorkspace::DungeonWorkspace(
         canvas->update();
     });
     tools->addWidget(highlight);
+    auto zoom = new QComboBox;
+    zoom->setObjectName("dungeonZoom");
+    zoom->addItems({"100%", "200%", "300%", "400%", "600%"});
+    zoom->setCurrentIndex(2);
+    zoom->setToolTip("Dungeon map zoom");
+    connect(zoom, &QComboBox::currentIndexChanged, this, [=](int index) {
+        const int scales[] = {1, 2, 3, 4, 6};
+        canvas->zoom = scales[index];
+        canvas->resizeMap();
+    });
+    tools->addWidget(zoom);
     layout->addLayout(tools);
     auto split = new QHBoxLayout;
     auto palette = new QListWidget;
@@ -237,7 +314,7 @@ DungeonWorkspace::DungeonWorkspace(
             continue;
         auto item = new QListWidgetItem(DungeonDocument::feature(i * 16), palette);
         item->setData(Qt::UserRole, i * 16);
-        item->setToolTip("Paint " + item->text() + ". Configure subtype / room below.");
+        item->setToolTip(item->text());
     }
     split->addWidget(palette);
     auto scroll = new MapView(canvas);
@@ -247,6 +324,9 @@ DungeonWorkspace::DungeonWorkspace(
     details->setWordWrap(true);
     details->setObjectName("dungeonCellDetails");
     side->addWidget(details);
+    auto brushPreview = new QLabel;
+    brushPreview->setObjectName("dungeonBrushPreview");
+    side->addWidget(brushPreview);
     auto subtype = new QComboBox;
     subtype->setObjectName("dungeonSubtype");
     subtype->setToolTip("Low feature bits: room number 1–16 for room doors (encoded 0–15); "
@@ -370,28 +450,12 @@ DungeonWorkspace::DungeonWorkspace(
     status->setToolTip("Feedback for copy, paste, and map gestures.");
     layout->addWidget(status);
     canvas->feedback = [=](const QString &text) { status->setText(text); };
-    QVector<QImage> symbols;
-    for (int value = 0; value < 256; ++value) {
-        QImage image(16, 16, QImage::Format_RGB32);
-        image.fill((value >> 4) == 11 ? QColor("#738098") : QColor("#192638"));
-        QPainter painter(&image);
-        painter.setPen(Qt::white);
-        auto font = painter.font();
-        font.setPixelSize(9);
-        painter.setFont(font);
-        static const QStringList signs = {"·", "↑", "↓", "↕", "C", "~", "!", "c",
-                                          "*", "?", "R", "#", "X", "H", "D", "R"};
-        painter.drawText(image.rect(), Qt::AlignCenter,
-                         (value >> 4) == 10 || (value >> 4) == 15
-                             ? QString::number((value & 15) + 1)
-                             : signs[value >> 4]);
-        if (value < 0x90 && (value & 8)) {
-            painter.setPen(QColor("#78c9df"));
-            painter.drawEllipse(11, 1, 3, 3);
-        }
-        symbols.append(image);
+    canvas->tiles = dungeonFeatureImages(U5::readGraphics("TILES.16", p->data("TILES.16")).images);
+    palette->setIconSize({32, 32});
+    for (int i = 0; i < palette->count(); ++i) {
+        auto item = palette->item(i);
+        item->setIcon(QPixmap::fromImage(canvas->tiles[item->data(Qt::UserRole).toInt()]));
     }
-    canvas->tiles = symbols;
     canvas->brush = qBound(0, state->value("DUNGEON.DAT/brush", 0), 255);
     canvas->chooseTool = [=](int tool) {
         canvas->tool = tool;
@@ -406,11 +470,10 @@ DungeonWorkspace::DungeonWorkspace(
             v = U5::byte(canvas->ids, selected->y() * 8 + selected->x());
         (*state)["DUNGEON.DAT/x"] = selected->x();
         (*state)["DUNGEON.DAT/y"] = selected->y();
-        details->setText(QString("X %1 · Y %2\n%3\nFeature byte 0x%4\nBrush: %5")
+        details->setText(QString("X %1 · Y %2\n%3\nBrush: %4")
                              .arg(selected->x())
                              .arg(selected->y())
                              .arg(DungeonDocument::feature(v) + " · " + DungeonDocument::variant(v))
-                             .arg(v, 2, 16, QChar('0'))
                              .arg(DungeonDocument::feature(canvas->brush)));
         open->setEnabled((v >> 4 == 10 || v >> 4 == 15) && p->resources.contains("DUNGEON.CBT") &&
                          p->data("DUNGEON.CBT").size() >=
@@ -447,6 +510,8 @@ DungeonWorkspace::DungeonWorkspace(
     };
     auto brush = [=](int value) {
         canvas->brush = value;
+        brushPreview->setPixmap(QPixmap::fromImage(canvas->tiles[value])
+                                    .scaled(64, 64, Qt::KeepAspectRatio, Qt::FastTransformation));
         (*state)["DUNGEON.DAT/brush"] = value;
         QSignalBlocker block(subtype);
         subtype->clear();

@@ -1899,6 +1899,24 @@ int main(int argc, char **argv) {
             p.resources["DUNGEON.DAT"].edited.resize(4095);
             rejects([&] { Workshop::DungeonDocument invalid(&p); });
         });
+        test("Dungeon artwork covers every feature and uses project tiles", [] {
+            QVector<QImage> tiles;
+            for (int i = 0; i < 512; ++i) {
+                QImage tile(16, 16, QImage::Format_ARGB32);
+                tile.fill(QColor(i % 256, i / 256, 64));
+                tiles.append(tile);
+            }
+            const auto images = Workshop::dungeonFeatureImages(tiles);
+            check(images.size() == 256, "Missing dungeon feature artwork");
+            for (const auto &image : images)
+                check(!image.isNull() && image.size() == QSize(32, 32), "Invalid dungeon artwork");
+            check(images[0].pixelColor(0, 0) == tiles[0x45].pixelColor(0, 0) &&
+                      images[0x40].pixelColor(0, 0) == tiles[257].pixelColor(0, 0),
+                  "Dungeon artwork does not use project floor and actor chest tiles");
+            check(images[0xa0] != images[0xa1] && images[0x10] != images[0x18] &&
+                      images[0x40] != images[0x70] && images[0xb0] != images[0xb1],
+                  "Dungeon variants lost their visual distinction");
+        });
         test("Dungeon UI edits, undo and room return", [] {
             QTemporaryDir dir;
             fixture(dir.path());
@@ -1909,7 +1927,12 @@ int main(int argc, char **argv) {
             window.selectResource("DUNGEON.DAT");
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             auto canvas = dynamic_cast<MapCanvas *>(window.findChild<QWidget *>("dungeonCanvas"));
-            check(canvas, "Dungeon canvas missing");
+            check(canvas && canvas->tiles.size() == 256, "Dungeon artwork canvas missing");
+            check(!window.findChild<QListWidget *>("dungeonPalette")->item(0)->icon().isNull() &&
+                      window.findChild<QLabel *>("dungeonBrushPreview") &&
+                      window.findChild<QComboBox *>("dungeonZoom") &&
+                      !window.findChild<QLabel *>("dungeonCellDetails")->text().contains("Feature byte"),
+                  "Dungeon visual palette, preview or zoom is missing");
             canvas->selection = QRect(0, 0, 1, 1);
             check(canvas->copySelection(), "Dungeon copy failed");
             MapCanvas terrain;
