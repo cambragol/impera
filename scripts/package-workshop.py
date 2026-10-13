@@ -103,8 +103,12 @@ def package(build, platform, version, output):
         'License notices are in Qt/. Qt source: https://download.qt.io/archive/qt/6.8/6.8.3/single/\n'
         'You may replace these libraries with compatible Qt builds, including modified builds.\n')
     if platform.startswith('windows-'):
-        if not (stage / 'bin/ImperaWorkshop.exe').is_file() or not (stage / 'bin/Qt6Widgets.dll').is_file():
-            raise ValueError('Workshop executable or deployed Qt Widgets DLL missing')
+        required = ('bin/ImperaWorkshop.exe', 'bin/Qt6Core.dll', 'bin/Qt6Gui.dll',
+                    'bin/Qt6Widgets.dll', 'plugins/platforms/qwindows.dll',
+                    'plugins/platforms/qoffscreen.dll')
+        missing = [name for name in required if not (stage / name).is_file()]
+        if missing:
+            raise ValueError('Missing Windows Workshop runtime files: ' + ', '.join(missing))
         (stage / 'Run Workshop.cmd').write_text('@echo off\r\n"%~dp0bin\\ImperaWorkshop.exe" %*\r\n', newline='')
         return stage  # Actions supplies the outer ZIP; assembly makes the Release ZIP.
     if platform.startswith('macos-'):

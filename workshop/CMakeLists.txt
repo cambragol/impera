@@ -147,7 +147,8 @@ if(IMPERA_WORKSHOP_DEPLOY_QT)
     if(WIN32)
         # PE debug information is not a reliable indicator of the Qt build configuration.
         list(APPEND workshop_deploy_options DEPLOY_TOOL_OPTIONS
-            "$<IF:$<CONFIG:Debug>,--debug,--release>")
+            "$<IF:$<CONFIG:Debug>,--debug,--release>"
+            --include-plugins qoffscreen)
     endif()
     qt_generate_deploy_app_script(TARGET ImperaWorkshop OUTPUT_SCRIPT workshop_deploy_script
         NO_TRANSLATIONS NO_COMPILER_RUNTIME ${workshop_deploy_options})

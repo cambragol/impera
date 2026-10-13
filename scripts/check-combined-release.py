@@ -63,8 +63,12 @@ def check(platform, version, destination=None):
         if os.name == 'nt':
             env['PATH'] = os.pathsep.join(p for p in env['PATH'].split(os.pathsep) if 'qt' not in p.lower())
         for command, expected in zip(commands, ('Usage: ultima5', 'PASS native dialogue packaged smoke test')):
-            result = subprocess.run(command, cwd=output, env=env, capture_output=True,
-                                    text=True, timeout=60)
+            try:
+                result = subprocess.run(command, cwd=output, env=env, capture_output=True,
+                                        text=True, timeout=60)
+            except subprocess.TimeoutExpired as error:
+                print(error.stdout or '', error.stderr or '', flush=True)
+                raise
             print(result.stdout, end='')
             print(result.stderr, end='')
             result.check_returncode()

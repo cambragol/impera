@@ -51,6 +51,7 @@ class WorkshopReleaseTest(unittest.TestCase):
             editor = artifacts / 'Impera-Workshop-windows-x86_64'
             files = ['bin/ImperaWorkshop.exe', 'bin/Qt6Core.dll', 'bin/Qt6Gui.dll',
                      'bin/Qt6Widgets.dll', 'bin/qt.conf', 'plugins/platforms/qwindows.dll',
+                     'plugins/platforms/qoffscreen.dll',
                      'README.md', 'Run Workshop.cmd', 'Licenses/Qt-runtime.txt',
                      'Licenses/Qt/LGPL-3.0-only.txt', 'bin/vcruntime140.dll']
             for name in files:
@@ -136,6 +137,31 @@ class WorkshopReleaseTest(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 check.check('linux-x86_64', 'vtest', rejected)
             self.assertFalse(rejected.exists(), 'Failed packages must not become testing downloads')
+
+    def test_windows_package_requires_desktop_and_offscreen_runtimes(self):
+        spec = importlib.util.spec_from_file_location('workshop_package', ROOT / 'scripts/package-workshop.py')
+        package = importlib.util.module_from_spec(spec); spec.loader.exec_module(package)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / 'dist'; output.mkdir()
+            required = ('bin/ImperaWorkshop.exe', 'bin/Qt6Core.dll', 'bin/Qt6Gui.dll',
+                        'bin/Qt6Widgets.dll', 'plugins/platforms/qwindows.dll',
+                        'plugins/platforms/qoffscreen.dll')
+            omitted = None
+            def install(command, **kwargs):
+                stage = Path(command[command.index('--prefix') + 1])
+                for name in required:
+                    if name == omitted:
+                        continue
+                    path = stage / name; path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(b'release runtime')
+                return subprocess.CompletedProcess(command, 0)
+            with mock.patch.dict('os.environ', QT_ROOT_DIR=str(root / 'qt')), mock.patch('subprocess.run', side_effect=install):
+                stage = package.package(root / 'build/workshop', 'windows-x86_64', 'vtest', output)
+                self.assertTrue((stage / 'plugins/platforms/qoffscreen.dll').is_file())
+                for omitted in required:
+                    with self.subTest(missing=omitted), self.assertRaisesRegex(ValueError, Path(omitted).name):
+                        package.package(root / 'build/workshop', 'windows-x86_64', 'vtest', output)
 
     def test_macos_offscreen_plugin_is_relocated_before_signing(self):
         spec = importlib.util.spec_from_file_location('workshop_package', ROOT / 'scripts/package-workshop.py')
