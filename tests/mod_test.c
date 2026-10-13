@@ -343,6 +343,9 @@ static void contentsResources(void)
     assert(CONTENTS_Find(0, 1, 0, 1, 1));
     ModPackage decoded = {0};
     char error[256];
+    memcpy(package.bytes, "IMOD0005", 8);
+    assert(MOD_Decode(package.bytes, package.size, readBase, NULL, &decoded, error, sizeof(error)));
+    MOD_Free(&decoded);
     memcpy(package.bytes, "IMOD0003", 8);
     assert(
         !MOD_Decode(package.bytes, package.size, readBase, NULL, &decoded, error, sizeof(error)));

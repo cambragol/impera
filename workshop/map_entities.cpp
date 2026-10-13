@@ -295,7 +295,7 @@ MapItemEdit addMapItem(const Project &p, const QString &r, int index, QPoint cel
             auto bytes = Dialogue::text(name);
             bytes +=
                 U5::encodeText("<Entry>A traveler.<Entry>Greetings.<Entry>I live "
-                               "here.<Entry>Farewell.<End Conversation><Entry><Any><Label 15>@");
+                               "here.<Entry>Farewell.\"<End Conversation><Entry><Any><Label 15>@");
             require(Dialogue::parse(bytes).structuralError.isEmpty(), "Invalid new conversation");
             entries.append({unsigned(conversation), bytes});
             out.changes[talk] = U5::writeDialogue(entries);

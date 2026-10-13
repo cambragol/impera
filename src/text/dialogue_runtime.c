@@ -63,7 +63,48 @@ int IMPERA_TalkMatch(const uint8_t *param_1, const char *param_2) {
 
 static void TALK_04d2_PrintCr(ImperaTalk *s) { TALK_0f32_ProcessChar(s, 0x80 | 0xd); }
 
-static void TALK_04da_PrintQuoteMark(ImperaTalk *s) { TALK_0f32_ProcessChar(s, 0x80 | 0x22); }
+static void TALK_04da_PrintQuoteMark(ImperaTalk *s) {
+    if (!s->explicitQuotes)
+        TALK_0f32_ProcessChar(s, 0x80 | 0x22);
+}
+
+static int explicitAt(ImperaTalk *s, const uint8_t *cursor) {
+    return cursor >= s->data && cursor <= s->data + s->size &&
+           s->size - (size_t)(cursor - s->data) >= IMPERA_TALK_EXPLICIT_QUOTES_SIZE &&
+           !memcmp(cursor, IMPERA_TALK_EXPLICIT_QUOTES, IMPERA_TALK_EXPLICIT_QUOTES_SIZE);
+}
+static void startResponse(ImperaTalk *s) {
+    const uint8_t *cursor = *s->cursor;
+    // Aliases use the final response's quotation policy, not the alias keyword.
+    while (cursor < s->data + s->size && (size_t)(s->data + s->size - cursor) >= 2 &&
+           cursor[0] == 0x87 && cursor[1] == 0) {
+        cursor += 2;
+        while (cursor < s->data + s->size && !*cursor)
+            ++cursor;
+        while (cursor < s->data + s->size && *cursor)
+            ++cursor;
+        if (cursor < s->data + s->size)
+            ++cursor;
+    }
+    s->explicitQuotes = explicitAt(s, cursor);
+    // A bare transfer must not leave an empty speech quote ahead of narration.
+    if (!s->explicitQuotes && cursor < s->data + s->size) {
+        int label = *cursor >= 0x91 && *cursor <= 0x9f ? *cursor : 0;
+        if (*cursor == 0x8c && (size_t)(s->data + s->size - cursor) >= 2 && s->introduced(s->host))
+            label = cursor[1];
+        if (*cursor == 0xfe && (size_t)(s->data + s->size - cursor) >= 3 &&
+            s->karma(s->host) >= cursor[1])
+            label = cursor[2];
+        for (size_t i = 0;
+             label >= 0x91 && label <= 0x9f && i + 2 + IMPERA_TALK_EXPLICIT_QUOTES_SIZE <= s->size;
+             ++i)
+            if (s->data[i] == 0x90 && s->data[i + 1] == label && explicitAt(s, s->data + i + 2)) {
+                s->explicitQuotes = 1;
+                break;
+            }
+    }
+    TALK_04da_PrintQuoteMark(s);
+}
 
 static ImperaWords nativeWords(ImperaTalk *s) {
     ImperaWords w = {0};
@@ -143,6 +184,10 @@ static int TALK_0f32_ProcessChar(ImperaTalk *s, uint8_t param_1);
 
 // process talk string
 static int TALK_0788_ProcessTalkString(ImperaTalk *s) {
+    if (explicitAt(s, *s->cursor)) {
+        s->explicitQuotes = 1;
+        *s->cursor += IMPERA_TALK_EXPLICIT_QUOTES_SIZE;
+    }
     if (++s->depth > 128) {
         s->error = 1;
         s->errorText = "Conversation nesting limit exceeded";
@@ -164,6 +209,12 @@ static int TALK_0788_ProcessTalkString(ImperaTalk *s) {
 
 static int TALK_07aa_ProcessNthTalkString(ImperaTalk *s, uint8_t param_1) {
     TALK_075a_SelectNthTalkString(s, param_1);
+    return TALK_0788_ProcessTalkString(s);
+}
+
+static int spokenNth(ImperaTalk *s, uint8_t index) {
+    TALK_075a_SelectNthTalkString(s, index);
+    startResponse(s);
     return TALK_0788_ProcessTalkString(s);
 }
 
@@ -199,11 +250,13 @@ static int TALK_093a(ImperaTalk *s) {
         TALK_0728_SkipOneTalkString(s, 0x90, 0x9f);
     }
     (*s->cursor)++;
+    startResponse(s);
     return TALK_0788_ProcessTalkString(s);
 }
 
 static int TALK_0960(ImperaTalk *s) {
     TALK_0728_SkipOneTalkString(s, 0, 0x90);
+    startResponse(s);
     return TALK_0788_ProcessTalkString(s);
 }
 
@@ -213,6 +266,7 @@ static int TALK_096e(ImperaTalk *s) {
         TALK_0728_SkipOneTalkString(s, 0x90, 0x9f);
     }
     TALK_0728_SkipOneTalkString(s, 0, 0x9f);
+    startResponse(s);
     return TALK_0788_ProcessTalkString(s);
 }
 
@@ -257,8 +311,7 @@ static void TALK_0a2c_GetString(ImperaTalk *s) {
 }
 
 static int TALK_0a3c(ImperaTalk *s) {
-    TALK_04da_PrintQuoteMark(s);
-    if (TALK_07aa_ProcessNthTalkString(s, TALK_KEY_4) == 0) {
+    if (spokenNth(s, TALK_KEY_4) == 0) {
         TALK_04da_PrintQuoteMark(s);
         TALK_04d2_PrintCr(s);
     }
@@ -292,8 +345,7 @@ static int TALK_0a54(ImperaTalk *s, uint8_t param_1) {
             return 2;
         }
 
-        TALK_04da_PrintQuoteMark(s);
-        if (TALK_07aa_ProcessNthTalkString(s, TALK_KEY_3) != 0) {
+        if (spokenNth(s, TALK_KEY_3) != 0) {
             return 1;
         }
 
@@ -338,6 +390,7 @@ static int TALK_0b04(ImperaTalk *s) {
     uint8_t local_4;
 
     while (!stopped(s)) {
+        s->explicitQuotes = 0;
         (*s->questionMode) = 0;
         s->string(s->host, _TEXT(0x9408, "Your interest?\n:"));
         TALK_0a2c_GetString(s);
@@ -368,8 +421,7 @@ static int TALK_0b04(ImperaTalk *s) {
                 TALK_04d2_PrintCr(s);
                 TALK_04d2_PrintCr(s);
             } else {
-                TALK_04da_PrintQuoteMark(s);
-                if (TALK_07aa_ProcessNthTalkString(s, (*s->topic) * 2 + 6) != 0) {
+                if (spokenNth(s, (*s->topic) * 2 + 6) != 0) {
                     return 1;
                 }
                 TALK_04da_PrintQuoteMark(s);
@@ -417,7 +469,6 @@ static int TALK_0c5c(ImperaTalk *s) {
     uint8_t local_4;
 
     do {
-        TALK_04da_PrintQuoteMark(s);
         if (TALK_093a(s) != 0) {
             return 1;
         }
@@ -425,6 +476,7 @@ static int TALK_0c5c(ImperaTalk *s) {
         TALK_04da_PrintQuoteMark(s);
 
         do {
+            s->explicitQuotes = 0;
             TALK_04d2_PrintCr(s);
             TALK_04d2_PrintCr(s);
             (*s->questionMode) = 0xff;
@@ -453,10 +505,8 @@ static int TALK_0c5c(ImperaTalk *s) {
     } while (!stopped(s) && local_6 == 0);
 
     if (TALK_0bd4(s) == 0) {
-        TALK_04da_PrintQuoteMark(s);
         local_6 = TALK_096e(s);
     } else {
-        TALK_04da_PrintQuoteMark(s);
         local_6 = TALK_0960(s);
     }
 
@@ -663,7 +713,14 @@ static int TALK_0f32_ProcessChar(ImperaTalk *s, uint8_t param_1) {
         return 0; // -> 0f5e
     case 0x88:    // ask name
         // 0fd2
+        local_6 = s->explicitQuotes;
+        s->explicitQuotes = 0;
         TALK_0e78_AskName(s);
+        s->explicitQuotes = local_6;
+        if (s->explicitQuotes) {
+            *s->lastLiteral = 0;
+            TALK_0f32_ProcessChar(s, 0xa2);
+        }
         return 0; // -> 0f5e
     case 0x89:    // karma +1
         // 0fd8
@@ -768,7 +825,7 @@ static int TALK_111c(ImperaTalk *s) {
         TALK_04d2_PrintCr(s);
         TALK_04d2_PrintCr(s);
         if (TALK_0d7a(s, 0) == 0) {
-
+            s->explicitQuotes = 0;
             if (s->greetingRoll(s->host) != 0) {
                 // "I am called\nNAME"\n\n
                 s->string(s->host, _TEXT(0x94ce, "\"I am called "));
@@ -781,8 +838,7 @@ static int TALK_111c(ImperaTalk *s) {
                 }
             }
         } else {
-            TALK_04da_PrintQuoteMark(s);
-            if (TALK_07aa_ProcessNthTalkString(s, TALK_KEY_2) == 0) {
+            if (spokenNth(s, TALK_KEY_2) == 0) {
                 TALK_04da_PrintQuoteMark(s);
                 TALK_04d2_PrintCr(s);
                 TALK_04d2_PrintCr(s);

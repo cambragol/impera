@@ -4479,7 +4479,7 @@ int main(int argc, char **argv) {
                   "Topic handoff omitted paragraph spacing");
             outline->setCurrentItem(treeItem(outline, "Farewell"));
             insert("End conversation");
-            check(read().entries[4].bytes == Dialogue::text("Bye") + QByteArray::fromHex("8d82"),
+            check(read().entries[4].bytes == Dialogue::text("Bye\"") + QByteArray::fromHex("8d82"),
                   "Conversation ending omitted its single line break");
         });
         test("Handoffs reuse boundaries and preserve imported narration", [&] {
@@ -4534,43 +4534,132 @@ int main(int argc, char **argv) {
                   "Question after Wait added redundant paragraph spacing");
             outline->setCurrentItem(treeItem(outline, "Farewell"));
             insert("End conversation");
-            check(read().entries[4].bytes == Dialogue::text("Bye") + QByteArray::fromHex("8d82"),
+            check(read().entries[4].bytes == Dialogue::text("Bye\"") + QByteArray::fromHex("8d82"),
                   "Existing final newline was duplicated");
             check(read().entries[6].bytes == narration,
                   "Unrelated edits changed narration quotes or post-wait spacing");
         });
-        test("Speech and narration compile to ordinary dialogue with automatic middle quotes", [&] {
+        test("Native narration questions, answers, Farewell and quote alignment", [&] {
+            QByteArray font(1024, char(128));
+            Dialogue::NativeSetup setup;
+            setup.state.introduced = true;
+            auto base = U5::encodeText(
+                "Name<Entry>Description<Entry>Hello<Entry>Work<Entry>"
+                "Bye<Entry>ask<Entry><Label 1><Entry><Any><Label 1>Choose.<Entry>"
+                "Fallback<End Conversation><Entry>yes<Entry>Answer<End Conversation><Entry>"
+                "<Any><Label 15>@");
+            auto doc = Dialogue::parse(base);
+            auto q = doc.questions.first();
+            doc.entries[q.prompt].bytes = QByteArray::fromHex("9091") +
+                                          IMPERA_TALK_EXPLICIT_QUOTES + Dialogue::text("Choose.");
+            doc.entries[q.fallback].bytes =
+                QByteArray(IMPERA_TALK_EXPLICIT_QUOTES) + Dialogue::text("He waits.") + char(130);
+            doc.entries[q.replies.first().response].bytes =
+                QByteArray(IMPERA_TALK_EXPLICIT_QUOTES) + Dialogue::text("He nods.") + char(130);
+            auto glyphs = [&](const Dialogue::NativeResult &r, int entry) {
+                QString text;
+                for (const auto &b : r.boundaries)
+                    if (b.kind == "glyph" && b.entry == entry)
+                        text += QChar(b.value);
+                return text;
+            };
+            for (const QString &answer : {QString("yes"), QString("no")}) {
+                QVector<Dialogue::NativeKey> keys;
+                for (char ch : (QByteArray("ask\r") + answer.toLatin1() + '\r'))
+                    keys.append({0, ch});
+                auto r = Dialogue::runNativeVirtual(doc.bytes(), font, font, setup, keys);
+                check(r.error.isEmpty() && glyphs(r, q.prompt).startsWith("Choose.") &&
+                          !glyphs(r, q.prompt).contains('"'),
+                      "Narration question has an implicit or inherited speech quote");
+                const int response = answer == "yes" ? q.replies.first().response : q.fallback;
+                check(!glyphs(r, response).contains('"'), "Narrated answer acquired a quote");
+            }
+            auto farewell = Dialogue::text("Travel safely.") + char(130);
+            auto closed = Dialogue::closeFarewellSpeech(farewell);
+            check(closed == Dialogue::text("Travel safely.\"") + char(130) &&
+                      Dialogue::closeFarewellSpeech(closed) == closed,
+                  "Farewell closure missing or repair is not idempotent");
+            doc.entries[4].bytes = closed;
+            QVector<Dialogue::NativeKey> bye{{0, 'b'}, {0, 'y'}, {0, 'e'}, {0, 13}};
+            auto r = Dialogue::runNativeVirtual(doc.bytes(), font, font, setup, bye);
+            check(r.error.isEmpty() && glyphs(r, 4).contains("Travel safely.\""),
+                  "End Conversation dropped the authored Farewell closing quote");
+            doc.entries[4].bytes =
+                QByteArray(IMPERA_TALK_EXPLICIT_QUOTES) + Dialogue::text("He departs.") + char(130);
+            r = Dialogue::runNativeVirtual(doc.bytes(), font, font, setup, bye);
+            check(r.error.isEmpty() && glyphs(r, 4) == "He departs.",
+                  "Narrated Farewell acquired speech quotes");
+            QTemporaryDir dir;
+            auto project = fixture(dir.path());
+            file(dir.path() + "/TOWNE.TLK", U5::writeDialogue({{1, base}}));
+            project.openGame(dir.path());
+            auto originals = U5::readDialogue(project.data("TOWNE.TLK"));
+            doc.entries[4].bytes = farewell;
+            originals.append({127, doc.bytes()});
+            project.resources["TOWNE.TLK"].edited = U5::writeDialogue(originals);
+            ConversationEditor editor(
+                &project, "TOWNE.TLK",
+                [&](const QByteArray &data, const QString &) {
+                    project.resources["TOWNE.TLK"].edited = data;
+                },
+                {}, originals.size() - 1, 4, [](int, int) {});
+            check(editor.flush() &&
+                      Dialogue::parse(U5::readDialogue(project.data("TOWNE.TLK")).last().bytes)
+                              .entries[4]
+                              .bytes == closed,
+                  "Pre-fix Workshop NPC Farewell was not repaired before save/Playtest");
+        });
+        test("Explicit narration and speech preserve native paragraph quotes", [&] {
             const auto speech = Dialogue::text("I speak.");
             auto mixed = Dialogue::insertTextParagraph(speech, speech.size(),
                                                        Dialogue::ParagraphKind::Narration,
                                                        "He gestures.", true, true);
-            check(mixed == Dialogue::text("I speak.\"\n\nHe gestures.\n\n") + char(255),
+            check(mixed == QByteArray(IMPERA_TALK_EXPLICIT_QUOTES) +
+                               Dialogue::text("\"I speak.\"\n\nHe gestures."),
                   "Narration failed to close speech or suppress the automatic final quote");
             mixed = Dialogue::insertTextParagraph(
-                mixed, mixed.size() - 1, Dialogue::ParagraphKind::Speech, "Listen.", true, true);
-            check(mixed ==
-                      Dialogue::text("I speak.\"\n\nHe gestures.\n\n\"Listen.\"\n\n") + char(255),
+                mixed, mixed.size(), Dialogue::ParagraphKind::Speech, "Listen.", false, true);
+            check(mixed == QByteArray(IMPERA_TALK_EXPLICIT_QUOTES) +
+                               Dialogue::text("\"I speak.\"\n\nHe gestures.\n\n\"Listen.\""),
                   "Resumed speech did not reopen its quotation");
-            auto preview =
-                Dialogue::previewResponse(mixed, 3, QByteArray(1024, 0), QByteArray(1024, 0), {});
+            Dialogue::NativeSetup setup;
+            setup.state.introduced = true;
+            auto runGreeting = [&](const QByteArray &response) {
+                auto bytes = U5::encodeText("Name<Entry>Description<Entry>") + response +
+                             U5::encodeText(
+                                 "<End Conversation><Entry>Work<Entry>Bye<Entry><Any><Label 15>@");
+                return Dialogue::runNativeVirtual(bytes, QByteArray(1024, char(128)),
+                                                  QByteArray(1024, char(128)), setup, {});
+            };
+            auto preview = runGreeting(mixed);
+            check(preview.error.isEmpty(), "Explicit response failed native execution");
             QString rendered;
-            for (const auto &glyph : preview.glyphs)
-                rendered += QChar(glyph.character);
+            for (const auto &glyph : preview.boundaries)
+                if (glyph.kind == "glyph" && glyph.entry == 2)
+                    rendered += QChar(glyph.value);
             check(rendered == "\"I speak.\"He gestures.\"Listen.\"",
                   "Mixed paragraphs have missing or spurious quotation marks");
             const auto description = Dialogue::insertTextParagraph(
                 {}, 0, Dialogue::ParagraphKind::Narration, "A quiet room.", false, false);
             check(description == Dialogue::text("A quiet room."),
                   "Description narration acquired quotation marks or control flow");
-            rejects([&] {
-                Dialogue::insertTextParagraph({}, 0, Dialogue::ParagraphKind::Narration,
-                                              "Only narration.", true, true);
-            });
-            rejects([&] {
-                Dialogue::insertTextParagraph(speech, speech.size(),
-                                              Dialogue::ParagraphKind::Narration,
-                                              "Question narration.", true, false);
-            });
+            const auto onlyNarration = Dialogue::insertTextParagraph(
+                {}, 0, Dialogue::ParagraphKind::Narration, "Only narration.", true, true);
+            check(onlyNarration ==
+                      QByteArray(IMPERA_TALK_EXPLICIT_QUOTES) + Dialogue::text("Only narration."),
+                  "Leading narration is wrapped in speech quotes");
+            auto narrated = runGreeting(onlyNarration);
+            rendered.clear();
+            for (const auto &glyph : narrated.boundaries)
+                if (glyph.kind == "glyph" && glyph.entry == 2)
+                    rendered += QChar(glyph.value);
+            check(narrated.error.isEmpty() && rendered == "Only narration.",
+                  "Narration-only response generated quotation marks");
+            auto questionNarration = Dialogue::insertTextParagraph(
+                speech, speech.size(), Dialogue::ParagraphKind::Narration, "Question narration.",
+                true, false);
+            check(!questionNarration.endsWith(char(255)),
+                  "Narration changed a question into a topic return");
 
             QTemporaryDir dir;
             auto p = fixture(dir.path());
@@ -4617,10 +4706,17 @@ int main(int argc, char **argv) {
             check(speechField->parentWidget()->findChildren<QLabel *>().size() >= 2 &&
                       narrationField->parentWidget()->findChildren<QLabel *>().isEmpty(),
                   "Speech quotation marks or unquoted narration presentation missing");
+            for (auto label :
+                 speechField->parentWidget()->findChildren<QLabel *>("conversationParagraphQuote"))
+                check(label->contentsMargins().top() ==
+                          qRound(speechField->document()->documentMargin()),
+                      "Quote baseline does not match the speech text margin");
             speechField->setPlainText("Listen carefully.");
             narrationField->setPlainText("He gestures.");
             check(editor.flush(), "Cannot edit mixed text paragraphs");
             const auto encoded = p.data("TOWNE.TLK");
+            check(p.package().startsWith("IMOD0005"),
+                  "Narration extension package is not protected from older engines");
             p.save(dir.path() + "/mixed.imperaproject");
             Project reopened;
             reopened.load(dir.path() + "/mixed.imperaproject");
@@ -4630,7 +4726,7 @@ int main(int argc, char **argv) {
             imported.openGame(dir.path());
             imported.importPackage(p.package());
             check(imported.data("TOWNE.TLK") == encoded,
-                  "Ordinary mod package lost text paragraph formatting");
+                  "Native narration package lost text paragraph formatting");
         });
         test("Conversation surface, unified questions and source-linked playtest", [&] {
             QTemporaryDir dir;

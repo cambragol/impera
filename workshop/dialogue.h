@@ -39,6 +39,7 @@ struct Document {
 Document parse(const QByteArray &bytes);
 QVector<Block> blocks(const QByteArray &bytes);
 enum class ParagraphKind { Speech, Narration };
+QByteArray closeFarewellSpeech(const QByteArray &entry);
 QByteArray insertTextParagraph(const QByteArray &entry, int offset, ParagraphKind kind,
                                const QString &body, bool implicitQuotes, bool canReturnToTopics);
 int operandCount(int opcode);

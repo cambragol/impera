@@ -1,5 +1,6 @@
 #include "dialogue.h"
 #include "inventory_names.h"
+#include "text/dialogue_runtime.h"
 #include <QRegularExpression>
 #include <algorithm>
 #include <functional>
@@ -8,6 +9,12 @@ int operandCount(int c) { return c == 133 ? 3 : c == 134 || c == 140 ? 1 : c == 
 QVector<Block> blocks(const QByteArray &b) {
     QVector<Block> out;
     for (int i = 0; i < b.size();) {
+        if ((i == 0 || (i == 2 && U5::byte(b, 0) == 144)) &&
+            b.mid(i, IMPERA_TALK_EXPLICIT_QUOTES_SIZE) == IMPERA_TALK_EXPLICIT_QUOTES) {
+            out.append({b.mid(i, IMPERA_TALK_EXPLICIT_QUOTES_SIZE), 256});
+            i += IMPERA_TALK_EXPLICIT_QUOTES_SIZE;
+            continue;
+        }
         int c = U5::byte(b, i), n = operandCount(c);
         U5::require(i + n < b.size(), "Truncated dialogue instruction");
         bool instruction = (c >= 129 && c <= 140) || c == 142 || c == 143 ||
@@ -20,9 +27,84 @@ QVector<Block> blocks(const QByteArray &b) {
     }
     return out;
 }
+QByteArray closeFarewellSpeech(const QByteArray &entry) {
+    if (entry.startsWith(IMPERA_TALK_EXPLICIT_QUOTES))
+        return entry;
+    bool open = true, hasText = false;
+    int last = 162, position = 0;
+    for (const auto &block : blocks(entry)) {
+        if (block.opcode < 0) {
+            for (unsigned char ch : block.bytes) {
+                if (ch == 162 && last != 162)
+                    open = !open;
+                if (ch > 128)
+                    last = ch;
+                hasText |= ch != 162 && ch != 141 && ch != 160;
+            }
+        } else if (block.opcode == 136 || block.opcode == 140 || block.opcode == 254 ||
+                   block.opcode == 255 || (block.opcode >= 145 && block.opcode <= 159)) {
+            return entry; // Preserve legacy generated dialogue and transfers.
+        } else if (block.opcode == 130) {
+            if (open && hasText) {
+                while (position > 0 && U5::byte(entry, position - 1) == 141)
+                    --position;
+                auto result = entry;
+                result.insert(position, char(162));
+                return result;
+            }
+            return entry;
+        }
+        position += block.bytes.size();
+    }
+    return entry;
+}
 QByteArray insertTextParagraph(const QByteArray &entry, int offset, ParagraphKind kind,
                                const QString &body, bool implicitQuotes, bool canReturnToTopics) {
     U5::require(offset >= 0 && offset <= entry.size(), "Paragraph position no longer exists");
+    if (kind == ParagraphKind::Narration && implicitQuotes) {
+        const int prefix = entry.startsWith(char(144)) ? 2 : 0;
+        U5::require(offset >= prefix, "Cannot insert text inside a question label");
+        QByteArray existingBody = entry.mid(prefix);
+        bool open = true, hasText = false;
+        int last = 162, terminal = existingBody.size(), position = 0;
+        for (const auto &block : blocks(existingBody)) {
+            if (block.opcode < 0) {
+                for (unsigned char ch : block.bytes) {
+                    if (ch == 162 && last != 162)
+                        open = !open;
+                    if (ch > 128)
+                        last = ch;
+                    hasText |= ch != 162 && ch != 141 && ch != 160;
+                }
+            } else if (block.opcode == 136) {
+                open = false;
+                last = 162;
+            } else if (block.opcode == 129) {
+                hasText = true;
+            } else if (block.opcode == 130 || block.opcode == 255 ||
+                       (block.opcode >= 145 && block.opcode <= 159)) {
+                terminal = position;
+                break;
+            }
+            position += block.bytes.size();
+        }
+        if (open && hasText) {
+            int closeAt = terminal;
+            while (closeAt > 0 && U5::byte(existingBody, closeAt - 1) == 141)
+                --closeAt;
+            existingBody.insert(closeAt, char(162));
+            if (offset >= prefix + closeAt)
+                ++offset;
+        }
+        const bool prependOpening = hasText && !existingBody.startsWith(char(162));
+        if (prependOpening)
+            existingBody.prepend(char(162));
+        QByteArray converted = entry.left(prefix) + IMPERA_TALK_EXPLICIT_QUOTES + existingBody;
+        int at = offset + IMPERA_TALK_EXPLICIT_QUOTES_SIZE;
+        if (prependOpening && offset > prefix)
+            ++at;
+        return insertTextParagraph(converted, at, kind, body, false, canReturnToTopics);
+    }
     QByteArray left = entry.left(offset), right = entry.mid(offset);
     bool quoteOpen = implicitQuotes, hasText = false;
     int lastLiteral = implicitQuotes ? 162 : 0;
@@ -43,8 +125,6 @@ QByteArray insertTextParagraph(const QByteArray &entry, int offset, ParagraphKin
             lastLiteral = 162;
         }
     }
-    U5::require(kind != ParagraphKind::Narration || !implicitQuotes || hasText,
-                "Add speech before narration in this response, or use Description for narration.");
     int newlines = 0;
     while (left.endsWith(char(141))) {
         left.chop(1);
@@ -58,13 +138,11 @@ QByteArray insertTextParagraph(const QByteArray &entry, int offset, ParagraphKin
         left += QByteArray(newlines, char(141));
     }
     QByteArray paragraph = text(body);
-    bool rightHasText = false, rightEndsResponse = false;
+    bool rightHasText = false;
     for (const auto &block : blocks(right)) {
         if (block.opcode < 0 && !plain(block.bytes).remove('"').trimmed().isEmpty())
             rightHasText = true;
         rightHasText |= block.opcode == 129 || block.opcode == 136;
-        rightEndsResponse |= block.opcode == 130 || block.opcode == 132 || block.opcode == 255 ||
-                             (block.opcode >= 145 && block.opcode <= 159);
     }
     if (kind == ParagraphKind::Speech) {
         if (hasText || !implicitQuotes)
@@ -78,16 +156,6 @@ QByteArray insertTextParagraph(const QByteArray &entry, int offset, ParagraphKin
         if (!following.isEmpty() && following.first().opcode == 130)
             lines = 1;
         paragraph += QByteArray(lines, char(141));
-    }
-    if (kind == ParagraphKind::Narration && implicitQuotes && !rightHasText && !rightEndsResponse) {
-        // Use the existing topic-return action to avoid the normal spoken closing quote.
-        // A question prompt must retain its player-input path instead.
-        U5::require(canReturnToTopics,
-                    "Place narration before the question's final speech paragraph.");
-        if (right.isEmpty())
-            paragraph += QByteArray::fromHex("8d8dff");
-        else
-            right += char(255);
     }
     // Keep existing following speech inside its original quotation context.
     if (rightHasText && quoteOpen && !right.startsWith(char(162)) && !right.isEmpty() &&

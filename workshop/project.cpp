@@ -2,6 +2,7 @@
 #include "mod/tileset_resources.h"
 #include "contents_editor.h"
 #include "dialogue.h"
+#include "text/dialogue_runtime.h"
 #include "dungeon_editor.h"
 #include "mod/contents.h"
 #include "mod/package.h"
@@ -94,15 +95,30 @@ static void append32(QByteArray &b, unsigned v) {
     for (int i = 0; i < 4; i++)
         b.append(char(v >> (8 * i)));
 }
+static bool usesExplicitDialogue(const Project &project) {
+    for (const auto &name : project.changed()) {
+        if (!name.endsWith(".TLK"))
+            continue;
+        for (const auto &conversation : U5::readDialogue(project.data(name)))
+            for (const auto &entry : Dialogue::parse(conversation.bytes).entries) {
+                const int prefix = entry.bytes.startsWith(char(144)) ? 2 : 0;
+                if (entry.bytes.mid(prefix, IMPERA_TALK_EXPLICIT_QUOTES_SIZE) ==
+                    IMPERA_TALK_EXPLICIT_QUOTES)
+                    return true;
+            }
+    }
+    return false;
+}
 QByteArray Project::package() const {
     validate();
     auto list = changed();
     require(!list.isEmpty(), "There are no changes to export");
     require(list.size() <= MOD_MAX_ENTRIES, "Too many modified resources");
-    QByteArray out(list.contains("CONTENTS.OVR") ? "IMOD0004"
-                   : list.contains("RULES.TBL")  ? "IMOD0003"
-                   : list.contains("TEXT.OVR")   ? "IMOD0002"
-                                                 : "IMOD0001",
+    QByteArray out(usesExplicitDialogue(*this)     ? "IMOD0005"
+                   : list.contains("CONTENTS.OVR") ? "IMOD0004"
+                   : list.contains("RULES.TBL")    ? "IMOD0003"
+                   : list.contains("TEXT.OVR")     ? "IMOD0002"
+                                                   : "IMOD0001",
                    8),
         nameBytes = title.toUtf8();
     append32(out, nameBytes.size());
@@ -205,6 +221,10 @@ void Project::save(const QString &path) {
     if (changed().contains("CONTENTS.OVR")) {
         requirements["mapContents"] = 1;
         requirements["packageVersion"] = 4;
+    }
+    if (usesExplicitDialogue(*this)) {
+        requirements["dialogueQuoting"] = 1;
+        requirements["packageVersion"] = 5;
     }
     if (!requirements.isEmpty())
         root["requires"] = requirements;

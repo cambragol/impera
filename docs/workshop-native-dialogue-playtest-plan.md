@@ -36,6 +36,13 @@ The [Playtest presentation](workshop-native-dialogue-presentation.md) uses the n
 | Wait and Pause | Native blocking input and 28-tick Pause loop | Real-time host remains subject to scheduler jitter |
 | Recruitment and guards | Shared native actions using isolated party/NPC records | Unassigned conversations need an NPC choice for world-dependent actions |
 
+Authored narration uses an entry-level explicit quotation extension shared by
+Impera and Playtest. It supports narration-only responses and leading/trailing
+narration in topics, greetings, Farewells, question prompts and answers. Workshop
+writes protected speech quotation marks and leaves narration unquoted. These mods
+use package version 5, which older engines reject with an update message. Vanilla
+unmarked conversations retain their original byte and pixel behavior.
+
 The native word-buffer threshold of 18 and the actual window width are different
 things. Keep both behaviors; do not change the engine window to fit the existing
 preview's assumption.

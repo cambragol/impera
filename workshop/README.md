@@ -538,3 +538,11 @@ words appear as readable text. Valid edits save with Undo and use extended mod
 storage automatically when needed. Shop/service templates are shared across
 providers. Prices and inventory remain in Game Rules. The shop editor has no
 in-game-font preview or sample-value controls.
+
+### Speech and narration
+
+Speech paragraphs show quotation marks; narration does not. Narration can begin or
+end a response, or form the entire response, including questions and their answers.
+Workshop handles the quotation marks automatically. Narration packages use the
+updated Impera dialogue extension; older engine builds reject them and request an
+update. Playtest uses that same native implementation.

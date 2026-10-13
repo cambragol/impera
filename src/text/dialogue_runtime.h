@@ -2,6 +2,10 @@
 #define IMPERA_DIALOGUE_RUNTIME_H
 #include <stdint.h>
 #include <stddef.h>
+/* Entry-level extension: authored quotation marks, no implicit speech wrapper.
+ * Recognized only at a response start; ordinary DOS text remains unchanged. */
+#define IMPERA_TALK_EXPLICIT_QUOTES "\xfc\xfd\xfc\xfb"
+#define IMPERA_TALK_EXPLICIT_QUOTES_SIZE 4
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -12,7 +16,7 @@ typedef struct ImperaTalk {
     uint16_t *topic;
     char *word, *answer;
     size_t size;
-    int matching, error, depth;
+    int matching, error, depth, explicitQuotes;
     const char *errorText;
     const char *const *dictionary, *const *keywords;
     const char *(*text)(void *, uint16_t, const char *);

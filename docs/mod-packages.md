@@ -22,7 +22,7 @@ All integers are unsigned little-endian 32-bit values; there is no padding.
 
 | Header | Encoding |
 | --- | --- |
-| Magic/version | Eight ASCII bytes `IMOD0001`, `IMOD0002` or `IMOD0003` |
+| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0005` |
 | Title length | 1–256 UTF-8 bytes |
 | Resource count | 1–128 |
 | Title | Length bytes; embedded NUL forbidden |
@@ -50,6 +50,23 @@ CRC-32 detects accidental corruption and incompatible originals; it is not an
 authentication/signature system. Packages contain game-resource edits, and valid
 checksums do not by themselves guarantee that an arbitrary game's data is valid.
 Workshop validates the supported resource formats before saving/exporting.
+
+Version 5 adds native dialogue with explicit quotation marks and inherits all
+version 4 container, version 3 table and version 2 narrative capabilities.
+Workshop selects it when a modified TLK response uses the narration extension.
+Older engines reject these packages with an update diagnostic, rather than
+displaying extension bytes as dialogue. Packages without this feature retain
+their existing minimum version.
+
+An explicit-quotation response starts with the four non-NUL bytes `FC FD FC FB`,
+after the two-byte question label prefix when present. This reserved prefix is
+recognized only at response entry; the engine omits its automatic opening and
+closing quotation marks. Workshop writes the actual quotes around speech and
+writes narration unquoted. This supports leading/trailing narration, narration-only
+responses, prompts, fallback answers and matching answers without changing their
+control flow. The prefix is invisible in the authoring UI and Playtest. Name remains
+an identity field, not a narration response. Original unmarked DOS dialogue uses
+the original quoting behavior unchanged.
 
 Allowed resources: uppercase basenames ending `.DAT`, `.NPC`, `.TLK`, `.16`,
 `.CH`, `.HCS`, `.CBT`, plus `DATA.OVL`, `INIT.GAM`, `INIT.OOL`, `BRIT.OOL` and

@@ -8,6 +8,13 @@ using namespace Dialogue;
 static constexpr int InsertParagraphPause = 1000;
 static constexpr int InsertSpeechText = 1001;
 static constexpr int InsertNarrationText = 1002;
+static QLabel *paragraphQuote(QWidget *editor, qreal margin) {
+    auto label = new QLabel("\"");
+    label->setFont(editor->font());
+    label->setContentsMargins(0, qRound(margin), 0, 0);
+    label->setObjectName("conversationParagraphQuote");
+    return label;
+}
 static QVector<Block> paragraphBlocks(const QByteArray &bytes) {
     QVector<Block> result;
     for (const auto &block : blocks(bytes)) {
@@ -836,10 +843,14 @@ void ConversationEditor::loadEntry(int e) {
     loading = false;
 }
 int ConversationEditor::entryPrefix(int entry) const {
+    int prefix = 0;
     for (const auto &question : doc.questions)
         if (question.prompt == entry)
-            return 2;
-    return 0;
+            prefix = 2;
+    if (doc.entries[entry].bytes.mid(prefix, IMPERA_TALK_EXPLICIT_QUOTES_SIZE) ==
+        IMPERA_TALK_EXPLICIT_QUOTES)
+        prefix += IMPERA_TALK_EXPLICIT_QUOTES_SIZE;
+    return prefix;
 }
 int ConversationEditor::selectedQuestion() const {
     for (int i = 0; i < doc.questions.size(); ++i) {
@@ -1176,7 +1187,7 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
                     spacing = QByteArray::fromHex("8d8d");
                 displayed.last().bytes.chop(spacing.size());
             }
-            const bool speech = speechAt(entryBlocks, index, entry != 1);
+            const bool speech = speechAt(entryBlocks, index, entry != 1 && entryPrefix(entry) < 4);
             if (speech && displayed.first().opcode < 0 &&
                 displayed.first().bytes.startsWith(char(162))) {
                 opening = displayed.first().bytes.left(1);
@@ -1206,10 +1217,12 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
             auto row = new QHBoxLayout(paragraph);
             row->setContentsMargins(0, 0, 0, 0);
             if (speech)
-                row->addWidget(new QLabel("\""), 0, Qt::AlignTop);
+                row->addWidget(paragraphQuote(surface, surface->document()->documentMargin()), 0,
+                               Qt::AlignTop);
             row->addWidget(surface, 1);
             if (speech)
-                row->addWidget(new QLabel("\""), 0, Qt::AlignBottom);
+                row->addWidget(paragraphQuote(surface, surface->document()->documentMargin()), 0,
+                               Qt::AlignTop);
             sectionLayout->addWidget(paragraph);
             index = end - 1;
             continue;
@@ -1296,7 +1309,7 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
                 entryBlocks[index + 1].opcode < 0 && visible.endsWith(QByteArray::fromHex("8d8d")))
                 spacing = QByteArray::fromHex("8d8d");
             visible.chop(spacing.size());
-            const bool speech = speechAt(entryBlocks, index, entry != 1);
+            const bool speech = speechAt(entryBlocks, index, entry != 1 && entryPrefix(entry) < 4);
             QByteArray opening, closing;
             if (speech && visible.startsWith(char(162))) {
                 opening = visible.left(1);
@@ -1323,10 +1336,12 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
             edit->fit();
             auto paragraphRow = new QHBoxLayout;
             if (speech)
-                paragraphRow->addWidget(new QLabel("\""), 0, Qt::AlignTop);
+                paragraphRow->addWidget(paragraphQuote(edit, edit->document()->documentMargin()), 0,
+                                        Qt::AlignTop);
             paragraphRow->addWidget(edit, 1);
             if (speech)
-                paragraphRow->addWidget(new QLabel("\""), 0, Qt::AlignBottom);
+                paragraphRow->addWidget(paragraphQuote(edit, edit->document()->documentMargin()), 0,
+                                        Qt::AlignTop);
             paragraphRow->addWidget(more, 0, Qt::AlignTop);
             layout->addLayout(paragraphRow);
             auto original = edit->toPlainText();
@@ -1518,6 +1533,8 @@ bool ConversationEditor::applyDraft() {
                     }
                     throw;
                 }
+                if (it.key() == 4 && bytes != doc.entries[4].bytes)
+                    bytes = closeFarewellSpeech(bytes);
                 next.entries[it.key()].bytes = bytes;
             }
             bytes = next.bytes();
@@ -1615,8 +1632,24 @@ bool ConversationEditor::applyDraft() {
     return ok;
 }
 bool ConversationEditor::flush() {
-    if (applyDraft())
-        return true;
+    if (applyDraft()) {
+        return attempt([&] {
+            if (doc.entries.size() <= 4 || !doc.structuralError.isEmpty())
+                return;
+            // Repair pre-fix Workshop NPC templates without rewriting vanilla responses.
+            const auto &base = project->resources[resource].original;
+            auto original = base.isEmpty() ? QVector<U5::Conversation>() : U5::readDialogue(base);
+            for (const auto &npc : original)
+                if (npc.id == conversations[npcIndex].id)
+                    return;
+            auto fixed = closeFarewellSpeech(doc.entries[4].bytes);
+            if (fixed != doc.entries[4].bytes) {
+                auto next = doc;
+                next.entries[4].bytes = fixed;
+                install(next.bytes(), "Close Farewell speech", selected);
+            }
+        });
+    }
     auto result =
         QMessageBox::question(this, "Invalid conversation draft",
                               "This draft cannot be applied. Correct it, or discard the draft to "
@@ -1632,10 +1665,15 @@ bool ConversationEditor::flush() {
 }
 void ConversationEditor::install(const QByteArray &bytes, const QString &description, int entry) {
     auto next = parse(bytes);
+    if (entry == 4 && next.entries.size() > 4 && doc.entries.size() > 4 &&
+        next.entries[4].bytes != doc.entries[4].bytes) {
+        next.entries[4].bytes = closeFarewellSpeech(next.entries[4].bytes);
+        next = parse(next.bytes());
+    }
     for (auto i : next.issues())
         U5::require(!i.error, i.message);
     auto entries = conversations;
-    entries[npcIndex].bytes = bytes;
+    entries[npcIndex].bytes = next.bytes();
     auto encoded = U5::writeDialogue(entries);
     commit(encoded, description);
     conversations = entries;
@@ -1782,14 +1820,16 @@ void ConversationEditor::addBlock(bool isText, int entry, int before, int reques
             for (int i = 0; i < at; ++i)
                 offset += existing[i].bytes.size();
             const bool narration = requestedCode == InsertNarrationText;
+            U5::require(!narration || entry != 0, "NPC names must remain names, not narration");
             bool prompt = false;
             for (const auto &q : doc.questions)
                 prompt |= q.prompt == entry;
             auto next = doc;
-            next.entries[entry].bytes = insertTextParagraph(
-                doc.entries[entry].bytes, offset,
-                narration ? ParagraphKind::Narration : ParagraphKind::Speech,
-                narration ? "New narration." : "New speech.", entry != 1, !prompt);
+            next.entries[entry].bytes =
+                insertTextParagraph(doc.entries[entry].bytes, offset,
+                                    narration ? ParagraphKind::Narration : ParagraphKind::Speech,
+                                    narration ? "New narration." : "New speech.",
+                                    entry != 1 && entryPrefix(entry) < 4, !prompt);
             install(next.bytes(), narration ? "Insert narration text" : "Insert speech text",
                     entry);
             return;
