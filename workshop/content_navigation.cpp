@@ -158,7 +158,7 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
             const auto pages = U5::mapPages(name, project.data(name));
             for (int i = 0; i < pages.size(); ++i) {
                 const auto &p = pages[i];
-                QString group = p.settlement >= 0       ? "Settlements"
+                QString group = p.settlement >= 0       ? "Locations"
                                 : name.endsWith(".CBT") ? "Combat maps"
                                                         : "World maps";
                 QString title = p.name;

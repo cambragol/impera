@@ -223,7 +223,7 @@ class MapWorkspace : public QWidget {
     QComboBox *paletteFilter;
     QLineEdit *tileSearch;
     void filterPalette();
-    QSet<int> overworldTiles;
+    QSet<int> worldTiles, locationTiles;
     QStringList tileCategories(int id) const;
     void updateSelection();
     QListWidget *palette;

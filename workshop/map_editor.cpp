@@ -976,7 +976,7 @@ MapWorkspace::MapWorkspace(
     maps->setHeaderLabel("Maps");
     leftLayout->addWidget(maps);
     auto world = new QTreeWidgetItem(maps, {"World"});
-    auto towns = new QTreeWidgetItem(maps, {"Settlements"});
+    auto towns = new QTreeWidgetItem(maps, {"Locations"});
     auto combat = new QTreeWidgetItem(maps, {"Combat maps"});
     for (auto name : project->resources.keys())
         if (MapDocument::supported(name)) {
@@ -1163,29 +1163,21 @@ MapWorkspace::MapWorkspace(
     row->insertStretch(row->count() - 1);
     row->insertWidget(row->count() - 1, zoom);
     canvas = new MapCanvas;
-    // Overworld membership comes only from decoded world maps, not unused icons/chunks.
-    for (const QString &name : {QString("BRIT.DAT"), QString("UNDER.DAT")}) {
-        if (!project->resources.contains(name))
+    // Classify only decoded terrain cells; unused chunks and record metadata are excluded.
+    for (const QString &name : project->resources.keys()) {
+        if (!MapDocument::supported(name))
             continue;
-        MapDocument world(project, name);
-        for (bool original : {false, true})
-            for (unsigned char id : world.terrain(0, original))
-                overworldTiles.insert(id);
-    }
-    // These families animate in the engine even when only one frame is stored in a map.
-    for (auto family : {QPair<int, int>{0xd4, 0xd8},
-                        {0xd8, 0xdc},
-                        {0xec, 0xf0},
-                        {0x80, 0x82},
-                        {0x82, 0x84},
-                        {0xfa, 0xfc},
-                        {0xfc, 0xfe}}) {
-        bool used = false;
-        for (int id = family.first; id < family.second; ++id)
-            used |= overworldTiles.contains(id);
-        if (used)
-            for (int id = family.first; id < family.second; ++id)
-                overworldTiles.insert(id);
+        MapDocument map(project, name);
+        for (int page = 0; page < map.pages.size(); ++page) {
+            QSet<int> *membership = nullptr;
+            if (name == "BRIT.DAT" || name == "UNDER.DAT")
+                membership = &worldTiles;
+            else if (map.pages[page].settlement >= 0)
+                membership = &locationTiles;
+            if (membership)
+                for (unsigned char id : map.terrain(page))
+                    membership->insert(id);
+        }
     }
     canvas->tiles = U5::readGraphics("TILES.16", project->data("TILES.16")).images;
     view = new MapView(canvas);
@@ -1252,18 +1244,11 @@ MapWorkspace::MapWorkspace(
     paletteFilter->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     paletteFilter->setMinimumContentsLength(8);
     paletteFilter->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-    paletteFilter->addItems({"All tiles", "Overworld", "Ground", "Buildings", "Objects", "Other"});
+    paletteFilter->addItems({"All tiles", "World", "Location"});
     const QStringList categoryHelp{
-        "Every terrain tile.",
-        "Tiles used in Britannia or the Underworld, including their animation frames. Also "
-        "includes location icons only when used on those maps. Overworld can overlap Ground, "
-        "Buildings, "
-        "Objects, or Other.",
-        "Terrain and floor surfaces: water, grass, roads, forests, rock, lava, and "
-        "paving.",
-        "Building components: walls, towers, doors, windows, bridges, stairs, and ladders.",
-        "Furniture, fixtures, plants, signs, and other placeable objects.",
-        "Special effects, rendering masks, and other nonstandard tiles."};
+        "Every tile.",
+        "Tiles found on Britannia or Underworld maps.",
+        "Tiles found on location maps, including every floor."};
     for (int i = 0; i < categoryHelp.size(); ++i)
         paletteFilter->setItemData(i, categoryHelp[i], Qt::ToolTipRole);
     brushControls->addWidget(paletteFilter, 1);
@@ -1990,9 +1975,11 @@ void MapWorkspace::setBrush(int id) {
     saveView();
 }
 QStringList MapWorkspace::tileCategories(int id) const {
-    QStringList categories{MapDocument::tileCategory(id)};
-    if (overworldTiles.contains(id))
-        categories.prepend("Overworld");
+    QStringList categories;
+    if (worldTiles.contains(id))
+        categories.append("World");
+    if (locationTiles.contains(id))
+        categories.append("Location");
     return categories;
 }
 void MapWorkspace::filterPalette() {

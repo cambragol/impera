@@ -3307,9 +3307,10 @@ int main(int argc, char **argv) {
             check(findCanvas()->brush == 9, "Floor navigation did not restore per-page brush");
             auto filter = active()->findChild<QComboBox *>("mapPaletteFilter");
             auto tiles = active()->findChild<QListWidget *>("mapPalette");
-            filter->setCurrentText("Ground");
-            check(!tiles->item(9)->isHidden() && tiles->item(0x27)->isHidden(),
-                  "Terrain filter must preserve brush navigation without including roofs");
+            filter->setCurrentText("Location");
+            check(!tiles->item(0)->isHidden() && tiles->item(9)->isHidden() &&
+                      tiles->item(0x27)->isHidden() && findCanvas()->brush == 9,
+                  "Usage filter must reflect restored maps without resetting the brush");
             filter->setCurrentIndex(0);
             auto mini = active()->findChild<QWidget *>("mapMinimap");
             view = dynamic_cast<MapView *>(active()->findChild<QScrollArea *>("canvasView"));
@@ -5297,6 +5298,9 @@ int main(int argc, char **argv) {
                 for (int x = 0; x < 11; ++x)
                     bytes[y * 32 + x] = char((y * 11 + x) % 256);
             file(dir.path() + "/BRIT.CBT", bytes);
+            QByteArray location = QByteArray(16384, 5);
+            location[16383] = char(0x50);
+            file(dir.path() + "/TOWNE.DAT", location);
             QByteArray worldChunks(512, char(0xfa));
             worldChunks.replace(0, 256, QByteArray(256, 5));
             worldChunks[0] = char(0x4f);
@@ -5348,41 +5352,22 @@ int main(int argc, char **argv) {
             check(!palette->item(5)->isHidden() && palette->item(0x4f)->isHidden(),
                   "Name search failed");
             search->clear();
-            category->setCurrentText("Buildings");
-            check(palette->item(5)->isHidden() && !palette->item(0x50)->isHidden() &&
-                      !palette->item(0x4f)->isHidden(),
-                  "Buildings should include structural tiles also used on world maps");
-            check(category->count() == 6 && category->findText("Favorites") < 0 &&
-                      category->findText("Recent") < 0 &&
-                      !window.findChild<QPushButton *>("mapFavorite"),
-                  "Palette should offer only artwork categories and All tiles");
-            category->setCurrentText("Overworld");
+            check(category->count() == 3 && category->itemText(1) == "World" &&
+                      category->itemText(2) == "Location",
+                  "Palette must offer All tiles and the two map usage filters");
+            category->setCurrentText("World");
             check(!palette->item(5)->isHidden() && !palette->item(0x4f)->isHidden() &&
-                      !palette->item(0xd7)->isHidden() && palette->item(0xfa)->isHidden() &&
-                      palette->item(0x1a)->isHidden() && palette->item(0x39)->isHidden(),
-                  "Overworld filter missed used tiles or counted unused chunk storage");
-            check(palette->item(5)->toolTip().contains("Overworld · Ground"),
-                  "World tile tooltip should describe both categories");
-            category->setCurrentText("Ground");
-            check(!palette->item(5)->isHidden() && !palette->item(0x40)->isHidden() &&
-                      palette->item(0x27)->isHidden() && palette->item(0x4f)->isHidden(),
-                  "Ground should include terrain and floors, including world tiles");
-            category->setCurrentText("Objects");
-            check(!palette->item(0xfa)->isHidden() && palette->item(0x4f)->isHidden(),
-                  "Objects should contain fixtures, not walls");
-            category->setCurrentText("Other");
-            check(!palette->item(0x70)->isHidden() && palette->item(5)->isHidden(),
-                  "Other should contain rendering masks, not terrain");
-            int memberships[256]{};
-            for (const QString &name :
-                 {QString("Ground"), QString("Buildings"), QString("Objects"), QString("Other")}) {
-                category->setCurrentText(name);
-                for (int id = 0; id < 256; ++id)
-                    memberships[id] += !palette->item(id)->isHidden();
-            }
-            for (int membership : memberships)
-                check(membership == 1, "Each tile must have exactly one base category in addition "
-                                       "to optional Overworld membership");
+                      !palette->item(0xd4)->isHidden() && palette->item(0xd7)->isHidden() &&
+                      palette->item(0xfa)->isHidden() && palette->item(0x39)->isHidden(),
+                  "World membership must use terrain cells, without inferred frames or unused chunks");
+            category->setCurrentText("Location");
+            check(!palette->item(5)->isHidden() && !palette->item(0x50)->isHidden() &&
+                      palette->item(0xfa)->isHidden(),
+                  "Location filter missed floor terrain or counted combat map metadata");
+            check(palette->item(5)->toolTip().contains("World · Location"),
+                  "Tile usage categories must overlap");
+            category->setCurrentText("All tiles");
+            check(!palette->item(0xfa)->isHidden(), "All tiles must include unused artwork");
 
             check(!search->accessibleName().isEmpty() && !category->accessibleName().isEmpty(),
                   "Accessible control labels absent");
