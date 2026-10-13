@@ -1,4 +1,8 @@
 """Workshop release assembly and the actual four-platform workflow contract."""
+import contextlib
+import io
+import subprocess
+from unittest import mock
 import hashlib
 import importlib.util
 from pathlib import Path
@@ -87,6 +91,52 @@ class WorkshopReleaseTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Checksum mismatch'):
                 assembly.assemble(artifacts, 'vtest', output, with_workshop=True)
 
+    def test_windows_help_check_redirects_output_and_suppresses_dialogs(self):
+        workflow = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())
+        step = next(s for s in workflow['jobs']['build']['steps']
+                    if s.get('name') == 'Native executable startup')
+        self.assertEqual(step['env']['QT_COMMAND_LINE_PARSER_NO_GUI_MESSAGE_BOXES'], '1')
+        code = step['run'].replace('${{ runner.os }}', 'Windows').replace("os.name == 'nt'", 'True')
+        def launched(command, **kwargs):
+            self.assertTrue(kwargs['capture_output'])
+            self.assertTrue(kwargs['check'])
+            self.assertTrue(kwargs['text'])
+            self.assertEqual(command[-1], '--help')
+            return subprocess.CompletedProcess(command, 0, 'Usage: fixture\n', '')
+        with mock.patch('subprocess.run', side_effect=launched) as run, contextlib.redirect_stdout(io.StringIO()):
+            exec(compile(code, step['name'], 'exec'))
+        self.assertEqual([Path(call.args[0][0]).name for call in run.call_args_list],
+                         ['ultima5.exe', 'ImperaWorkshop.exe'])
+
+    def test_verified_testing_archives_survive_smoke_check(self):
+        spec = importlib.util.spec_from_file_location('combined_check', ROOT / 'scripts/check-combined-release.py')
+        check = importlib.util.module_from_spec(spec); spec.loader.exec_module(check)
+        with tempfile.TemporaryDirectory() as temporary, contextlib.chdir(temporary):
+            root = Path(temporary)
+            for folder, product, output in [('dist', 'Impera', 'Usage: ultima5'),
+                                             ('workshop-dist', 'ImperaWorkshop',
+                                              'PASS native dialogue packaged smoke test')]:
+                path = root / folder / f'{product}-vtest-linux-x86_64.AppImage'
+                path.parent.mkdir()
+                path.write_text('#!/bin/sh\nprintf "%s\\n" "' + output + '"\n')
+                path.chmod(0o755)
+            destination = root / 'downloads'
+            check.check('linux-x86_64', 'vtest', destination)
+            archive = destination / 'Impera-vtest-linux-x86_64.tar.gz'
+            checksum = destination / (archive.name + '.sha256')
+            self.assertEqual(checksum.read_text().strip(),
+                             f'{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}')
+            with tarfile.open(archive) as stream:
+                self.assertTrue(stream.getmember('Impera-vtest-linux-x86_64/Mods').isdir())
+                self.assertTrue(stream.getmember('Impera-vtest-linux-x86_64/Impera.AppImage').mode & 0o111)
+                self.assertTrue(stream.getmember('Impera-vtest-linux-x86_64/ImperaWorkshop.AppImage').mode & 0o111)
+            editor = root / 'workshop-dist/ImperaWorkshop-vtest-linux-x86_64.AppImage'
+            editor.write_text('#!/bin/sh\nexit 1\n')
+            rejected = root / 'failed-downloads'
+            with self.assertRaises(subprocess.CalledProcessError):
+                check.check('linux-x86_64', 'vtest', rejected)
+            self.assertFalse(rejected.exists(), 'Failed packages must not become testing downloads')
+
     def test_workflow_preserves_platforms_and_requires_workshop_success(self):
         workflow = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())
         builds = workflow['jobs']['build']
@@ -113,10 +163,17 @@ class WorkshopReleaseTest(unittest.TestCase):
             self.assertNotIn('continue-on-error', steps[name])
             self.assertNotIn('if', steps[name])
         self.assertEqual(steps['Tests']['env']['QT_QPA_PLATFORM'], 'offscreen')
-        release_steps = builds['steps'][builds['steps'].index(steps['Package']):]
-        for step in release_steps:
+        package_steps = builds['steps'][builds['steps'].index(steps['Package']):]
+        for step in package_steps:
             self.assertNotIn('continue-on-error', step)
-            self.assertTrue(step['if'].startswith("startsWith(github.ref, 'refs/tags/v')"))
+            if step.get('uses', '').startswith('actions/upload-artifact'):
+                continue
+            self.assertNotIn('refs/tags/', step.get('if', ''))
+        self.assertEqual(steps['Upload testing packages']['with']['path'], 'build-artifacts/*')
+        self.assertIn("!startsWith(github.ref, 'refs/tags/v')", steps['Upload testing packages']['if'])
+        self.assertIn('--output build-artifacts', steps['Combined distribution startup smoke check']['run'])
+        self.assertIn('github.sha', builds['env']['RELEASE_VERSION'])
+        self.assertIn('github.ref_name', builds['env']['RELEASE_VERSION'])
         self.assertIn('--build release-build/workshop', steps['Package Workshop with Qt runtime']['run'])
         release = workflow['jobs']['release']
         self.assertEqual(release['needs'], 'build')

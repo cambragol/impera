@@ -537,14 +537,22 @@ It builds Impera and Impera Workshop together and runs their tests once per
 platform: Windows x64, Linux x64, macOS Intel, and macOS Apple Silicon. It runs
 for relevant pull requests, changes merged into `main`, version tags, and manual
 runs. To validate a branch, open **Actions → Build and test → Run workflow**.
-Manual branch runs build and test the applications without packaging or creating
-a release. The retired Python editors and their separate CI workflow have been
-removed; Python remains a tool for packaging scripts and regression tests.
+Each successful pull-request, `main`, or manual branch build also packages both
+applications and uploads four downloadable Actions artifacts: `Build-linux-x86_64`,
+`Build-windows-x86_64`, `Build-macos-x86_64`, and `Build-macos-arm64`. Download the
+artifact for your platform from the workflow run's **Artifacts** section. GitHub
+wraps artifacts in a ZIP; extract it, then extract the platform archive inside.
+Test archive versions include the built commit SHA. The packages include both
+applications, their runtime dependencies, an empty `Mods` folder, and a checksum.
+These runs do not create or modify a GitHub Release.
 
-Version tags beginning with `v` additionally run release packaging, icon and
-packaged startup checks, and artifact uploads. The release build pins SDL 3.4.18
-and SDL_mixer 3.2.4, links them statically, and includes built-in WAV, MP3 and Ogg
-Vorbis decoding. Workshop bundles Qt 6, so no separate Qt installation is needed.
+The retired Python editors and their separate CI workflow have been removed;
+Python remains a tool for packaging scripts and regression tests. All builds run
+icon and packaged startup checks. Version tags beginning with `v` additionally
+upload the packages to a GitHub Release after every platform succeeds.
+The release build pins SDL 3.4.18 and SDL_mixer 3.2.4, links them statically, and
+includes built-in WAV, MP3 and Ogg Vorbis decoding. Workshop bundles Qt 6, so no
+separate Qt installation is needed.
 Each platform has one combined `Impera-<version>-<platform>` archive and its
 SHA-256 checksum:
 
