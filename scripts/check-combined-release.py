@@ -64,7 +64,10 @@ def check(platform, version, destination=None):
             env['PATH'] = os.pathsep.join(p for p in env['PATH'].split(os.pathsep) if 'qt' not in p.lower())
         for command, expected in zip(commands, ('Usage: ultima5', 'PASS native dialogue packaged smoke test')):
             result = subprocess.run(command, cwd=output, env=env, capture_output=True,
-                                    text=True, check=True, timeout=60)
+                                    text=True, timeout=60)
+            print(result.stdout, end='')
+            print(result.stderr, end='')
+            result.check_returncode()
             assert expected in result.stdout, result.stdout + result.stderr
         if destination is not None:
             destination = Path(destination)

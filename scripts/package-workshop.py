@@ -68,6 +68,19 @@ def deploy_linux_plugins(stage, qt_root):
     # LD_LIBRARY_PATH so even plugins whose build RPATH points to the SDK work.
 
 
+def deploy_mac_offscreen(app, qt_root):
+    # macdeployqt deliberately deploys Cocoa only. Our packaged smoke test uses
+    # offscreen; copy its plugin and let macdeployqt relocate its Qt dependencies.
+    source = qt_root / 'plugins/platforms/libqoffscreen.dylib'
+    if not source.is_file():
+        raise ValueError('Qt SDK offscreen macOS platform plugin missing')
+    destination = app / 'Contents/PlugIns/platforms/libqoffscreen.dylib'
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    subprocess.run([str(qt_root / 'bin/macdeployqt'), str(app),
+                    '-executable=' + str(destination), '-always-overwrite', '-no-plugins'], check=True)
+
+
 def package(build, platform, version, output):
     version = re.sub(r'[^A-Za-z0-9._-]', '-', version)
     name = f'ImperaWorkshop-{version}-{platform}'
@@ -98,6 +111,7 @@ def package(build, platform, version, output):
         app = stage / 'ImperaWorkshop.app'
         if not (app / 'Contents/Frameworks/QtWidgets.framework').is_dir():
             raise ValueError('Deployed macOS Qt Widgets framework missing')
+        deploy_mac_offscreen(app, qt_root)
         subprocess.run(['codesign', '--force', '--deep', '--sign', '-', str(app)], check=True)
         subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
         archive = output / (name + '.tar.gz')

@@ -137,6 +137,49 @@ class WorkshopReleaseTest(unittest.TestCase):
                 check.check('linux-x86_64', 'vtest', rejected)
             self.assertFalse(rejected.exists(), 'Failed packages must not become testing downloads')
 
+    def test_macos_offscreen_plugin_is_relocated_before_signing(self):
+        spec = importlib.util.spec_from_file_location('workshop_package', ROOT / 'scripts/package-workshop.py')
+        package = importlib.util.module_from_spec(spec); spec.loader.exec_module(package)
+        for platform in ('macos-x86_64', 'macos-arm64'):
+            with self.subTest(platform=platform), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                qt = root / 'qt'
+                plugin = qt / 'plugins/platforms/libqoffscreen.dylib'
+                plugin.parent.mkdir(parents=True)
+                plugin.write_bytes(b'original SDK plugin')
+                output = root / 'dist'; output.mkdir()
+                calls = []
+                def tool(command, **kwargs):
+                    calls.append(command)
+                    if command[0] == 'cmake':
+                        stage = Path(command[command.index('--prefix') + 1])
+                        app = stage / 'ImperaWorkshop.app'
+                        (app / 'Contents/Frameworks/QtWidgets.framework').mkdir(parents=True)
+                        (app / 'Contents/MacOS').mkdir()
+                        (app / 'Contents/MacOS/ImperaWorkshop').write_bytes(b'program')
+                    elif command[0].endswith('macdeployqt'):
+                        deployed = Path(command[2].split('=', 1)[1])
+                        self.assertEqual(deployed.read_bytes(), plugin.read_bytes())
+                        self.assertIn('-no-plugins', command)
+                        # Model relocation of the copied plugin, not modification of the SDK.
+                        deployed.write_bytes(b'relocated bundle plugin')
+                    elif command[0] == 'codesign':
+                        app = Path(command[-1])
+                        self.assertEqual((app / 'Contents/PlugIns/platforms/libqoffscreen.dylib').read_bytes(),
+                                         b'relocated bundle plugin')
+                    return subprocess.CompletedProcess(command, 0)
+                with mock.patch.dict('os.environ', QT_ROOT_DIR=str(qt)), mock.patch('subprocess.run', side_effect=tool):
+                    archive = package.package(root / 'build/workshop', platform, 'vtest', output)
+                self.assertEqual(plugin.read_bytes(), b'original SDK plugin')
+                self.assertEqual([Path(command[0]).name for command in calls],
+                                 ['cmake', 'macdeployqt', 'codesign', 'codesign'])
+                with tarfile.open(archive) as stream:
+                    member = f'ImperaWorkshop-vtest-{platform}/ImperaWorkshop.app/Contents/PlugIns/platforms/libqoffscreen.dylib'
+                    self.assertEqual(stream.extractfile(member).read(), b'relocated bundle plugin')
+                plugin.unlink()
+                with self.assertRaisesRegex(ValueError, 'offscreen macOS'):
+                    package.deploy_mac_offscreen(root / 'app', qt)
+
     def test_workflow_preserves_platforms_and_requires_workshop_success(self):
         workflow = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())
         builds = workflow['jobs']['build']

@@ -195,7 +195,10 @@ jobs:
                   env['PATH'] = os.pathsep.join(p for p in env['PATH'].split(os.pathsep)
                                               if 'qt' not in p.lower())
               result = subprocess.run(command, cwd=runtime, env=env,
-                                      capture_output=True, text=True, check=True, timeout=60)
+                                      capture_output=True, text=True, timeout=60)
+              print(result.stdout, end='')
+              print(result.stderr, end='')
+              result.check_returncode()
               assert 'PASS native dialogue packaged smoke test' in result.stdout, result.stdout + result.stderr
       - name: Verify Workshop native icon
         run: python scripts/verify-package-icons.py --workshop --platform ${{ matrix.platform }} --package-root workshop-dist

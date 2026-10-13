@@ -4,6 +4,11 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     project(ImperaWorkshop LANGUAGES C CXX)
     include(CTest)
 endif()
+# Qt's Windows SDK uses the DLL CRT; do not inherit static SDL's /MT setting
+# when Workshop is included in the combined engine build.
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
@@ -138,8 +143,14 @@ if(IMPERA_WORKSHOP_DEPLOY_QT)
     if(Qt6_VERSION VERSION_LESS 6.7)
         message(FATAL_ERROR "Portable Workshop deployment requires Qt 6.7 or newer")
     endif()
+    set(workshop_deploy_options)
+    if(WIN32)
+        # PE debug information is not a reliable indicator of the Qt build configuration.
+        list(APPEND workshop_deploy_options DEPLOY_TOOL_OPTIONS
+            "$<IF:$<CONFIG:Debug>,--debug,--release>")
+    endif()
     qt_generate_deploy_app_script(TARGET ImperaWorkshop OUTPUT_SCRIPT workshop_deploy_script
-        NO_TRANSLATIONS NO_COMPILER_RUNTIME)
+        NO_TRANSLATIONS NO_COMPILER_RUNTIME ${workshop_deploy_options})
     if(MSVC)
         set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)
         include(InstallRequiredSystemLibraries)
