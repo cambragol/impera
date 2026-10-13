@@ -1,11 +1,19 @@
 # Impera mod packages
 
-Impera automatically scans the **selected game directory's `Mods` subfolder**
+Impera automatically scans the **`Mods` folder beside its executable, AppImage or macOS app bundle**
 at startup. Only files whose extension is `.imperamod` (case-insensitive) are
 loaded, in deterministic bytewise filename order. There is no extraction or
 execution of package content. Mounted resources are read-only startup snapshots;
 read handles have the ordinary seek/read behavior expected by existing loaders.
 Writable saves and engine settings never go through these overrides.
+
+Release archives include that empty folder alongside both applications. For
+AppImages, mods live beside the AppImage file, outside its read-only image. For
+macOS, they live beside `Impera.app`, outside the signed bundle. The Ultima 5 data
+folder remains the source of original resources used for package verification;
+its old `Mods` folder is no longer scanned. Move existing packages to the new
+application-side folder. Workshop Test Mod uses `U5D_MODS_DIR` to select its
+isolated disposable session folder without loading or writing installed mods.
 
 All entries are checked against the **unmodified original resources**, not a
 previous mod's output. A malformed package, wrong base, or conflicting resource

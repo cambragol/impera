@@ -10,6 +10,8 @@
 #include "resource_document.h"
 #include "world_objects.h"
 #include <QDir>
+#include <QCoreApplication>
+#include <QSettings>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -288,7 +290,24 @@ void Project::load(const QString &path) {
     *this = next;
 }
 
-QVector<ModDiagnostic> validateMod(const Project &project) {
+QString imperaModsDirectory() {
+    const auto override = qEnvironmentVariable("U5D_MODS_DIR");
+    if (!override.isEmpty())
+        return override;
+    auto engine = QSettings().value("paths/engine").toString();
+    QString folder;
+    if (QFileInfo(engine).exists())
+        folder = QFileInfo(engine).absolutePath();
+    else if (!qEnvironmentVariable("APPIMAGE").isEmpty())
+        folder = QFileInfo(qEnvironmentVariable("APPIMAGE")).absolutePath();
+    else
+        folder = QCoreApplication::applicationDirPath();
+    const int bundle = folder.indexOf(".app/Contents/");
+    if (bundle >= 0)
+        folder = QFileInfo(folder.left(bundle + 4)).absolutePath();
+    return QDir(folder).filePath("Mods");
+}
+QVector<ModDiagnostic> validateMod(const Project &project, const QString &modsDirectory) {
     QVector<ModDiagnostic> result;
     try {
         project.validate();
@@ -433,9 +452,9 @@ QVector<ModDiagnostic> validateMod(const Project &project) {
     };
     unsigned mountedCount = 0;
     size_t mountedMemory = 0;
-    QDir mods(QDir(project.sourceDirectory).filePath("Mods"));
+    QDir mods(modsDirectory.isEmpty() ? imperaModsDirectory() : modsDirectory);
     if (!mods.exists()) {
-        QDir source(project.sourceDirectory);
+        QDir source(QFileInfo(mods.path()).absolutePath());
         for (const auto &folder : source.entryList(QDir::Dirs | QDir::NoDotAndDotDot))
             if (folder.compare("Mods", Qt::CaseInsensitive) == 0) {
                 mods.setPath(source.filePath(folder));

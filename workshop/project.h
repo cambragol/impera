@@ -27,6 +27,7 @@ struct ModDiagnostic {
     QString resource, message;
     QString entryId = "resource"; // Stable document-relative ID; never a display label.
 };
-QVector<ModDiagnostic> validateMod(const Project &project);
+QString imperaModsDirectory();
+QVector<ModDiagnostic> validateMod(const Project &project, const QString &modsDirectory = {});
 // Produces a new, private runtime. No original data, Mods or saves are written.
 QString prepareModTest(const Project &project, const QString &sessionsDirectory);

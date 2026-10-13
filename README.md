@@ -572,15 +572,18 @@ older tag does not pick up later workflow fixes; use a new tag for a new build,
 or upload recovered packages to the existing release with
 `gh release upload TAG FILES... --clobber`.
 
-Launch the download for your platform:
+Each platform download is one archive containing **Impera, Impera Workshop, and
+an empty `Mods` folder**. Extract the whole archive and keep its contents together.
+Launch the application you want:
 
 - **Windows:** run `Run Impera.cmd` from the extracted folder. Saves and logs stay in this folder; cursor assets are embedded.
-- **macOS:** extract the archive, move `Impera.app` to Applications, and open it.
+- **macOS:** keep `Impera.app`, `ImperaWorkshop.app`, and `Mods` in the extracted
+  folder. You can move that whole folder to Applications, then open either app.
   Requires macOS 12 or newer; choose the Intel or Apple Silicon download. Settings, saves and
   logs live in `~/Library/Application Support/Impera`.
-- **Linux:** download the `.AppImage`, make it executable with
-  `chmod +x Impera-*.AppImage`, then double-click it or run `./Impera-*.AppImage`.
-  If FUSE is unavailable, run `./Impera-*.AppImage --appimage-extract-and-run`
+- **Linux:** extract the `.tar.gz` archive and run `Impera.AppImage` or
+  `ImperaWorkshop.AppImage` from that folder.
+  If FUSE is unavailable, run `./Impera.AppImage --appimage-extract-and-run`
   instead.
   Settings, saves and logs live in `$XDG_DATA_HOME/impera`, or `~/.local/share/impera` by default.
   Linux builds target Ubuntu 22.04 or newer compatible systems. The AppImage
@@ -603,7 +606,8 @@ python scripts/package-release.py --build release-build --platform linux-x86_64 
 
 Use `windows-x86_64`, `macos-x86_64`, or `macos-arm64` when building natively on
 those platforms. CMake downloads pinned dependencies on the first build.
-Packaging requires Python 3.9 or newer and writes archives to `dist/`.
+Engine packaging requires Python 3.9 or newer and writes archives to `dist/`.
+Combined release assembly requires Python 3.12 or newer.
 To produce the Linux AppImage from that archive:
 
 ```sh
@@ -651,7 +655,7 @@ objects, shop stock/prices and location entrances. It edits
 projects and exports `.imperamod` packages while keeping original files untouched.
 See [Workshop build and authoring instructions](workshop/README.md).
 
-Place packages in the **`Mods` subfolder of your selected Ultima 5 game folder**
+Place packages in the **`Mods` folder beside the Impera executable (or AppImage/app bundle)**
 and restart Impera. Packages load automatically; incompatible or conflicting
 packages are skipped and explained in `LOG.TXT`. Existing saves retain their
 saved state. See [mod loading and package format](docs/mod-packages.md).

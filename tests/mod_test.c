@@ -9,6 +9,7 @@
 #include "mod/runtime.h"
 #include "mod/world_resources.h"
 #include <assert.h>
+#include <SDL3/SDL.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -95,7 +96,7 @@ static void narrativeResources(void) {
     header(&package, 1);
     memcpy(package.bytes, "IMOD0002", 8);
     rawEntry(&package, "TEXT.OVR", "", 0, text.bytes, text.size);
-    put("game/Mods/20-narrative.imperamod", package.bytes, package.size);
+    put("application/Mods/20-narrative.imperamod", package.bytes, package.size);
     FILE_SetDataDirectory("game");
     assert(MOD_LoadedCount() == 1);
     assert(!strcmp(MOD_NarrativeText("END.DAT", 0), messages[0]));
@@ -108,13 +109,13 @@ static void narrativeResources(void) {
     header(&package, 1);
     memcpy(package.bytes, "IMOD0002", 8);
     rawEntry(&package, "TEXT.OVR", "", 0, "invalid", 7);
-    put("game/Mods/21-invalid-narrative.imperamod", package.bytes, package.size);
+    put("application/Mods/21-invalid-narrative.imperamod", package.bytes, package.size);
     FILE_SetDataDirectory("game");
     assert(MOD_LoadedCount() == 1);
     FILE_SetDataDirectory(NULL);
     assert(!MOD_NarrativeText("END.DAT", 0));
-    remove("game/Mods/20-narrative.imperamod");
-    remove("game/Mods/21-invalid-narrative.imperamod");
+    remove("application/Mods/20-narrative.imperamod");
+    remove("application/Mods/21-invalid-narrative.imperamod");
 }
 static void sceneResources(void) {
     unsigned char scene[1227] = {0};
@@ -153,7 +154,7 @@ static void worldResources(void) {
     put("SAVEGAME/BRIT.OOL", "old world", 9);
     put("SAVEGAME/UNDER.OOL", "old world", 9);
     header(&b, 1);rawEntry(&b, "DATA.OVL", overlay, sizeof(overlay), altered, sizeof(altered));
-    put("game/Mods/10-index.imperamod", b.bytes, b.size);
+    put("application/Mods/10-index.imperamod", b.bytes, b.size);
     FILE_SetDataDirectory("game");
     assert(MOD_LoadedCount() == 1);
     assert(MOD_BritanniaIndex()[0] == 1 && MOD_BritanniaIndex()[1] == 255 && MOD_BritanniaIndex()[255] == 0);
@@ -162,39 +163,39 @@ static void worldResources(void) {
     value("SAVEGAME/BRIT.OOL", "old world", 0);
     /* A second package may supply the map paired with the earlier index. */
     header(&b, 1);rawEntry(&b, "BRIT.DAT", map, sizeof(map), map, 512);
-    put("game/Mods/11-map.imperamod", b.bytes, b.size);
+    put("application/Mods/11-map.imperamod", b.bytes, b.size);
     header(&b, 2);
     rawEntry(&b, "BRIT.OOL", seed, 256, brit, 256);
     rawEntry(&b, "INIT.OOL", seed, 256, under, 256);
-    put("game/Mods/12-objects.imperamod", b.bytes, b.size);
+    put("application/Mods/12-objects.imperamod", b.bytes, b.size);
     FILE_SetDataDirectory("game");assert(MOD_LoadedCount()==3);
     assert(MOD_InitializeWorldObjects(worlds));
     assert(!memcmp(worlds,brit,256) && !memcmp(worlds+256,under,256));
     /* Explicit UNDER.OOL overrides INIT.OOL, regardless of existing save files. */
     header(&b, 1);rawEntry(&b, "UNDER.OOL", seed, 256, brit, 256);
-    put("game/Mods/13-under.imperamod", b.bytes, b.size);
+    put("application/Mods/13-under.imperamod", b.bytes, b.size);
     FILE_SetDataDirectory("game");assert(MOD_LoadedCount()==4);
     assert(MOD_InitializeWorldObjects(worlds));assert(!memcmp(worlds+256,brit,256));
     remove("SAVEGAME/BRIT.OOL");remove("SAVEGAME/UNDER.OOL");
     assert(MOD_InitializeWorldObjects(worlds));assert(!memcmp(worlds,brit,256));
     /* Invalid object records reject their entire package. */
-    remove("game/Mods/13-under.imperamod");
+    remove("application/Mods/13-under.imperamod");
     header(&b, 2);rawEntry(&b, "UNDER.OOL", seed, 256, brit, 255);
     entry(&b,"STORY.DAT","base","partial");
-    put("game/Mods/13-under.imperamod",b.bytes,b.size);
+    put("application/Mods/13-under.imperamod",b.bytes,b.size);
     FILE_SetDataDirectory("game");assert(MOD_LoadedCount()==3);value("STORY.DAT","base",1);
-    remove("game/Mods/13-under.imperamod");remove("game/Mods/12-objects.imperamod");
+    remove("application/Mods/13-under.imperamod");remove("application/Mods/12-objects.imperamod");
     /* Invalid effective index/map pair rejects the map package atomically. */
     header(&b, 2);rawEntry(&b,"BRIT.DAT",map,sizeof(map),map,256);
     entry(&b,"STORY.DAT","base","partial");
-    put("game/Mods/11-map.imperamod",b.bytes,b.size);
+    put("application/Mods/11-map.imperamod",b.bytes,b.size);
     FILE_SetDataDirectory("game");assert(MOD_LoadedCount()==1);value("STORY.DAT","base",1);
-    remove("game/Mods/11-map.imperamod");
+    remove("application/Mods/11-map.imperamod");
     header(&b, 1);rawEntry(&b,"DATA.OVL",overlay,sizeof(overlay),altered,256);
-    put("game/Mods/10-index.imperamod",b.bytes,b.size);
+    put("application/Mods/10-index.imperamod",b.bytes,b.size);
     FILE_SetDataDirectory("game");assert(MOD_LoadedCount()==0);
     assert(!memcmp(MOD_BritanniaIndex(),U5_BritanniaDefaultIndex,256));
-    remove("game/Mods/10-index.imperamod");
+    remove("application/Mods/10-index.imperamod");
     /* Compiled defaults work without a base overlay. Failed initialization is atomic. */
     remove("game/DATA.OVL");FILE_SetDataDirectory("game");
     assert(!memcmp(MOD_BritanniaIndex(),U5_BritanniaDefaultIndex,256));
@@ -219,10 +220,10 @@ static void dungeonResources(void) {
     Buffer package;
     header(&package, 1);
     rawEntry(&package, "DUNGEON.DAT", base, sizeof(base), changed, sizeof(changed));
-    put("game/Mods/dungeon.imperamod", package.bytes, package.size);
+    put("application/Mods/dungeon.imperamod", package.bytes, package.size);
     const char *exported = getenv("IMPERA_DUNGEON_TEST_PACKAGE");
     if (exported) {
-        FILE *in = fopen(exported, "rb"), *out = fopen("game/Mods/dungeon.imperamod", "wb");
+        FILE *in = fopen(exported, "rb"), *out = fopen("application/Mods/dungeon.imperamod", "wb");
         assert(in && out);
         unsigned char bytes[4096];
         size_t count;
@@ -241,7 +242,7 @@ static void dungeonResources(void) {
     assert(room[0] == 7);
     assert(!FILE_ReadFile("DUNGEON.DAT", level, 512, 0));
     assert(!memcmp(level, base, 512));
-    remove("game/Mods/dungeon.imperamod");
+    remove("application/Mods/dungeon.imperamod");
     FILE_SetDataDirectory("game");
     assert(!FILE_ReadFile("DUNGEON.DAT", level, 512, 2 * 512));
     assert(!memcmp(level, base + 2 * 512, 512));
@@ -266,7 +267,7 @@ static void engineTables(void) {
     rawEntry(&b, "RULES.TBL", NULL, 0, rules, sizeof(rules));
     assert(MOD_Decode(b.bytes, b.size, readBase, NULL, &p, error, sizeof(error)));
     MOD_Free(&p);
-    put("game/Mods/01-rules.imperamod", b.bytes, b.size);
+    put("application/Mods/01-rules.imperamod", b.bytes, b.size);
     FILE_SetDataDirectory("game");
     assert(MOD_LoadedCount() == 1);
     for (unsigned id = 1; id <= 8; ++id) {
@@ -275,7 +276,7 @@ static void engineTables(void) {
     }
     FILE_SetDataDirectory(NULL);
     assert(MOD_TableValue(1, 0, 123) == 123);
-    remove("game/Mods/01-rules.imperamod");
+    remove("application/Mods/01-rules.imperamod");
     memcpy(b.bytes, "IMOD0002", 8);
     assert(!MOD_Decode(b.bytes, b.size, readBase, NULL, &p, error, sizeof(error)));
     /* A bad stock reference rejects the whole package, including unrelated entries. */
@@ -286,12 +287,12 @@ static void engineTables(void) {
     rawEntry(&b, "RULES.TBL", NULL, 0, rules, sizeof(rules));
     assert(!MOD_Decode(b.bytes, b.size, readBase, NULL, &p, error, sizeof(error)));
     assert(p.count == 0);
-    put("game/Mods/01-rules.imperamod", b.bytes, b.size);
+    put("application/Mods/01-rules.imperamod", b.bytes, b.size);
     FILE_SetDataDirectory("game");
     assert(MOD_LoadedCount() == 0);
     assert(MOD_TableValue(4, 0, 123) == 123);
     FILE_SetDataDirectory(NULL);
-    remove("game/Mods/01-rules.imperamod");
+    remove("application/Mods/01-rules.imperamod");
 }
 static void contentsResources(void)
 {
@@ -314,7 +315,7 @@ static void contentsResources(void)
     header(&package, 1);
     memcpy(package.bytes, "IMOD0004", 8);
     rawEntry(&package, "CONTENTS.OVR", NULL, 0, resource, sizeof(resource));
-    put("game/Mods/contents-a.imperamod", package.bytes, package.size);
+    put("application/Mods/contents-a.imperamod", package.bytes, package.size);
     resource[8] = 2;
     d.id = 2;
     d.map = 1;
@@ -326,7 +327,7 @@ static void contentsResources(void)
     header(&package, 1);
     memcpy(package.bytes, "IMOD0004", 8);
     rawEntry(&package, "CONTENTS.OVR", NULL, 0, resource, sizeof(resource));
-    put("game/Mods/contents-b.imperamod", package.bytes, package.size);
+    put("application/Mods/contents-b.imperamod", package.bytes, package.size);
     resource[8] = 3;
     d.id = 3;
     d.map = 5;
@@ -336,7 +337,7 @@ static void contentsResources(void)
     header(&package, 1);
     memcpy(package.bytes, "IMOD0004", 8);
     rawEntry(&package, "CONTENTS.OVR", NULL, 0, resource, sizeof(resource));
-    put("game/Mods/contents-c-conflict.imperamod", package.bytes, package.size);
+    put("application/Mods/contents-c-conflict.imperamod", package.bytes, package.size);
     FILE_SetDataDirectory("game");
     assert(MOD_LoadedCount() == 2 && CONTENTS_Count() == 2);
     assert(CONTENTS_Find(0, 5, 0, 2, 2)->items[0].quantity == 5);
@@ -351,11 +352,13 @@ static void contentsResources(void)
         !MOD_Decode(package.bytes, package.size, readBase, NULL, &decoded, error, sizeof(error)));
     FILE_SetDataDirectory(NULL);
     assert(CONTENTS_Count() == 0);
-    remove("game/Mods/contents-a.imperamod");
-    remove("game/Mods/contents-b.imperamod");
-    remove("game/Mods/contents-c-conflict.imperamod");
+    remove("application/Mods/contents-a.imperamod");
+    remove("application/Mods/contents-b.imperamod");
+    remove("application/Mods/contents-c-conflict.imperamod");
 }
 int main(void) {
+    assert(SDL_CreateDirectory("application/Mods"));
+    assert(SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "APPIMAGE", "application/Impera.AppImage", true));
     assert(MOD_AllowedResource("INIT.GAM"));
     assert(MOD_AllowedResource("BRIT.CBT"));
     assert(!MOD_AllowedResource("../INIT.GAM"));
@@ -400,17 +403,17 @@ int main(void) {
     put("game/story.dat", "base", 4);
     header(&b, 1);
     entry(&b, "INIT.GAM", "base", "first");
-    put("game/Mods/01-first.imperamod", b.bytes, b.size);
+    put("application/Mods/01-first.imperamod", b.bytes, b.size);
     header(&b, 1);
     entry(&b, "INIT.GAM", "base", "second");
-    put("game/Mods/02-conflict.imperamod", b.bytes, b.size);
+    put("application/Mods/02-conflict.imperamod", b.bytes, b.size);
     header(&b, 2);
     entry(&b, "INIT.GAM", "base", "third");
     entry(&b, "STORY.DAT", "base", "partial");
-    put("game/Mods/03-paired-conflict.imperamod", b.bytes, b.size);
+    put("application/Mods/03-paired-conflict.imperamod", b.bytes, b.size);
     header(&b, 1);
     entry(&b, "STORY.DAT", "wrong", "bad");
-    put("game/Mods/04-invalid.IMPERAMOD", b.bytes, b.size);
+    put("application/Mods/04-invalid.IMPERAMOD", b.bytes, b.size);
     FILE_SetDataDirectory("game");
     assert(MOD_LoadedCount() == 1);
     value("INIT.GAM", "first", 1);
@@ -433,16 +436,16 @@ int main(void) {
     value("INIT.GAM", "local", 1);
     FILE_SetDataDirectory("game");
     assert(MOD_LoadedCount() == 1);
-    remove("game/Mods/01-first.imperamod");
+    remove("application/Mods/01-first.imperamod");
     FILE_SetDataDirectory("game");
     assert(MOD_LoadedCount() == 1);
     value("INIT.GAM", "second", 1);
     value("STORY.DAT", "base", 1);
     FILE_SetDataDirectory(NULL);
     remove("INIT.GAM");
-    remove("game/Mods/02-conflict.imperamod");
-    remove("game/Mods/03-paired-conflict.imperamod");
-    remove("game/Mods/04-invalid.IMPERAMOD");
+    remove("application/Mods/02-conflict.imperamod");
+    remove("application/Mods/03-paired-conflict.imperamod");
+    remove("application/Mods/04-invalid.IMPERAMOD");
     remove("SAVEGAME/INIT.GAM");
     worldResources();
     dungeonResources();

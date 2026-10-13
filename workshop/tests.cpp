@@ -5111,7 +5111,7 @@ int main(int argc, char **argv) {
             file(dir.path() + "/Mods/A.imperamod", project.package());
             file(dir.path() + "/Mods/B.imperamod", project.package());
             file(dir.path() + "/Mods/broken.imperamod", "broken");
-            report = validateMod(project);
+            report = validateMod(project, dir.path() + "/Mods");
             check(std::any_of(report.begin(), report.end(),
                               [](const auto &d) {
                                   return d.resource == "INIT.GAM" &&

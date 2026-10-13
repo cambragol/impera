@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 import zipfile
+import tarfile
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,8 +24,20 @@ class WorkshopReleaseTest(unittest.TestCase):
                     folder = artifacts / f'{prefix}-{platform}'
                     folder.mkdir(parents=True)
                     name = f'{product}-vtest-{platform}{suffix}'
-                    (folder / name).write_bytes(b'package')
-                    digest = hashlib.sha256(b'package').hexdigest()
+                    payload = folder / name
+                    if platform.startswith('macos'):
+                        stage = root / name.removesuffix('.tar.gz')
+                        bundle = stage / (product + '.app') / 'Contents'
+                        (bundle / 'MacOS').mkdir(parents=True)
+                        (bundle / 'MacOS' / product).write_bytes(b'executable')
+                        (stage / 'Licenses').mkdir()
+                        (stage / 'Licenses/license.txt').write_text('license')
+                        (stage / 'README.md').write_text(product)
+                        with tarfile.open(payload, 'w:gz') as archive:
+                            archive.add(stage, arcname=stage.name)
+                    else:
+                        payload.write_bytes(b'package')
+                    digest = hashlib.sha256(payload.read_bytes()).hexdigest()
                     (folder / (name + '.sha256')).write_text(f'{digest}  {name}\n')
             engine = artifacts / 'Impera-windows-x86_64'
             for name in assembly.WINDOWS_FILES:
@@ -43,11 +56,25 @@ class WorkshopReleaseTest(unittest.TestCase):
             output = root / 'dist'
             for _ in range(2):
                 assembly.assemble(artifacts, 'vtest', output, with_workshop=True)
-                self.assertEqual(len(list(output.iterdir())), 16)
-                self.assertFalse(list(output.glob('*linux*.tar.gz')))
-                with zipfile.ZipFile(output / 'ImperaWorkshop-vtest-windows-x86_64.zip') as archive:
-                    self.assertTrue(any(n.endswith('/bin/ImperaWorkshop.exe') for n in archive.namelist()))
+                self.assertEqual(len(list(output.iterdir())), 8)
+                with tarfile.open(output / 'Impera-vtest-linux-x86_64.tar.gz') as archive:
+                    names = archive.getnames()
+                    self.assertTrue(any(n.endswith('/Mods') for n in names))
+                    self.assertTrue(any(n.endswith('/Impera.AppImage') for n in names))
+                    self.assertTrue(any(n.endswith('/ImperaWorkshop.AppImage') for n in names))
+                    self.assertEqual(archive.getmember('Impera-vtest-linux-x86_64/Impera.AppImage').mode, 0o755)
+                with zipfile.ZipFile(output / 'Impera-vtest-windows-x86_64.zip') as archive:
+                    self.assertTrue(any(n.endswith('/ImperaWorkshop.exe') for n in archive.namelist()))
+                    self.assertTrue(any(n.endswith('/Impera.exe') for n in archive.namelist()))
+                    self.assertTrue(any(n.endswith('/Mods/') for n in archive.namelist()))
+                    self.assertIn(b'Prefix=.', archive.read('Impera-vtest-windows-x86_64/qt.conf'))
                     self.assertFalse(any(n.endswith('.zip') for n in archive.namelist()))
+                for platform in ('macos-x86_64', 'macos-arm64'):
+                    with tarfile.open(output / f'Impera-vtest-{platform}.tar.gz') as archive:
+                        names = archive.getnames()
+                        self.assertTrue(any(n.endswith('/Impera.app') for n in names))
+                        self.assertTrue(any(n.endswith('/ImperaWorkshop.app') for n in names))
+                        self.assertTrue(any(n.endswith('/Mods') for n in names))
             (editor / 'SAVED.GAM').write_bytes(b'private')
             with self.assertRaisesRegex(ValueError, 'Windows Workshop'):
                 assembly.assemble(artifacts, 'vtest', output, with_workshop=True)
@@ -67,7 +94,8 @@ class WorkshopReleaseTest(unittest.TestCase):
                          {'linux-x86_64', 'windows-x86_64', 'macos-x86_64', 'macos-arm64'})
         steps = {s.get('name'): s for s in builds['steps']}
         for name in ('Configure Workshop', 'Build Workshop', 'Workshop tests',
-                     'Package Workshop with Qt runtime', 'Workshop package startup smoke check'):
+                     'Package Workshop with Qt runtime', 'Workshop package startup smoke check',
+                     'Combined distribution startup smoke check'):
             self.assertNotIn('continue-on-error', steps[name])
             self.assertNotIn('if', steps[name])
         release = workflow['jobs']['release']

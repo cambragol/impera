@@ -15,6 +15,7 @@ on:
       - 'scripts/package-workshop.py'
       - 'scripts/package-release.py'
       - 'scripts/assemble-release.py'
+      - 'scripts/check-combined-release.py'
       - 'scripts/build-appimage.py'
       - 'scripts/embed-cursors.py'
       - 'scripts/generate-icons.py'
@@ -185,6 +186,10 @@ jobs:
         run: |
           import pathlib, shutil
           shutil.move(str(next(pathlib.Path('workshop-dist').glob('ImperaWorkshop-*'))), 'workshop-windows-artifact')
+      - name: Combined distribution startup smoke check
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: python scripts/check-combined-release.py --platform ${{ matrix.platform }}
       - uses: actions/upload-artifact@v4
         with:
           name: Impera-Workshop-${{ matrix.platform }}
@@ -216,9 +221,8 @@ jobs:
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" --verify-tag --draft --title "Impera $RELEASE_TAG" --generate-notes
           fi
-          # Older draft runs included an internal Linux archive. Remove those
-          # obsolete assets when rerunning this workflow on the same tag.
-          for obsolete in "Impera-$RELEASE_TAG-linux-x86_64.tar.gz" "Impera-$RELEASE_TAG-linux-x86_64.tar.gz.sha256"; do
+          # Replace the old separate-product downloads with combined archives.
+          for obsolete in "Impera-$RELEASE_TAG-linux-x86_64.AppImage" "Impera-$RELEASE_TAG-linux-x86_64.AppImage.sha256" "ImperaWorkshop-$RELEASE_TAG-linux-x86_64.AppImage" "ImperaWorkshop-$RELEASE_TAG-linux-x86_64.AppImage.sha256" "ImperaWorkshop-$RELEASE_TAG-windows-x86_64.zip" "ImperaWorkshop-$RELEASE_TAG-windows-x86_64.zip.sha256" "ImperaWorkshop-$RELEASE_TAG-macos-x86_64.tar.gz" "ImperaWorkshop-$RELEASE_TAG-macos-x86_64.tar.gz.sha256" "ImperaWorkshop-$RELEASE_TAG-macos-arm64.tar.gz" "ImperaWorkshop-$RELEASE_TAG-macos-arm64.tar.gz.sha256"; do
             if gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | grep -Fxq "$obsolete"; then
               gh release delete-asset "$RELEASE_TAG" "$obsolete" --yes
             fi

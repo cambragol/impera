@@ -2,6 +2,8 @@
 #define IMPERA_MOD_RUNTIME_H
 #include <stdio.h>
 #include <stdint.h>
+/* directory supplies original game resources; packages come from application/Mods.
+ * U5D_MODS_DIR selects a private Workshop/test session instead. */
 void MOD_MountDirectory(const char *directory);
 FILE *MOD_OpenResource(const char *name, int *found);
 unsigned MOD_LoadedCount(void);

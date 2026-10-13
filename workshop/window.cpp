@@ -305,7 +305,7 @@ WorkshopWindow::WorkshopWindow() {
                     "distribution folder");
             writeFile(path, bytes);
             statusBar()->showMessage(
-                "Exported " + path + " — place it in Ultima 5/Mods, then restart Impera", 12000);
+                "Exported " + path + " — place it in Mods beside Impera, then restart Impera", 12000);
         });
     });
     action("Import Package", {}, [this] {
@@ -435,7 +435,7 @@ WorkshopWindow::WorkshopWindow() {
                             "story and starting state in one workspace. Original game files are "
                             "read-only; "
                             "Save stores a project, Export creates a mod package."));
-    welcome->addWidget(hint("Impera loads .imperamod files from the game "
+    welcome->addWidget(hint("Impera loads .imperamod files from the application "
                             "folder's Mods subfolder at startup. Existing saved "
                             "games keep their saved state; starting-state edits "
                             "apply to new games."));
@@ -2341,6 +2341,14 @@ bool WorkshopWindow::reviewPackage(bool launch) {
         return true;
     return guard([&] {
         QString executable = QSettings().value("paths/engine").toString();
+        if (!QFileInfo(executable).exists()) {
+            QDir applications(QFileInfo(imperaModsDirectory()).absolutePath());
+            for (const QString &name : {QString("Impera.exe"), QString("Impera.AppImage"), QString("Impera.app")})
+                if (applications.exists(name)) {
+                    executable = applications.filePath(name);
+                    break;
+                }
+        }
         if (!QFileInfo(executable).isFile() &&
             !(QFileInfo(executable).isDir() && executable.endsWith(".app", Qt::CaseInsensitive))) {
             executable = QFileDialog::getOpenFileName(this, "Choose Impera executable or AppImage",
@@ -2363,6 +2371,7 @@ bool WorkshopWindow::reviewPackage(bool launch) {
         auto environment = QProcessEnvironment::systemEnvironment();
         environment.insert("U5D_DATA_DIR", session);
         environment.insert("U5D_RUNTIME_DIR", session);
+        environment.insert("U5D_MODS_DIR", QDir(session).filePath("Mods"));
         // Existing Linux release launchers use XDG_DATA_HOME; isolate those too.
         environment.insert("XDG_DATA_HOME", session);
         environment.insert("XDG_CONFIG_HOME", QDir(session).filePath("config"));

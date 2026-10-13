@@ -23,8 +23,9 @@ ctest --test-dir workshop-build -C Release --output-on-failure
 The executable is `workshop-build/ImperaWorkshop` on Linux,
 `workshop-build/Release/ImperaWorkshop.exe` on Windows, or
 `workshop-build/ImperaWorkshop.app` on macOS. Development builds require Qt runtime libraries. GitHub releases also provide
-ready-to-run Workshop downloads beside Impera for all four platforms, with Qt
-bundled: Linux AppImage, Windows portable ZIP and macOS app bundles. Launch
+one combined download with Impera and Workshop for all four platforms, with Qt
+bundled and an empty external `Mods` folder. Linux archives contain both AppImages;
+Windows ZIPs contain both executables; macOS archives contain both app bundles. Launch
 `Run Workshop.cmd` on Windows, `ImperaWorkshop.app` on macOS, or the executable
 AppImage on Linux. Release deployment uses Qt 6.8.3 and
 `-DIMPERA_WORKSHOP_DEPLOY_QT=ON`; normal local builds still support Qt 6.2+. The
@@ -49,7 +50,7 @@ workshop-build/ImperaWorkshop --project my-mod.imperaproject
    reference/checksums and changed resources. Keep this project for future editing;
    it requires the same original files when reopened. It is not a distribution file.
 5. **Export Package** creates a sparse, validated `.imperamod` file.
-6. Copy the package into **`<selected Ultima 5 folder>/Mods/`**, then restart Impera.
+6. Copy the package into **`<Impera application folder>/Mods/`**, then restart Impera.
    Create `Mods` if it does not exist. To disable a mod, move its package out and
    restart. There is no in-game mod-selection UI yet.
 

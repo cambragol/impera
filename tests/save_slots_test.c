@@ -35,6 +35,7 @@ static void writeResourcePackage(const char *path, const char *name,
     assert(fwrite(changed,1,size,f)==size);assert(!fclose(f));
 }
 static void engineWorldIndex(void) {
+    assert(SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "U5D_MODS_DIR", "world-game/Mods", true));
     assert(SDL_CreateDirectory("world-game/Mods"));
     byte original[U5_WORLD_INDEX_OFFSET+256]={0}, changed[sizeof(original)];
     memcpy(original+U5_WORLD_INDEX_OFFSET,U5_BritanniaDefaultIndex,256);
@@ -69,6 +70,7 @@ static void engineWorldIndex(void) {
     assert(WIDE_MapTile(0,0)==5);
     FILE_SetDataDirectory(NULL);remove("world-game/BRIT.DAT");
     SDL_RemovePath("world-game/Mods");SDL_RemovePath("world-game");
+    assert(SDL_UnsetEnvironmentVariable(SDL_GetEnvironment(), "U5D_MODS_DIR"));
 }
 static void writeWorld(const char* file,byte value,int bytes)
 {
@@ -292,6 +294,7 @@ int main(void)
     writeWorld("SAVEGAME/BRIT.OOL",0x12,256);writeWorld("SAVEGAME/UNDER.OOL",0x34,256);
     assert(SLOTS_Write("9999","Pre-mod save",NULL));
     assert(SDL_CreateDirectory("starting-game/Mods"));
+    assert(SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "U5D_MODS_DIR", "starting-game/Mods", true));
     byte objectBase[256],britObjects[256],underObjects[256];
     memset(objectBase,0xab,256);memset(britObjects,0x23,256);memset(underObjects,0x45,256);
     const char *objectFiles[]={"INIT.OOL","BRIT.OOL","UNDER.OOL"};
@@ -377,6 +380,7 @@ int main(void)
     remove("starting-game/Mods/npcs.imperamod");
     remove("starting-game/DWELLING.NPC");remove("starting-game/TOWNE.NPC");
     SDL_RemovePath("starting-game/Mods");SDL_RemovePath("starting-game");
+    assert(SDL_UnsetEnvironmentVariable(SDL_GetEnvironment(), "U5D_MODS_DIR"));
     /* Older two-line metadata remains loadable. */
     const char* latest=strcmp(initialIds[0],initialIds[1])>0?initialIds[0]:initialIds[1];
     char meta[512];SDL_snprintf(meta,sizeof(meta),"SAVEGAME/slots/%s/meta.txt",latest);

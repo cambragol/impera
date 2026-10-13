@@ -115,8 +115,35 @@ void MOD_MountDirectory(const char *directory) {
     if (!directory || !*directory)
         return;
     char full[FILE_PATH_SIZE], mods[FILE_PATH_SIZE];
-    if (SDL_snprintf(full, sizeof(full), "%s/Mods", directory) >= (int)sizeof(full) ||
-        FILE_ResolvePath(full, mods, sizeof(mods), 0))
+    const char *override = SDL_getenv("U5D_MODS_DIR");
+    const char *appimage = SDL_getenv("APPIMAGE");
+    if (override && *override) {
+        if (SDL_strlcpy(full, override, sizeof(full)) >= sizeof(full))
+            return;
+    } else {
+        const char *base = appimage && *appimage ? appimage : SDL_GetBasePath();
+        if (!base || SDL_strlcpy(full, base, sizeof(full)) >= sizeof(full))
+            return;
+        if (appimage && *appimage) {
+            char *slash = strrchr(full, '/');
+            if (!slash)
+                return;
+            *slash = 0;
+        }
+#if defined(OS_MACOS)
+        char *bundle = strstr(full, ".app/Contents/");
+        if (bundle) {
+            *bundle = 0;
+            char *slash = strrchr(full, '/');
+            if (!slash)
+                return;
+            *slash = 0;
+        }
+#endif
+        if (SDL_strlcat(full, "/Mods", sizeof(full)) >= sizeof(full))
+            return;
+    }
+    if (FILE_ResolvePath(full, mods, sizeof(mods), 0))
         return;
     SDL_PathInfo folder;
     if (!SDL_GetPathInfo(mods, &folder) || folder.type != SDL_PATHTYPE_DIRECTORY)
