@@ -517,6 +517,28 @@ int main(int argc, char** argv)
         assert(MOUSE_PollCommand()==0);
     }
     *palace=TILE_MAP_GRASS;assert(MOUSE_Action(0,0,true)==0);
+    /* Occupied transport takes priority over entering the underlying tile.
+     * Every orientation routes double-clicks through the normal X-it command. */
+    byte previousPartyTile=D_587c_partyTile;
+    const byte transports[]={TILE_ACTOR_RIDING_HORSE,TILE_ACTOR_RIDING_HORSE+1,
+        TILE_ACTOR_FLYING_CARPET,TILE_ACTOR_FRIGATE_20,TILE_ACTOR_FRIGATE_20+1,
+        TILE_ACTOR_FRIGATE_20+2,TILE_ACTOR_FRIGATE_20+3,TILE_ACTOR_FRIGATE_24,
+        TILE_ACTOR_FRIGATE_24+1,TILE_ACTOR_FRIGATE_24+2,TILE_ACTOR_FRIGATE_24+3,
+        TILE_ACTOR_SKIFF,TILE_ACTOR_SKIFF_29};
+    *palace=TILE_MAP_VILLAGE;
+    for(unsigned i=0;i<sizeof(transports);i++) {
+        D_587c_partyTile=transports[i];
+        assert(MOUSE_Action(0,0,true)=='X');
+        assert(MOUSE_Action(0,0,false)=='L');
+        assert(MOUSE_Action(1,0,true)!='X');
+        MOUSE_SetCommandInput(true);MOUSE_Cancel();
+        MOUSE_Button(384,460.8f,SDL_BUTTON_LEFT,true,1);
+        MOUSE_Button(384,460.8f,SDL_BUTTON_LEFT,true,2);
+        assert(MOUSE_PollCommand()=='X');
+        assert(MOUSE_PollCommand()==0);
+        assert(MOUSE_TakeDirection()==0);
+    }
+    D_587c_partyTile=previousPartyTile;
     *palace=previous;D_5893_map_id=13;
     GetMap(16,16)=TILE_MAP_VILLAGE;
     assert(MOUSE_Action(0,0,true)==0); /* only overworld settlements enter */

@@ -338,6 +338,16 @@ int MOUSE_Action(int dx, int dy, bool mainAction)
     if (!mainAction) return 'L';
     int x = D_5896_map_x + dx, y = D_5897_map_y + dy;
     if (!dx && !dy) {
+        /* Use the keyboard X-it handler for occupied transport, including
+         * its normal restrictions on sailing ships and landing sites. */
+        switch (D_587c_partyTile & 0xfc) {
+        case TILE_ACTOR_HORSE:
+        case TILE_ACTOR_FLYING_CARPET:
+        case TILE_ACTOR_FRIGATE_20:
+        case TILE_ACTOR_FRIGATE_24:
+        case TILE_ACTOR_SKIFF:
+            return 'X';
+        }
         int tile = *ULTIMA_4402_GetTileAddr(x, y);
         int contentsCommand = CONTENTS_GAME_Command(x, y);
         if (contentsCommand)
