@@ -5,6 +5,15 @@
 #include <memory>
 using U5::require;
 namespace Workshop {
+static void resizeTextBox(CutsceneTextBox &box, const QSize &size) {
+    if (box.flow) {
+        const int delta = size.width() - box.bounds.width();
+        for (int i = 0; i < 2; ++i)
+            box.layout.right[i] =
+                qBound(qMin(320, box.layout.left[i] + 1), box.layout.right[i] + delta, 320);
+    }
+    box.bounds.setSize(size);
+}
 class CompositionCanvas : public QWidget {
     QPoint press;
     QRect original;
@@ -108,8 +117,8 @@ class CompositionCanvas : public QWidget {
                        qBound(1, original.height() + delta.y(), 200 - original.y()));
             if (size == box.bounds.size())
                 return;
-            box.bounds.setSize(size);
-            box.flow = false;
+            box = snapshot.texts[selected - page->images.size()];
+            resizeTextBox(box, size);
         } else {
             QPoint to = original.topLeft() + delta;
             to.setX(qBound(0, to.x(), isText() ? 320 - original.width() : 319));
@@ -266,9 +275,6 @@ QWidget *compositionEditor(Project *project, const QString &resource, TextCommit
     auto addText = new QPushButton("Add text box");
     addText->setObjectName("addCutsceneText");
     tools->addWidget(addText);
-    auto duplicate = new QPushButton("Duplicate");
-    duplicate->setObjectName("duplicateCutsceneElement");
-    tools->addWidget(duplicate);
     auto forward = new QPushButton("Bring forward");
     forward->setObjectName("bringCutsceneImageForward");
     auto backward = new QPushButton("Send backward");
@@ -317,7 +323,6 @@ QWidget *compositionEditor(Project *project, const QString &resource, TextCommit
     remove->setToolTip("Delete the selected image or text box. Undo restores it.");
     forward->setToolTip("Move the selected image in front of another image.");
     backward->setToolTip("Move the selected image behind another image.");
-    duplicate->setToolTip("Make another copy of the selected image or text box.");
     for (auto field : fields)
         field->setToolTip("Game pixels on the 320 × 200 page.");
     auto pages = std::make_shared<QVector<CutsceneComposition>>(compositionPages(*project, scene));
@@ -388,7 +393,6 @@ QWidget *compositionEditor(Project *project, const QString &resource, TextCommit
         if (box && text->toPlainText() != page.texts[canvas->selected - page.images.size()].text)
             text->setPlainText(page.texts[canvas->selected - page.images.size()].text);
         remove->setEnabled(valid);
-        duplicate->setEnabled(valid);
         forward->setEnabled(valid && !box && canvas->selected + 1 < page.images.size());
         backward->setEnabled(valid && !box && canvas->selected > 0);
         (*state)[resource + "/object"] = canvas->selected;
@@ -488,30 +492,6 @@ QWidget *compositionEditor(Project *project, const QString &resource, TextCommit
             QMessageBox::warning(root, "Cannot import image", QString::fromUtf8(e.what()));
         }
     });
-    QObject::connect(duplicate, &QPushButton::clicked, root, [=] {
-        auto &page = (*pages)[*selected];
-        if (canvas->selected < 0)
-            return;
-        if (canvas->isText()) {
-            if (page.texts.size() >= 32)
-                return;
-            auto copy = page.texts[canvas->selected - page.images.size()];
-            copy.bounds.translate(qMin(4, 320 - copy.bounds.right() - 1),
-                                  qMin(4, 200 - copy.bounds.bottom() - 1));
-            page.texts.append(copy);
-            canvas->selected = page.images.size() + page.texts.size() - 1;
-        } else {
-            if (page.images.size() >= 64)
-                return;
-            auto copy = page.images[canvas->selected];
-            copy.position = {qMin(319, copy.position.x() + 4), qMin(199, copy.position.y() + 4)};
-            page.images.append(copy);
-            canvas->selected = page.images.size() - 1;
-        }
-        *dirty = true;
-        refresh();
-        save();
-    });
     for (auto pair : {qMakePair(forward, 1), qMakePair(backward, -1)})
         QObject::connect(pair.first, &QPushButton::clicked, root, [=] {
             auto &page = (*pages)[*selected];
@@ -538,12 +518,10 @@ QWidget *compositionEditor(Project *project, const QString &resource, TextCommit
                 if (i == 1)
                     box.bounds.moveTop(value);
                 if (i == 2) {
-                    box.bounds.setWidth(value);
-                    box.flow = false;
+                    resizeTextBox(box, QSize(value, box.bounds.height()));
                 }
                 if (i == 3) {
-                    box.bounds.setHeight(value);
-                    box.flow = false;
+                    resizeTextBox(box, QSize(box.bounds.width(), value));
                 }
             } else {
                 if (i == 0)
@@ -564,7 +542,6 @@ QWidget *compositionEditor(Project *project, const QString &resource, TextCommit
             return;
         (*pages)[*selected].texts[canvas->selected - canvas->page->images.size()].text =
             text->toPlainText();
-        (*pages)[*selected].texts[canvas->selected - canvas->page->images.size()].flow = false;
         *dirty = true;
         redraw();
         timer->start(500);

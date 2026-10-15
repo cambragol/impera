@@ -194,6 +194,29 @@ int main(int argc, char **argv) {
                 }
             }
         });
+        test("Editing original cutscene text preserves indentation and shaped wrapping", [&] {
+            QTemporaryDir dir;auto p=fixture(dir.path());
+            Workshop::CutsceneTextBox box;
+            box.bounds=QRect(10,20,200,100);box.text="Original paragraph";box.flow=true;
+            box.layout.left[0]=0;box.layout.right[0]=200;
+            box.layout.left[1]=30;box.layout.right[1]=180;
+            box.layout.top=10;box.layout.bottom=70;box.layout.x=12;box.layout.y=0;
+            Workshop::CutsceneComposition page;page.texts.append(box);
+            p.resources["CUTSCENE.OVR"].edited=Workshop::changeComposition(p,0,{page});
+            QMap<QString,int> state;std::function<bool()> flush;
+            std::unique_ptr<QWidget> editor(Workshop::compositionEditor(&p,"STORY.DAT",[&](const QMap<QString,QByteArray> &edits,const QString &){for(auto it=edits.begin();it!=edits.end();++it)p.resources[it.key()].edited=it.value();return true;},&state,&flush));
+            editor->findChild<QComboBox *>("cutsceneElement")->setCurrentIndex(0);
+            editor->findChild<QPlainTextEdit *>("compositionText")->setPlainText("Edited paragraph with the original indentation");
+            check(flush(),"Original text edit did not save");
+            auto edited=Workshop::compositionPages(p,0)[0];
+            box.text=edited.texts[0].text;page.texts[0]=box;
+            check(edited.texts[0].flow && Workshop::previewComposition(p,edited)==Workshop::previewComposition(p,page),"Text edit discarded original indentation or shaped flow");
+            editor->findChild<QSpinBox *>("compositionWidth")->setValue(220);
+            editor->findChild<QSpinBox *>("compositionHeight")->setValue(110);
+            check(flush(),"Original box resize did not save");
+            auto resized=Workshop::compositionPages(p,0)[0].texts[0];
+            check(resized.flow && resized.layout.x==12 && resized.layout.left[1]==30 && resized.layout.right[0]==220 && resized.layout.right[1]==200 && resized.layout.top==10 && resized.layout.bottom==70,"Resizing lost indentation or wrap-band geometry");
+        });
         test("Cutscene compositions embed PNG alpha, clip text, deduplicate assets and roundtrip", [&] {
             QTemporaryDir dir;auto p=fixture(dir.path());
             QImage png(2,2,QImage::Format_ARGB32);png.fill(qRgba(255,0,0,128));png.setPixel(1,0,qRgba(0,0,0,255));png.setPixel(0,1,qRgba(0,255,0,0));
@@ -241,9 +264,7 @@ int main(int argc, char **argv) {
             };
             chooseArt(0);chooseArt(1);
             auto page=Workshop::compositionPages(p,0)[0];check(page.images.size()==2&&page.images[0].image.pixel(0,0)==U5::palette()[3]&&page.images[1].image.pixel(0,0)==U5::palette()[2],"Game artwork import ignored original/modded choice");
-            editor->findChild<QPushButton *>("duplicateCutsceneElement")->click();
-            check(Workshop::compositionPages(p,0)[0].images.size()==3,"Image duplication failed");
-            editor->findChild<QPushButton *>("deleteCutsceneElement")->click();
+            check(!editor->findChild<QPushButton *>("duplicateCutsceneElement"),"Element duplication should not clutter the editor");
             auto object=editor->findChild<QComboBox *>("cutsceneElement");object->setCurrentIndex(0);
             editor->findChild<QPushButton *>("bringCutsceneImageForward")->click();
             check(Workshop::compositionPages(p,0)[0].images[1].image.pixel(0,0)==U5::palette()[3],"Image ordering failed");

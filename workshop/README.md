@@ -399,7 +399,7 @@ colour and transparency (including opaque black). **Game artwork** shows thumbna
 from the game's artwork banks. Choose **Current mod artwork** or **Original game
 artwork** to import either version. Imported artwork is copied into the mod package;
 the original PNG and game-artwork files are never modified or required alongside
-the exported package. Images can be dragged, duplicated, deleted, and moved in front
+the exported package. Images can be dragged, deleted, and moved in front
 of or behind other images with **Bring forward** / **Send backward**.
 
 **Add text box** creates an Ultima 5 proportional-font text box. Edit its text in
@@ -412,15 +412,16 @@ kernel, image alpha blending, and clipping as Impera. It shows the completed pag
 Click an element to select it, or select it from the right-pane selector when
 objects overlap. **Delete** removes either kind of element; pressing Delete while
 the canvas has focus does the same. Escape cancels an unfinished move or resize.
-Drags, deletions, duplication, ordering, and page operations support undo/redo.
+Drags, deletions, ordering, and page operations support undo/redo.
 Text edits are grouped after a short pause; navigation, save and export flush drafts.
 
 Edited sequences use `CUTSCENE.OVR` schema 3 / package version 8 and require the
 updated Impera runtime. Image data is embedded and deduplicated; unused images are
 removed from exports. Older page/layout packages remain readable. Unedited
 sequences continue inheriting original game data and narrative overrides. Original
-text flow is preserved during conversion; editing or resizing a text box gives it
-ordinary rectangular wrapping.
+text flow and first-line indentation are preserved during conversion, text edits,
+and moves. Resizing adjusts wrap widths while retaining indentation and wrap bands.
+New text boxes use ordinary rectangular wrapping.
 
 ### Narrative
 

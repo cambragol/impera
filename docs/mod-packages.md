@@ -236,8 +236,8 @@ embedded NUL. Eight signed two's-complement coordinates (bounded to −320…320
 preserve original text layout during conversion: left/right outside and inside the
 wrap band, band top/bottom, start X/Y, all relative to the text-box origin. When the
 flag is zero these coordinates are ignored and normal rectangular wrapping is used.
-Editing or resizing a converted text box clears preserved flow. Moving it preserves
-flow. Ordinary text boxes wrap overlong words without silently discarding glyphs.
+Text edits and moves preserve this flow. Resizing adjusts both right margins by
+the width change while preserving indentation and the wrap band. Ordinary text boxes wrap overlong words without silently discarding glyphs.
 Text clips to its rectangle; Workshop reports overflow without deleting source text.
 
 PNG colours and partial alpha are preserved. Impera retains full RGB pixel provenance
