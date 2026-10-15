@@ -217,6 +217,67 @@ int main(int argc, char **argv) {
             auto resized=Workshop::compositionPages(p,0)[0].texts[0];
             check(resized.flow && resized.layout.x==12 && resized.layout.left[1]==30 && resized.layout.right[0]==220 && resized.layout.right[1]==200 && resized.layout.top==10 && resized.layout.bottom==70,"Resizing lost indentation or wrap-band geometry");
         });
+        test("Cutscene layout controls, guides, four corners and reset persist", [&] {
+            QTemporaryDir dir;auto p=fixture(dir.path());
+            Workshop::CutsceneComposition page;
+            page.texts.append({QRect(30,30,180,120),"A paragraph that wraps around artwork.",false,{}});
+            p.resources["CUTSCENE.OVR"].edited=Workshop::changeComposition(p,0,{page});
+            QMap<QString,int> state;std::function<bool()> flush;
+            int commits=0;
+            std::unique_ptr<QWidget> editor(Workshop::compositionEditor(&p,"STORY.DAT",[&](const QMap<QString,QByteArray> &edits,const QString &){++commits;for(auto it=edits.begin();it!=edits.end();++it)p.resources[it.key()].edited=it.value();return true;},&state,&flush));
+            editor->resize(1500,950);editor->show();app.processEvents();
+            editor->findChild<QComboBox *>("cutsceneElement")->setCurrentIndex(0);
+            auto field=[&](const QString &name){return editor->findChild<QSpinBox *>("composition"+name);};
+            field("Indent")->setValue(12);field("LeftMargin")->setValue(5);field("RightMargin")->setValue(7);
+            field("TextTop")->setValue(9);
+            editor->findChild<QCheckBox *>("compositionWrap")->setChecked(true);
+            field("BandTop")->setValue(20);field("BandBottom")->setValue(90);
+            field("BandLeft")->setValue(50);field("BandRight")->setValue(10);
+            check(flush(),"Layout controls did not save");
+            auto box=Workshop::compositionPages(p,0)[0].texts[0];
+            check(box.flow&&box.layout.x==17&&box.layout.y==9&&box.layout.left[0]==5&&box.layout.right[0]==173&&box.layout.top==20&&box.layout.bottom==90&&box.layout.left[1]==50&&box.layout.right[1]==170,"Layout controls changed the wrong coordinates");
+            auto package=p.package();Project restored;restored.openGame(dir.path());restored.importPackage(package);
+            check(Workshop::previewComposition(restored,Workshop::compositionPages(restored,0)[0])==Workshop::previewComposition(p,Workshop::compositionPages(p,0)[0]),"Custom layout package changed rendering");
+            auto canvas=editor->findChild<QWidget *>("compositionCanvas");
+            auto drag=[&](QPoint a,QPoint b,bool cancel=false) {
+                app.processEvents();QPointF origin((canvas->width()-640)/2.0,(canvas->height()-400)/2.0);
+                QPointF from=origin+QPointF(a*2),to=origin+QPointF(b*2);
+                QMouseEvent down(QEvent::MouseButtonPress,from,from,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(canvas,&down);
+                QMouseEvent move(QEvent::MouseMove,to,to,Qt::NoButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(canvas,&move);
+                if(cancel){QKeyEvent key(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(canvas,&key);}
+                QMouseEvent up(QEvent::MouseButtonRelease,to,to,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(canvas,&up);
+            };
+            auto saved=p.data("CUTSCENE.OVR");int before=commits;
+            drag({47,35},{53,35},true);
+            check(flush()&&p.data("CUTSCENE.OVR")==saved&&commits==before,"Escape committed a layout guide drag");
+            drag({47,35},{53,35});
+            check(Workshop::compositionPages(p,0)[0].texts[0].layout.x==23&&commits==before+1,"Indent guide did not commit exactly once");
+            // Normal left/right, text top, band top/bottom and band margins.
+            drag({35,38},{38,38});drag({203,38},{199,38});drag({120,39},{120,41});
+            drag({120,50},{120,53});drag({120,120},{120,116});
+            drag({80,84},{85,84});drag({200,84},{194,84});
+            box=Workshop::compositionPages(p,0)[0].texts[0];
+            check(box.layout.left[0]==8&&box.layout.right[0]==169&&box.layout.y==11&&box.layout.top==23&&box.layout.bottom==86&&box.layout.left[1]==55&&box.layout.right[1]==164,"Dragging layout guides changed the wrong boundaries");
+            for(int corner=0;corner<4;++corner){
+                auto old=Workshop::compositionPages(p,0)[0].texts[0];auto r=old.bounds;
+                QPoint at=corner==0?r.topLeft():corner==1?r.topRight():corner==2?r.bottomLeft():r.bottomRight();
+                QPoint delta(corner%2?-3:3,corner<2?2:-2);
+                drag(at,at+delta);
+                auto next=Workshop::compositionPages(p,0)[0].texts[0];
+                check(next.bounds.width()==r.width()-3&&next.bounds.height()==r.height()-2,"One of the four corner grips failed to resize");
+                check((corner%2?next.bounds.left()==r.left():next.bounds.right()==r.right())&&(corner<2?next.bounds.bottom()==r.bottom():next.bounds.top()==r.top()),"Corner resize moved the opposite corner");
+                check(next.flow&&next.layout.left[1]==55,"Corner resize discarded text layout");
+            }
+            field("BandTop")->setValue(640);
+            field("BandBottom")->setValue(-640);
+            check(flush(),"Clamped wrap-band edit did not save");
+            auto limited=Workshop::compositionPages(p,0)[0].texts[0];
+            check(limited.layout.top<limited.layout.bottom&&editor->findChild<QCheckBox *>("compositionWrap")->isChecked(),"Crossing band edges disabled wrapping instead of clamping");
+            auto beforeReset=Workshop::compositionPages(p,0)[0].texts[0];
+            editor->findChild<QPushButton *>("resetCompositionLayout")->click();
+            box=Workshop::compositionPages(p,0)[0].texts[0];
+            check(!box.flow&&box.bounds==beforeReset.bounds&&box.text==beforeReset.text&&!editor->findChild<QCheckBox *>("compositionWrap")->isChecked(),"Reset layout changed text or geometry");
+        });
         test("Cutscene compositions embed PNG alpha, clip text, deduplicate assets and roundtrip", [&] {
             QTemporaryDir dir;auto p=fixture(dir.path());
             QImage png(2,2,QImage::Format_ARGB32);png.fill(qRgba(255,0,0,128));png.setPixel(1,0,qRgba(0,0,0,255));png.setPixel(0,1,qRgba(0,255,0,0));

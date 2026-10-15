@@ -14,16 +14,135 @@ static void resizeTextBox(CutsceneTextBox &box, const QSize &size) {
     }
     box.bounds.setSize(size);
 }
+// Values shown in the layout panel are offsets from the text box, except the
+// first-line indent (relative to that line's left margin) and right insets.
+static U5CutsceneLayout textLayout(const CutsceneTextBox &box) {
+    U5CompositionText t = {};
+    t.width = box.bounds.width();
+    t.flow = box.flow;
+    t.layout = box.layout;
+    return U5_CompositionTextLayout(&t);
+}
+static int firstMargin(const U5CutsceneLayout &l) { return l.y > l.top && l.y < l.bottom ? 1 : 0; }
+static int layoutValue(const CutsceneTextBox &box, int field) {
+    auto l = textLayout(box);
+    switch (field) {
+    case 0:
+        return l.x - l.left[firstMargin(l)];
+    case 1:
+        return l.left[0];
+    case 2:
+        return box.bounds.width() - l.right[0];
+    case 3:
+        return l.y;
+    case 4:
+        return l.top;
+    case 5:
+        return l.bottom;
+    case 6:
+        return l.left[1];
+    default:
+        return box.bounds.width() - l.right[1];
+    }
+}
+static void setLayoutValue(CutsceneTextBox &box, int field, int value) {
+    auto l = textLayout(box);
+    const int indent = l.x - l.left[firstMargin(l)];
+    switch (field) {
+    case 0:
+        l.x = qBound(-320, l.left[firstMargin(l)] + value, 320);
+        break;
+    case 1:
+        l.left[0] = qBound(-320, value, l.right[0] - 1);
+        break;
+    case 2:
+        l.right[0] = qBound(l.left[0] + 1, box.bounds.width() - value, 320);
+        break;
+    case 3:
+        l.y = qBound(-320, value, 320);
+        break;
+    case 4:
+        l.top = qBound(-320, value, qMax(-320, l.bottom - 1));
+        break;
+    case 5:
+        l.bottom = qBound(qMin(320, l.top + 1), value, 320);
+        break;
+    case 6:
+        l.left[1] = qBound(-320, value, l.right[1] - 1);
+        break;
+    case 7:
+        l.right[1] = qBound(l.left[1] + 1, box.bounds.width() - value, 320);
+        break;
+    }
+    if (field != 0)
+        l.x = qBound(-320, l.left[firstMargin(l)] + indent, 320);
+    box.layout = l;
+    box.flow = true;
+}
 class CompositionCanvas : public QWidget {
     QPoint press;
     QRect original;
-    bool dragging = false, resizing = false;
+    bool dragging = false, moved = false;
+    int corner = -1, guide = -1;
     CutsceneComposition snapshot;
     QRectF display() const {
         return QRectF((width() - 640) / 2.0, (height() - 400) / 2.0, 640, 400);
     }
     QPoint point(const QPointF &p) const {
         return {int((p.x() - display().x()) / 2), int((p.y() - display().y()) / 2)};
+    }
+
+    QVector<QPoint> corners() const {
+        auto r = bounds();
+        return {r.topLeft(), r.topRight(), r.bottomLeft(), r.bottomRight()};
+    }
+    QVector<QPoint> guides() const {
+        if (!isText())
+            return {};
+        const auto &box = page->texts[selected - page->images.size()];
+        auto l = textLayout(box);
+        // Indent, ordinary margins, first-line height, then wrap-band boundaries.
+        int mid = qBound(0, (l.top + l.bottom) / 2, box.bounds.height() - 1);
+        QVector<QPoint> points = {{l.x, l.y - 4},
+                                  {l.left[0], 8},
+                                  {l.right[0], 8},
+                                  {box.bounds.width() / 2, l.y},
+                                  {box.bounds.width() / 2, l.top},
+                                  {box.bounds.width() / 2, l.bottom},
+                                  {l.left[1], mid},
+                                  {l.right[1], mid}};
+        for (auto &point : points) {
+            point += box.bounds.topLeft();
+            // Keep handles reachable when an inherited margin lies beyond the
+            // box or the first line starts at the very edge of the page.
+            point.setX(qBound(3, point.x(), 316));
+            point.setY(qBound(3, point.y(), 196));
+        }
+        points[0].setY(qMax(5, points[0].y()));
+        return points;
+    }
+
+    int cornerAt(const QPoint &at) const {
+        if (!isText())
+            return -1;
+        const auto grips = corners();
+        for (int i = 0; i < grips.size(); ++i)
+            if (QRect(grips[i] - QPoint(3, 3), QSize(7, 7)).contains(at))
+                return i;
+        return -1;
+    }
+    int guideAt(const QPoint &at) const {
+        if (!isText())
+            return -1;
+        const auto handles = guides();
+        const auto l = textLayout(page->texts[selected - page->images.size()]);
+        for (int i = 0; i < handles.size(); ++i) {
+            if (i >= 4 && l.top == l.bottom)
+                continue;
+            if (QRect(handles[i] - QPoint(2, 2), QSize(5, 5)).contains(at))
+                return i;
+        }
+        return -1;
     }
 
   public:
@@ -36,6 +155,7 @@ class CompositionCanvas : public QWidget {
     CompositionCanvas() {
         setMinimumSize(640, 400);
         setFocusPolicy(Qt::StrongFocus);
+        setMouseTracking(true);
         setObjectName("compositionCanvas");
     }
     bool isText() const {
@@ -68,9 +188,38 @@ class CompositionCanvas : public QWidget {
         if (selected >= 0) {
             p.setPen(QPen(QColor(90, 210, 255), 0));
             p.drawRect(bounds().adjusted(0, 0, -1, -1));
-            if (isText())
-                p.fillRect(QRect(bounds().bottomRight() - QPoint(2, 2), QSize(5, 5)),
-                           QColor(90, 210, 255));
+            if (isText()) {
+                const auto &box = page->texts[selected - page->images.size()];
+                auto l = textLayout(box);
+                auto handles = guides();
+                p.save();
+                p.setClipRect(box.bounds);
+                p.setPen(QPen(QColor(110, 225, 160), 0, Qt::DashLine));
+                for (int x : {l.left[0], l.right[0]})
+                    p.drawLine(box.bounds.x() + x, box.bounds.y(), box.bounds.x() + x,
+                               box.bounds.bottom());
+                if (l.top < l.bottom) {
+                    p.setPen(QPen(QColor(255, 190, 85), 0, Qt::DashLine));
+                    QRect band(box.bounds.x() + l.left[1], box.bounds.y() + l.top,
+                               l.right[1] - l.left[1], l.bottom - l.top);
+                    p.drawRect(band);
+                }
+                p.restore();
+                for (int i = 0; i < handles.size(); ++i) {
+                    if (i >= 4 && l.top == l.bottom)
+                        continue;
+                    p.setPen(QPen(i >= 4 ? QColor(255, 190, 85) : QColor(110, 225, 160), 0));
+                    p.setBrush(i >= 4 ? QColor(255, 190, 85) : QColor(110, 225, 160));
+                    const auto h = handles[i];
+                    if (i == 0)
+                        p.drawPolygon(
+                            QPolygon({h + QPoint(-3, -2), h + QPoint(3, -2), h + QPoint(0, 2)}));
+                    else
+                        p.drawEllipse(h, 2, 2);
+                }
+                for (const auto &h : corners())
+                    p.fillRect(QRect(h - QPoint(2, 2), QSize(5, 5)), QColor(90, 210, 255));
+            }
         }
     }
     void mousePressEvent(QMouseEvent *e) override {
@@ -78,9 +227,9 @@ class CompositionCanvas : public QWidget {
             return;
         QPoint at = point(e->position());
         setFocus();
-        resizing =
-            isText() && QRect(bounds().bottomRight() - QPoint(4, 4), QSize(9, 9)).contains(at);
-        if (!resizing) {
+        corner = cornerAt(at);
+        guide = corner < 0 ? guideAt(at) : -1;
+        if (corner < 0 && guide < 0) {
             selected = -1;
             for (int i = page->texts.size() - 1; i >= 0; i--)
                 if (page->texts[i].bounds.contains(at)) {
@@ -104,21 +253,49 @@ class CompositionCanvas : public QWidget {
         press = at;
         snapshot = *page;
         dragging = true;
+        moved = false;
         if (begin)
             begin();
     }
     void mouseMoveEvent(QMouseEvent *e) override {
-        if (!dragging || !page)
+        if (!page)
             return;
+        if (!dragging) {
+            const auto at = point(e->position());
+            int grip = cornerAt(at), handle = guideAt(at);
+            setCursor(
+                grip >= 0     ? (grip == 0 || grip == 3 ? Qt::SizeFDiagCursor : Qt::SizeBDiagCursor)
+                : handle >= 0 ? (handle >= 3 && handle <= 5 ? Qt::SizeVerCursor : Qt::SizeHorCursor)
+                              : Qt::ArrowCursor);
+            return;
+        }
         QPoint delta = point(e->position()) - press;
-        if (resizing) {
+        if (guide >= 0) {
+            if (delta.isNull() && !moved)
+                return;
             auto &box = page->texts[selected - page->images.size()];
-            QSize size(qBound(1, original.width() + delta.x(), 320 - original.x()),
-                       qBound(1, original.height() + delta.y(), 200 - original.y()));
-            if (size == box.bounds.size())
+            box = snapshot.texts[selected - page->images.size()];
+            const bool vertical = guide == 3 || guide == 4 || guide == 5;
+            int amount = vertical ? delta.y() : delta.x();
+            if (guide == 2 || guide == 7)
+                amount = -amount;
+            setLayoutValue(box, guide, layoutValue(box, guide) + amount);
+        } else if (corner >= 0) {
+            auto &box = page->texts[selected - page->images.size()];
+            QRect next = original;
+            if (corner % 2 == 0)
+                next.setLeft(qBound(0, original.left() + delta.x(), original.right()));
+            else
+                next.setRight(qBound(original.left(), original.right() + delta.x(), 319));
+            if (corner < 2)
+                next.setTop(qBound(0, original.top() + delta.y(), original.bottom()));
+            else
+                next.setBottom(qBound(original.top(), original.bottom() + delta.y(), 199));
+            if (next == box.bounds)
                 return;
             box = snapshot.texts[selected - page->images.size()];
-            resizeTextBox(box, size);
+            resizeTextBox(box, next.size());
+            box.bounds.moveTopLeft(next.topLeft());
         } else {
             QPoint to = original.topLeft() + delta;
             to.setX(qBound(0, to.x(), isText() ? 320 - original.width() : 319));
@@ -130,6 +307,7 @@ class CompositionCanvas : public QWidget {
             else
                 page->images[selected].position = to;
         }
+        moved = true;
         if (changed)
             changed(false);
     }
@@ -138,7 +316,7 @@ class CompositionCanvas : public QWidget {
             return;
         mouseMoveEvent(e);
         dragging = false;
-        if (changed)
+        if (moved && changed)
             changed(true);
     }
     void keyPressEvent(QKeyEvent *e) override {
@@ -315,9 +493,48 @@ QWidget *compositionEditor(Project *project, const QString &resource, TextCommit
     form->addLayout(geometry);
     auto text = new QPlainTextEdit;
     text->setObjectName("compositionText");
+    text->setMinimumHeight(100);
     form->addWidget(text, 1);
+    auto layoutGroup = new QGroupBox("Text layout");
+    layoutGroup->setObjectName("compositionTextLayout");
+    auto layoutForm = new QFormLayout(layoutGroup);
+    QVector<QSpinBox *> layoutFields;
+    const QStringList layoutLabels = {"First-line indent", "Left margin",      "Right margin",
+                                      "Text top",          "Band top",         "Band bottom",
+                                      "Band left margin",  "Band right margin"};
+    const QStringList layoutNames = {"Indent",  "LeftMargin", "RightMargin", "TextTop",
+                                     "BandTop", "BandBottom", "BandLeft",    "BandRight"};
+    auto wrap = new QCheckBox("Wrap around artwork");
+    wrap->setObjectName("compositionWrap");
+    for (int i = 0; i < 8; ++i) {
+        if (i == 4)
+            layoutForm->addRow(wrap);
+        auto spin = new QSpinBox;
+        spin->setObjectName("composition" + layoutNames[i]);
+        spin->setRange(-640, 640);
+        spin->setSuffix(" px");
+        spin->setToolTip(i == 0 ? "Indent the first line from its left margin."
+                         : i == 2 || i == 7
+                             ? "Distance inward from the right edge of the text box."
+                             : "Distance from the text box's left or top edge, in game pixels.");
+        layoutFields << spin;
+        layoutForm->addRow(layoutLabels[i] + ":", spin);
+    }
+    wrap->setToolTip("Use different left and right margins between the band's top and bottom.");
+    auto resetLayout = new QPushButton("Reset layout");
+    resetLayout->setObjectName("resetCompositionLayout");
+    resetLayout->setToolTip("Remove indentation and artwork wrapping, keeping the box and text.");
+    layoutForm->addRow(resetLayout);
+    form->addWidget(layoutGroup);
     form->addStretch();
-    outer->addWidget(properties);
+    auto propertiesScroll = new QScrollArea;
+    propertiesScroll->setWidgetResizable(true);
+    propertiesScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    propertiesScroll->setFrameShape(QFrame::NoFrame);
+    propertiesScroll->setWidget(properties);
+    propertiesScroll->setFixedWidth(properties->width() +
+                                    propertiesScroll->verticalScrollBar()->sizeHint().width());
+    outer->addWidget(propertiesScroll);
     addImage->setToolTip("Add a PNG or an image from the original or modded game artwork.");
     addText->setToolTip("Add a resizable Ultima 5 text box. Text always appears above images.");
     remove->setToolTip("Delete the selected image or text box. Undo restores it.");
@@ -392,6 +609,16 @@ QWidget *compositionEditor(Project *project, const QString &resource, TextCommit
         text->setVisible(box);
         if (box && text->toPlainText() != page.texts[canvas->selected - page.images.size()].text)
             text->setPlainText(page.texts[canvas->selected - page.images.size()].text);
+        layoutGroup->setVisible(box);
+        if (box) {
+            const auto &t = page.texts[canvas->selected - page.images.size()];
+            auto l = textLayout(t);
+            wrap->setChecked(l.top < l.bottom);
+            for (int i = 0; i < layoutFields.size(); ++i) {
+                layoutFields[i]->setValue(layoutValue(t, i));
+                layoutFields[i]->setEnabled(i < 4 || wrap->isChecked());
+            }
+        }
         remove->setEnabled(valid);
         forward->setEnabled(valid && !box && canvas->selected + 1 < page.images.size());
         backward->setEnabled(valid && !box && canvas->selected > 0);
@@ -537,6 +764,43 @@ QWidget *compositionEditor(Project *project, const QString &resource, TextCommit
             refresh();
         });
     }
+    for (int i = 0; i < layoutFields.size(); ++i) {
+        QObject::connect(layoutFields[i], &QSpinBox::valueChanged, root, [=](int value) {
+            if (*busy || !canvas->isText())
+                return;
+            auto &box = canvas->page->texts[canvas->selected - canvas->page->images.size()];
+            setLayoutValue(box, i, value);
+            *dirty = true;
+            refresh();
+            timer->start(500);
+        });
+        QObject::connect(layoutFields[i], &QSpinBox::editingFinished, root, [=] { save(); });
+    }
+    QObject::connect(wrap, &QCheckBox::toggled, root, [=](bool on) {
+        if (*busy || !canvas->isText())
+            return;
+        auto &box = canvas->page->texts[canvas->selected - canvas->page->images.size()];
+        auto l = textLayout(box);
+        const int indent = l.x - l.left[firstMargin(l)];
+        l.top = on ? box.bounds.height() / 3 : 320;
+        l.bottom = on ? qMax(l.top + 1, box.bounds.height() * 2 / 3) : 320;
+        l.x = qBound(-320, l.left[firstMargin(l)] + indent, 320);
+        box.layout = l;
+        box.flow = true;
+        *dirty = true;
+        refresh();
+        save();
+    });
+    QObject::connect(resetLayout, &QPushButton::clicked, root, [=] {
+        if (!canvas->isText())
+            return;
+        auto &box = canvas->page->texts[canvas->selected - canvas->page->images.size()];
+        box.flow = false;
+        box.layout = {};
+        *dirty = true;
+        refresh();
+        save();
+    });
     QObject::connect(text, &QPlainTextEdit::textChanged, root, [=] {
         if (*busy || !canvas->isText())
             return;

@@ -403,7 +403,7 @@ the exported package. Images can be dragged, deleted, and moved in front
 of or behind other images with **Bring forward** / **Send backward**.
 
 **Add text box** creates an Ultima 5 proportional-font text box. Edit its text in
-the right pane, drag the box to move it, and drag its bottom-right handle to resize.
+the right pane, drag the box to move it, and drag any of its four corner grips to resize.
 The right pane also provides precise position and size fields. Text always draws
 above every image. A red box and an overflow message identify text that does not
 fit; enlarge the box or shorten the text. The canvas uses the same text-layout
@@ -422,6 +422,16 @@ sequences continue inheriting original game data and narrative overrides. Origin
 text flow and first-line indentation are preserved during conversion, text edits,
 and moves. Resizing adjusts wrap widths while retaining indentation and wrap bands.
 New text boxes use ordinary rectangular wrapping.
+
+Select a text box to open **Text layout** in the right pane. Set the first-line
+indent, left/right margins, and text top in game pixels. Enable **Wrap around
+artwork** to give a horizontal band different margins; set its top, bottom, left,
+and right margins. Right margins are measured inward from the box's right edge.
+The selected box shows green margin/indent handles and amber wrap-band handles on
+the preview; drag them to adjust the layout directly. Blue grips resize the box
+from any corner while keeping the opposite corner fixed. Escape cancels a drag.
+**Reset layout** restores ordinary wrapping without moving the box or changing its
+text. Layout changes use the same undo/redo history as other cutscene edits.
 
 ### Narrative
 
