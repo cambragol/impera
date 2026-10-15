@@ -6,4 +6,6 @@ int FONT_02fc(int param_1);
 void FONT_04a4(void);
 void FONT_0b0a(void);
 
+void FONT_CutsceneText(byte *font, int scene, unsigned page, const char *text);
+
 #endif

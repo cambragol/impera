@@ -11,6 +11,7 @@
 #include "audio/audio.h"
 
 #include "font.h"
+#include "mod/cutscene_layout.h"
 #include "intro.h"
 #include "tiles.h"
 
@@ -777,3 +778,12 @@ static void FONT_0e52(void) {}
 
 // STUB (burning up some cpu cycles. FMT: nop)
 static void FONT_0e7b(void) {}
+
+static void CutsceneGlyph(void *font, int glyph, int x, int y) {
+    ULTIMA_1044_GRAP_4e_CopyBitImageIntoPage((byte *)font,glyph,x,y);
+}
+void FONT_CutsceneText(byte *font, int scene, unsigned page, const char *text) {
+    ULTIMA_0c22_GRAP_0f_SelectPage(1);
+    U5_DrawCutscenePageText(scene,page,text,CutsceneGlyph,font);
+    ULTIMA_0c22_GRAP_0f_SelectPage(0);
+}

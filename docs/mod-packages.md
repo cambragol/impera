@@ -30,7 +30,7 @@ All integers are unsigned little-endian 32-bit values; there is no padding.
 
 | Header | Encoding |
 | --- | --- |
-| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0005` |
+| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0006` |
 | Title length | 1–256 UTF-8 bytes |
 | Resource count | 1–128 |
 | Title | Length bytes; embedded NUL forbidden |
@@ -150,3 +150,26 @@ empty original base and zero base CRC; the engine validates their schemas before
 mounting the package. Ordinary resource checks remain unchanged in all versions.
 Older engines reject unsupported versions explicitly. Current Impera retains
 version 1 and 2 compatibility.
+
+### Illustrated cutscene pages (version 6)
+
+`CUTSCENE.OVR` replaces either or both illustrated page sequences without editing
+original DAT files. It requires `IMOD0006`; it has an empty base, like the other
+virtual companions. Schema `ICUT0001` is followed by little-endian u32 introduction
+and ending counts. A zero count inherits that original sequence; an override has
+1–128 pages. At least one sequence must be overridden.
+
+Introduction records precede ending records. Each record contains a u32 layout
+index (0–20 for the Introduction, 0–5 for the Ending), a u32 text length including
+the terminator, and that many bytes of NUL-terminated ASCII. The limit is 2,000
+bytes including the terminator. Embedded NULs, unsupported controls, characters
+above `{`, invalid layouts, truncated records and trailing bytes reject the whole
+package. Layouts reference the original artwork arrangement and text exclusions;
+the editor and engine share proportional wrapping and positioning. The portal
+layout uses its first newline to separate its upper and lower text regions.
+
+A cutscene override takes precedence over the original sequence, including any
+`TEXT.OVR` ending entries. An inherited Ending still honors `TEXT.OVR`. As with
+other whole-resource companions, overlapping cutscene packages conflict rather
+than silently overwriting one another. Original 21-scene Introduction and six-page
+Ending playback, including their transitions, remain the fallback.

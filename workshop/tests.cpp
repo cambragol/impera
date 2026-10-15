@@ -19,6 +19,7 @@
 #include "narrative_editor.h"
 #include "resource_document.h"
 #include "scene_editor.h"
+#include "cutscene_editor.h"
 #include "text_preview.h"
 #include "ui_theme.h"
 #include "window.h"
@@ -107,6 +108,82 @@ int main(int argc, char **argv) {
         std::cout << "PASS " << name << "\n";
     };
     try {
+        test("Cutscene pages share an editor, preserve originals and roundtrip variable sequences", [&] {
+            QTemporaryDir dir;
+            auto p=fixture(dir.path());
+            QByteArray intro(12000,0), ending(3698,0);
+            for(int offset:U5::storyOffsets()) intro.replace(offset,6,"Hello",6);
+            for(auto entry:Workshop::narrativeEntries("END.DAT")) ending.replace(entry->offset,6,"Hello",6);
+            file(dir.path()+"/STORY.DAT",intro); file(dir.path()+"/END.DAT",ending);
+            p.openGame(dir.path());
+            auto pages=Workshop::cutscenePages(p,0);
+            check(pages.size()==21 && pages[6].text.contains("blue door"),"Portal scene is missing from introduction");
+            pages.insert(1,{0,"A new page"}); pages.removeLast();
+            p.resources["CUTSCENE.OVR"].edited=Workshop::changeCutscene(p,0,pages);
+            check(Workshop::cutscenePages(p,0)[1].text=="A new page","Added page missing");
+            auto ends=Workshop::cutscenePages(p,1); ends.append({2,"A new ending"});
+            p.resources["CUTSCENE.OVR"].edited=Workshop::changeCutscene(p,1,ends);
+            check(Workshop::cutscenePages(p,0)[1].text=="A new page","Editing ending overwrote introduction");
+            check(p.data("STORY.DAT")==intro && p.data("END.DAT")==ending,"Cutscene edits mutated original files");
+            auto package=p.package(); check(package.startsWith("IMOD0006"),"Missing cutscene package capability");
+            Project restored; restored.openGame(dir.path()); restored.importPackage(package);
+            check(Workshop::cutscenePages(restored,1).size()==7,"Package lost added ending");
+            p.save(dir.path()+"/pages.imperaproject"); Project loaded; loaded.load(p.projectPath);
+            check(loaded.data("CUTSCENE.OVR")==p.data("CUTSCENE.OVR"),"Project lost cutscene pages");
+            rejects([&]{Workshop::changeCutscene(p,0,{});});
+            rejects([&]{Workshop::changeCutscene(p,1,{{6,"Invalid layout"}});});
+            rejects([&]{Workshop::changeCutscene(p,1,{{0,QString(2000,'a')}});});
+            rejects([&]{Workshop::changeCutscene(p,0,{{0,QString(QChar(0x100))}});});
+            for(int scene=0;scene<2;scene++) {
+                QMap<QString,int> state; std::function<bool()> flush;
+                std::unique_ptr<QWidget> editor(Workshop::cutsceneEditor(&p,scene?"END.DAT":"STORY.DAT",
+                    [&](const QMap<QString,QByteArray> &changes,const QString &) {
+                        for(auto it=changes.begin();it!=changes.end();++it) p.resources[it.key()].edited=it.value();
+                        p.validate();return true;
+                    },&state,&flush));
+                auto list=editor->findChild<QListWidget *>("cutscenePages");
+                auto text=editor->findChild<QPlainTextEdit *>("cutsceneText");
+                int count=list->count();
+                text->setPlainText("Saved on navigation"); list->setCurrentRow(1);
+                check(Workshop::cutscenePages(p,scene)[0].text=="Saved on navigation","Page navigation discarded a draft");
+                editor->findChild<QPushButton *>("addCutscenePage")->click();
+                check(list->count()==count+1 && text->toPlainText().isEmpty(),"Add page failed");
+                text->setPlainText("A duplicate");
+                editor->findChild<QPushButton *>("duplicateCutscenePage")->click();
+                check(list->count()==count+2 && text->toPlainText()=="A duplicate","Duplicate page lost draft");
+                editor->findChild<QPushButton *>("removeCutscenePage")->click();
+                check(list->count()==count+1 && flush(),"Remove page failed");
+            }
+            WorkshopWindow window;
+            check(window.openGame(dir.path()),"Cannot open cutscene fixture");
+            for(auto resource:{"STORY.DAT","END.DAT"}) {
+                window.selectResource(resource);
+                QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+                check(window.findChild<QWidget *>("cutsceneEditor"),"Both sequences must use the same editor");
+                const int scene=QString(resource)=="END.DAT"?1:0;
+                const int before=Workshop::cutscenePages(window.projectForTests(),scene).size();
+                window.findChild<QPushButton *>("addCutscenePage")->click();
+                check(Workshop::cutscenePages(window.projectForTests(),scene).size()==before+1,"Window add page failed");
+                for(auto action:window.findChildren<QAction *>()) if(action->text().startsWith("Undo ")) {action->trigger();break;}
+                app.processEvents(); app.processEvents();
+                check(Workshop::cutscenePages(window.projectForTests(),scene).size()==before,"Cutscene page undo failed");
+            }
+        });
+        test("Original illustrated cutscene previews use every vanilla layout (optional)", [&] {
+            if(!qEnvironmentVariableIsSet("U5_GAME_DIR")) return;
+            Project p;p.openGame(qEnvironmentVariable("U5_GAME_DIR"));
+            for(int scene=0;scene<2;scene++) {
+                auto pages=Workshop::cutscenePages(p,scene);
+                for(const auto &page:pages) {
+                    auto image=Workshop::previewCutscene(p,scene,page);
+                    check(image.size()==QSize(320,200),"Cutscene preview has incorrect game dimensions");
+                    bool visible=false;
+                    for(int y=0;y<200 && !visible;y++) for(int x=0;x<320;x++)
+                        if(image.pixel(x,y)!=qRgb(0,0,0)) {visible=true;break;}
+                    check(visible,"Illustrated cutscene preview is blank");
+                }
+            }
+        });
         test("Map contents inherit Minoc, edit sparsely, roundtrip packages and move without "
              "painting",
              [&] {

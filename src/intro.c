@@ -6,6 +6,7 @@
 #include "savegame.h"
 #include "vars.h"
 #include "macros.h"
+#include "mod/runtime.h"
 
 #include <stdlib.h>
 
@@ -171,8 +172,12 @@ static void INTRO_014e_Introduction(void)
     } while (local_6 == 0);
 
     local_8 = 0;
-    for (local_a = 0; local_a < 0x15; local_a++) // 0384
+    unsigned customCount=MOD_CutsceneCount(0);
+    for (unsigned page=0; page<(customCount?customCount:21); page++)
     {
+        unsigned layout=page;
+        const char *customText=MOD_CutscenePage(0,page,&layout);
+        local_a=(int)layout;
         // 038a
         if (local_8 != D_30ae[local_a])
         {
@@ -223,7 +228,12 @@ static void INTRO_014e_Introduction(void)
         D_5156 = D_306c[local_a];
         D_5158 = D_3082[local_a];
 
-        if (D_30f0[local_a] == 3)
+        if (customText) {
+            if (D_30f0[local_a] == 3)
+                ULTIMA_0d4c_GRAP_4b_PutImage(local_6, 3, 0x60, 0x27, 0);
+            FONT_CutsceneText(local_c,0,layout,customText);
+        }
+        else if (D_30f0[local_a] == 3)
         {
             ULTIMA_0d4c_GRAP_4b_PutImage(local_6, 3, 0x60, 0x27, 0);
             FONT_0000(local_c, _TEXT(0x2f31, "Instantly, a shimmering blue door springs up!"));
@@ -237,7 +247,7 @@ static void INTRO_014e_Introduction(void)
             FONT_0000(local_c, D_b21e);
         }
 
-        if (local_a != 0)
+        if (page != 0)
         {
             ULTIMA_1b16_ClearKbdBuffer();
             while (ULTIMA_1d5e_PollKey() == 0)

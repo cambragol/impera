@@ -388,6 +388,24 @@ Unmatched ladders are warnings. Missing combat rooms, truncated layouts and newl
 introduced impossible features block export. An already-loaded dungeon in a save
 can retain its old layout; leave and re-enter to load the package's layout.
 
+### Introduction and Ending
+
+**Cutscenes → Introduction story** and **Ending** use the same illustrated page editor.
+Select a page to edit its text and choose an original artwork layout. **Add page**
+inserts a blank page after the selection; **Duplicate**, **Remove**, **Move up** and
+**Move down** manage the sequence. Each sequence keeps between 1 and 128 pages.
+The Introduction includes its original portal scene as an editable page.
+
+The live 320 × 200 preview combines the project's artwork, the original proportional
+font, text exclusions, justification, indents and discretionary hyphens. It shows
+the completed page; transition/reveal animation remains in the game. Page edits,
+navigation, save and export preserve drafts; page operations support undo/redo.
+
+Edited sequences are stored in `CUTSCENE.OVR` (schema 1, package version 6), leaving
+`STORY.DAT` and `END.DAT` unchanged. A sequence that has not been edited continues
+using the original data, including existing `TEXT.OVR` ending edits. New packages
+require an Impera build with cutscene page support; older engines reject them.
+
 ### Narrative
 
 The **Narrative** library group contains **Character creation**, **Ending**,
@@ -399,7 +417,7 @@ Shops includes equipment descriptions, reagent descriptions, tavern responses,
 guild supplies, healer messages, shipwright messages and inn services.
 
 **Apply text** commits an undoable edit. Navigation/save/export also check the
-current draft. Fixed edits retain original offsets and show the byte allowance,
+current draft. Other narrative fixed edits retain original offsets and show the byte allowance,
 including the terminating byte; nothing is silently truncated. **Extended text**
 stores a verified entry in a mod-only `TEXT.OVR` companion, retaining the original
 DAT bytes. Limits remain 1,999 text bytes for creation/ending/karma and 1,499 for
@@ -410,8 +428,8 @@ Shop buttons insert `[shop]`, `[keeper]`, `[time]`, `[price]`, `[quantity]`,
 **Insert word** adds an original compressed-word token (`[word:NN]`); its spacing
 matches the engine. `[[` escapes an opening bracket. Proportional previews support
 `{` paragraph indentation and `_` discretionary hyphens. Font/layout previews
-are approximate: ending artwork exclusions and the engine's word justification
-can change wrapping. A byte-valid message can still overflow a scene; use **Test
+are approximate in the other narrative editors. The Introduction/Ending editor
+uses the shared cutscene layout renderer. A byte-valid message can still overflow a scene; use **Test
 in Impera** to verify its final appearance.
 
 Extended-text exports use **package version 2 / narrative schema 1**. Use an

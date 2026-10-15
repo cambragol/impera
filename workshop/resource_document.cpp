@@ -7,6 +7,7 @@
 #include "font_editor.h"
 #include "location_text.h"
 #include "mod/contents.h"
+#include "mod/cutscenes.h"
 #include "mod/world_resources.h"
 #include "narrative_editor.h"
 #include "scene_editor.h"
@@ -55,7 +56,7 @@ Capability capability(const QString &resource) {
                 "Versioned companion; edit through its source narrative document",
                 EditorKind::Inspector};
     if (n == "STORY.DAT")
-        return {"Introduction story", "Story", "Editable fixed text windows", EditorKind::Story};
+        return {"Introduction story", "Story", "Illustrated page sequence", EditorKind::Story};
     if (n == "SIGNS.DAT" || n == "LOOK2.DAT")
         return {n == "SIGNS.DAT" ? "Signs" : "Look descriptions", "Text", "Editable location text", EditorKind::LocationText};
     if (n == "DUNGEON.DAT")
@@ -190,6 +191,10 @@ QMap<QString, QByteArray> ResourceDocument::replace(const Entry &e, const QByteA
 void validateResource(const Project &project, const QString &name) {
     const auto &b = project.data(name);
     const auto kind = capability(name).editor;
+    if (name == "CUTSCENE.OVR") {
+        require(U5_ValidateCutscenes(b.constData(), b.size()), "Invalid cutscene pages");
+        return;
+    }
     if (name == "CONTENTS.OVR") {
         U5::require(CONTENTS_Validate(b.constData(), b.size()), "Invalid map contents");
         for (const auto &d : readContents(b)) {

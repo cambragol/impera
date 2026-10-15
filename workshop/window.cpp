@@ -1,3 +1,4 @@
+#include "cutscene_editor.h"
 #include "inventory_names.h"
 #include "map_positions.h"
 #include "window.h"
@@ -1205,9 +1206,10 @@ QWidget *WorkshopWindow::resourceEditor(const QString &name) {
                 });
             },
             &editorState, &flushDraft);
-    } else if (kind == Workshop::EditorKind::Narrative || kind == Workshop::EditorKind::Scenes ||
+    } else if (name == "STORY.DAT" || name == "END.DAT" || kind == Workshop::EditorKind::Narrative || kind == Workshop::EditorKind::Scenes ||
                kind == Workshop::EditorKind::Fonts || kind == Workshop::EditorKind::Tables) {
-        editor = (kind == Workshop::EditorKind::Tables   ? Workshop::tableEditor
+        editor = (name == "STORY.DAT" || name == "END.DAT" ? Workshop::cutsceneEditor
+                  : kind == Workshop::EditorKind::Tables   ? Workshop::tableEditor
                   : kind == Workshop::EditorKind::Fonts  ? Workshop::fontEditor
                   : kind == Workshop::EditorKind::Scenes ? Workshop::sceneEditor
                                                          : Workshop::narrativeEditor)(
@@ -1248,8 +1250,6 @@ QWidget *WorkshopWindow::resourceEditor(const QString &name) {
         editor = graphicsEditor(name);
     else if (kind == Workshop::EditorKind::Conversation)
         editor = characterEditor(name);
-    else if (kind == Workshop::EditorKind::Story)
-        editor = storyEditor();
     else if (kind == Workshop::EditorKind::State)
         editor = stateEditor();
     else if (kind == Workshop::EditorKind::Schedule)
@@ -1728,92 +1728,6 @@ QWidget *WorkshopWindow::dialogueEditor(const QString &name) {
     });
     flushDraft = [editor] { return editor->flush(); };
     return editor;
-}
-QWidget *WorkshopWindow::storyEditor() {
-    QVBoxLayout *layout;
-    auto w = panel(&layout);
-    auto pages = U5::storyPages(project.data("STORY.DAT"));
-    auto originalPages = U5::storyPages(project.resources["STORY.DAT"].original);
-    auto choice = new QComboBox;
-    for (int i = 0; i < pages.size(); i++)
-        choice->addItem(QString("Page %1 — offset 0x%2")
-                            .arg(i + 1)
-                            .arg(U5::storyOffsets()[i], 4, 16, QChar('0')));
-    choice->setCurrentIndex(qBound(0, editorState.value("STORY.DAT/page"), int(pages.size()) - 1));
-    layout->addWidget(choice);
-    auto text = new QPlainTextEdit;
-    layout->addWidget(text, 1);
-    layout->addWidget(Workshop::textPreviewPanel(&project, text));
-    auto budget = new QLabel;
-    layout->addWidget(budget);
-    auto load = [=] {
-        int i = choice->currentIndex();
-        text->setPlainText(U5::storyPages(project.data("STORY.DAT"))[i]);
-    };
-    auto count = [=] {
-        int i = choice->currentIndex();
-        budget->setText(QString("%1 / %2 ASCII bytes")
-                            .arg(QString(text->toPlainText()).replace("\n", "\r\n").size())
-                            .arg(originalPages[i].size()));
-    };
-    load();
-    count();
-    auto selected = std::make_shared<int>(choice->currentIndex());
-    connect(choice, &QComboBox::currentIndexChanged, w, [=](int next) {
-        int previous = *selected;
-        {
-            QSignalBlocker block(choice);
-            choice->setCurrentIndex(previous);
-        }
-        if (flushDraft && !flushDraft())
-            return;
-        {
-            QSignalBlocker block(choice);
-            choice->setCurrentIndex(next);
-        }
-        *selected = next;
-        editorState["STORY.DAT/page"] = next;
-        load();
-        count();
-    });
-    connect(text, &QPlainTextEdit::textChanged, w, count);
-    auto row = new QHBoxLayout;
-    auto applyButton = button(row, "Apply page", [=] {
-        guard([&] {
-            int i = choice->currentIndex();
-            auto original = project.resources["STORY.DAT"].original,
-                 edited = project.data("STORY.DAT");
-            QString input = text->toPlainText();
-            input.replace("\n", "\r\n"); // DOS story line endings
-            auto changed = U5::changeStory(original, i, input);
-            int offset = U5::storyOffsets()[i], cap = originalPages[i].size();
-            edited.replace(offset, cap, changed.mid(offset, cap));
-            edit({{"STORY.DAT", edited}}, "Edit story page");
-            load();
-        });
-    });
-    row->addStretch();
-    layout->addLayout(row);
-    flushDraft = [=] {
-        QString normalized = U5::storyPages(project.data("STORY.DAT"))[choice->currentIndex()];
-        normalized.replace("\r\n", "\n");
-        if (text->toPlainText() == normalized)
-            return true;
-        auto answer = QMessageBox::question(
-            this, "Unapplied story edit", "Apply your story edit before continuing?",
-            QMessageBox::Apply | QMessageBox::Discard | QMessageBox::Cancel);
-        if (answer == QMessageBox::Cancel)
-            return false;
-        if (answer == QMessageBox::Discard) {
-            load();
-            return true;
-        }
-        applyButton->click();
-        normalized = U5::storyPages(project.data("STORY.DAT"))[choice->currentIndex()];
-        normalized.replace("\r\n", "\n");
-        return text->toPlainText() == normalized;
-    };
-    return w;
 }
 #include "state_fields.h"
 QWidget *WorkshopWindow::stateEditor() {

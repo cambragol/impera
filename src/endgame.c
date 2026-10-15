@@ -43,8 +43,12 @@ static void ENDGAME_0000(void)
     ULTIMA_1b94_SelectTextWindow(0);
 
     local_a = 0x31;
-    for (local_8 = 0; local_8 < 6; local_8++)
+    unsigned customCount=MOD_CutsceneCount(1);
+    for (unsigned page=0; page<(customCount?customCount:6); page++)
     {
+        unsigned layout=page;
+        const char *customText=MOD_CutscenePage(1,page,&layout);
+        local_8=(int)layout;
         if (D_3df4[local_8] != local_a)
         {
             ULTIMA_0be4_FreeImage(local_6);
@@ -96,10 +100,14 @@ static void ENDGAME_0000(void)
         D_5156 = D_3de2[local_8];
         D_5158 = D_3de8[local_8];
 
-        ULTIMA_256e_ReadFileFromDisk(/*0x81fe*/ "END.DAT", D_b21e, 2000, D_3dca[local_8]);
-        FONT_0000(local_c, D_b21e); // 7ce6 -> 1778:0566
+        if (customText)
+            FONT_CutsceneText(local_c,1,layout,customText);
+        else {
+            ULTIMA_256e_ReadFileFromDisk(/*0x81fe*/ "END.DAT", D_b21e, 2000, D_3dca[local_8]);
+            FONT_0000(local_c, D_b21e);
+        }
 
-        if (local_8 != 0)
+        if (page != 0)
         {
             // a40e
             while (ULTIMA_1d5e_PollKey() == 0)

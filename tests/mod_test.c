@@ -2,6 +2,7 @@
 #include "common/common.h"
 #include "common/file.h"
 #include "mod/contents.h"
+#include "mod/cutscenes.h"
 #include "mod/creation_scene.h"
 #include "mod/engine_tables.h"
 #include "mod/narrative.h"
@@ -356,6 +357,32 @@ static void contentsResources(void)
     remove("application/Mods/contents-b.imperamod");
     remove("application/Mods/contents-c-conflict.imperamod");
 }
+static void cutsceneResources(void) {
+    Buffer data={0}, package;
+    bytes(&data,"ICUT0001",8); number(&data,2); number(&data,1);
+    const char *texts[]={"New first page","New second page","New ending"};
+    for(unsigned i=0;i<3;i++) { number(&data,i); number(&data,(unsigned)strlen(texts[i])+1); bytes(&data,texts[i],strlen(texts[i])+1); }
+    assert(U5_ValidateCutscenes(data.bytes,data.size));
+    for(size_t n=0;n<data.size;n++) assert(!U5_ValidateCutscenes(data.bytes,n));
+    header(&package,1); memcpy(package.bytes,"IMOD0006",8);
+    rawEntry(&package,"CUTSCENE.OVR",NULL,0,data.bytes,data.size);
+    ModPackage decoded={0}; char error[256];
+    assert(MOD_Decode(package.bytes,package.size,readBase,NULL,&decoded,error,sizeof(error)));
+    MOD_Free(&decoded);
+    memcpy(package.bytes,"IMOD0005",8);
+    assert(!MOD_Decode(package.bytes,package.size,readBase,NULL,&decoded,error,sizeof(error)));
+    memcpy(package.bytes,"IMOD0006",8);
+    put("application/Mods/cutscenes.imperamod",package.bytes,package.size);
+    FILE_SetDataDirectory("game");
+    assert(MOD_CutsceneCount(0)==2 && MOD_CutsceneCount(1)==1);
+    unsigned layout=0;
+    assert(!strcmp(MOD_CutscenePage(0,1,&layout),texts[1]) && layout==1);
+    assert(!strcmp(MOD_CutscenePage(1,0,&layout),texts[2]) && layout==2);
+    assert(!MOD_CutscenePage(1,1,&layout));
+    FILE_SetDataDirectory(NULL); assert(!MOD_CutsceneCount(0));
+    remove("application/Mods/cutscenes.imperamod");
+    data.bytes[16]=21; assert(!U5_ValidateCutscenes(data.bytes,data.size));
+}
 int main(void) {
     assert(SDL_CreateDirectory("application/Mods"));
     assert(SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "APPIMAGE", "application/Impera.AppImage", true));
@@ -453,6 +480,7 @@ int main(void) {
     sceneResources();
     engineTables();
     contentsResources();
+    cutsceneResources();
     puts("Mod package validation, atomic mounting, order, conflicts, reloads and original preservation "
          "passed");
     return 0;

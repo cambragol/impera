@@ -41,7 +41,7 @@ void Project::openGame(const QString &directory) {
     require(dir.exists(), "Game folder does not exist");
     for (const auto &name : dir.entryList(QDir::Files, QDir::Name)) {
         QString upper = name.toUpper();
-        if (upper == "TEXT.OVR" || upper == "RULES.TBL" || upper == "CONTENTS.OVR")
+        if (upper == "CUTSCENE.OVR" || upper == "TEXT.OVR" || upper == "RULES.TBL" || upper == "CONTENTS.OVR")
             continue; // Companion resources are package-only.
         if (!MOD_AllowedResource(upper.toLatin1().constData()))
             continue;
@@ -58,6 +58,7 @@ void Project::openGame(const QString &directory) {
             readLimited(":/tilesets/" + QString::fromUtf8(sheet.filename), MOD_MAX_RESOURCE);
         next.resources.insert(QString::fromLatin1(sheet.resource), {bytes, bytes});
     }
+    next.resources.insert("CUTSCENE.OVR", {{}, {}});
     next.resources.insert("TEXT.OVR", {{}, {}});
     next.resources.insert("RULES.TBL", {{}, {}});
     next.resources.insert("CONTENTS.OVR", {{}, {}});
@@ -116,7 +117,8 @@ QByteArray Project::package() const {
     auto list = changed();
     require(!list.isEmpty(), "There are no changes to export");
     require(list.size() <= MOD_MAX_ENTRIES, "Too many modified resources");
-    QByteArray out(usesExplicitDialogue(*this)     ? "IMOD0005"
+    QByteArray out(list.contains("CUTSCENE.OVR") ? "IMOD0006"
+                   : usesExplicitDialogue(*this)     ? "IMOD0005"
                    : list.contains("CONTENTS.OVR") ? "IMOD0004"
                    : list.contains("RULES.TBL")    ? "IMOD0003"
                    : list.contains("TEXT.OVR")     ? "IMOD0002"
@@ -228,6 +230,10 @@ void Project::save(const QString &path) {
         requirements["dialogueQuoting"] = 1;
         requirements["packageVersion"] = 5;
     }
+    if (changed().contains("CUTSCENE.OVR")) {
+        requirements["cutscenePages"] = 1;
+        requirements["packageVersion"] = 6;
+    }
     if (!requirements.isEmpty())
         root["requires"] = requirements;
     QJsonObject annotations;
@@ -321,7 +327,7 @@ QVector<ModDiagnostic> validateMod(const Project &project, const QString &modsDi
                        "No modified resources; there is no package to export or test."});
     for (const auto &name : changes) {
         try {
-            if (name == "TEXT.OVR" || name == "RULES.TBL" || name == "CONTENTS.OVR") {
+            if (name == "CUTSCENE.OVR" || name == "TEXT.OVR" || name == "RULES.TBL" || name == "CONTENTS.OVR") {
                 require(project.resources[name].original.isEmpty(),
                         "Companion resource must have an empty original base");
             } else if (!MOD_TilesetSheet(name.toLatin1().constData())) {
@@ -360,6 +366,8 @@ QVector<ModDiagnostic> validateMod(const Project &project, const QString &modsDi
                            QString("Package replaces this entire resource (%1 bytes → %2 bytes).")
                                .arg(project.resources[name].original.size())
                                .arg(project.data(name).size())});
+        if (name == "CUTSCENE.OVR")
+            result.append({ModDiagnostic::Information, name, "Requires cutscene pages v1 / package v6. Older Impera versions reject this package."});
         if (name == "RULES.TBL")
             result.append(
                 {ModDiagnostic::Information, name,
@@ -630,7 +638,7 @@ QString prepareModTest(const Project &project, const QString &sessionsDirectory)
                 "Cannot make test file writable");
     }
     for (const auto &name : project.resources.keys()) {
-        if (name == "TEXT.OVR" || name == "RULES.TBL" || name == "CONTENTS.OVR" ||
+        if (name == "CUTSCENE.OVR" || name == "TEXT.OVR" || name == "RULES.TBL" || name == "CONTENTS.OVR" ||
             MOD_TilesetSheet(name.toLatin1().constData()))
             continue; // Virtual companion exists only inside the package.
         auto bytes = readLimited(destination.filePath(name), MOD_MAX_RESOURCE);
