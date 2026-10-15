@@ -64,7 +64,7 @@ def check(platform, version, destination=None):
         env['U5D_RUNTIME_DIR'] = str(runtime)
         if os.name == 'nt':
             env['PATH'] = os.pathsep.join(p for p in env['PATH'].split(os.pathsep) if 'qt' not in p.lower())
-        for command, expected in zip(commands, ('Usage: ultima5', 'PASS native dialogue packaged smoke test')):
+        for command, expected in zip(commands, ('Usage: Impera', 'PASS native dialogue packaged smoke test')):
             try:
                 result = subprocess.run(command, cwd=output, env=env, capture_output=True,
                                         text=True, timeout=60)

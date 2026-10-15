@@ -116,7 +116,7 @@ int CDECL main(int argc, char** argv/*, char** envp*/)
             SLOTS_SetLegacyEnabled(true);
         else if (strcmp(argv[arg], "--help") == 0)
         {
-            puts("Usage: ultima5 [--fullscreen | --fullscreen-4:3] [--mouse] [--smooth-movement] [--movement-speed N] [--animation-speed N] [--diagonal-movement] [--transparent-sprites] [--dithered-darkness] [--crt-filter] [--legacy-save] [C|H|T|E]\n"
+            puts("Usage: Impera [--fullscreen | --fullscreen-4:3] [--mouse] [--smooth-movement] [--movement-speed N] [--animation-speed N] [--diagonal-movement] [--transparent-sprites] [--dithered-darkness] [--crt-filter] [--legacy-save] [C|H|T|E]\n"
                  "  --fullscreen-4:3   Center the fullscreen map in a 4:3 viewport.\n"
                  "  --fullscreen       Expand the overhead map with uniform integer pixel scaling.\n"
                  "  --mouse            Enable mouse movement and contextual actions.\n"

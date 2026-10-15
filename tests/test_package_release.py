@@ -74,7 +74,7 @@ class PackagingTest(unittest.TestCase):
             root = Path(temp)
             build = root / 'build'
             build.mkdir()
-            binary = build / 'ultima5'
+            binary = build / 'Impera'
             binary.write_text('#!/bin/sh\npwd > runtime-location.txt\n')
             binary.chmod(0o755)
             for name in ['sdl3-src/LICENSE.txt', 'sdl3_mixer-src/LICENSE.txt', 'sdl3_mixer-src/src/dr_libs/LICENSE', 'sdl3_mixer-src/src/stb_vorbis/stb_vorbis.h']:
@@ -102,8 +102,8 @@ class PackagingTest(unittest.TestCase):
             root = Path(temp)
             build = root / 'build'
             build.mkdir()
-            (build / 'ultima5').write_bytes(b'engine')
-            (build / 'ultima5.exe').write_bytes(b'engine')
+            (build / 'Impera').write_bytes(b'engine')
+            (build / 'Impera.exe').write_bytes(b'engine')
             (build / 'SAVED.GAM').write_bytes(b'private')
             for name in ['sdl3-src/LICENSE.txt', 'sdl3_mixer-src/LICENSE.txt', 'sdl3_mixer-src/src/dr_libs/LICENSE', 'sdl3_mixer-src/src/stb_vorbis/stb_vorbis.h']:
                 path = build / '_deps' / name
@@ -127,7 +127,7 @@ class PackagingTest(unittest.TestCase):
                         names = f.getnames()
                         launch = next(m for m in f.getmembers() if m.name.endswith(('/Impera.sh', '/MacOS/Impera')))
                         self.assertEqual(launch.mode, 0o755)
-                        engine = next(m for m in f.getmembers() if m.name.endswith(('/impera', '/MacOS/impera-engine')))
+                        engine = next(m for m in f.getmembers() if m.name.endswith(('/Impera', '/MacOS/Impera-engine')))
                         self.assertEqual(engine.mode, 0o755)
                         readme = next(m for m in f.getmembers() if m.name.endswith('/README.md'))
                         self.assertEqual(readme.mode, 0o644)

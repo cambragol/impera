@@ -1,4 +1,5 @@
 #include "tileset.h"
+#include "tileset_assets.h"
 #include "mod/runtime.h"
 #include "mod/package.h"
 #include "mod/tileset_resources.h"
@@ -250,8 +251,6 @@ Uint32 TILESET_BufferColor(const byte *pixel, int subX, int subY, const Uint32 *
 }
 static SDL_Surface *load(const char *filename)
 {
-    char paths[4][FILE_PATH_SIZE];
-    int count = 0;
     const ModTilesetSheet *sheet = MOD_TilesetSheet(filename);
     int overridden = 0;
     FILE *mod = sheet ? MOD_OpenResource(sheet->resource, &overridden) : NULL;
@@ -273,37 +272,21 @@ static SDL_Surface *load(const char *filename)
             fclose(mod);
         return image;
     }
+    /* Explicit developer overrides are authoritative; missing/corrupt sheets
+     * must not silently mix with the built-in pack. Mods take precedence above. */
     const char *custom = SDL_getenv("IMPERA_TILESETS");
-    if (custom)
-        SDL_snprintf(paths[count++], FILE_PATH_SIZE, "%s/%s", custom, filename);
-    const char *appimage = SDL_getenv("APPIMAGE");
-    if (appimage)
-    {
-        SDL_strlcpy(paths[count], appimage, FILE_PATH_SIZE);
-        char *slash = strrchr(paths[count], '/');
-        if (slash)
-            *slash = 0;
-        SDL_strlcat(paths[count], "/textures/tilesets/", FILE_PATH_SIZE);
-        SDL_strlcat(paths[count++], filename, FILE_PATH_SIZE);
+    if (custom && *custom) {
+        char path[FILE_PATH_SIZE];
+        SDL_snprintf(path, sizeof(path), "%s/%s", custom, filename);
+        return SDL_LoadPNG(path);
     }
-    SDL_snprintf(paths[count++], FILE_PATH_SIZE, "%stextures/tilesets/%s", SDL_GetBasePath(), filename);
-    SDL_snprintf(paths[count++], FILE_PATH_SIZE, "textures/tilesets/%s", filename);
-    for (int i = 0; i < count; i++)
-    {
-        SDL_Surface *image = SDL_LoadPNG(paths[i]);
-        if (image)
-        {
-            debug("Loaded tileset sheet %s (%dx%d)", paths[i], image->w, image->h);
-            return image;
+    for (size_t i = 0; i < sizeof(tileset_pngs) / sizeof(tileset_pngs[0]); ++i) {
+        if (strcmp(filename, tileset_pngs[i].name) == 0) {
+            SDL_IOStream *stream = SDL_IOFromConstMem(tileset_pngs[i].data, tileset_pngs[i].size);
+            return stream ? SDL_LoadPNG_IO(stream, true) : NULL;
         }
     }
-#ifdef __APPLE__
-    SDL_snprintf(paths[0], FILE_PATH_SIZE, "%s../Resources/textures/tilesets/%s", SDL_GetBasePath(),
-                 filename);
-    return SDL_LoadPNG(paths[0]);
-#else
     return NULL;
-#endif
 }
 static int colorIndex(Uint32 value)
 {

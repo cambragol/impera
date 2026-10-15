@@ -502,6 +502,25 @@ int main(void)
             SDL_DestroySurface(image);
         }
     }
+    /* Every built-in pack works without external sheets or a resource path,
+     * and its decoded pixels exactly match the source PNGs. */
+    char *sheetDirectory = SDL_strdup(SDL_getenv("IMPERA_TILESETS"));
+    assert(sheetDirectory);
+    for (int choice = TILESET_AMIGA; choice <= TILESET_SHARP; ++choice) {
+        assert(SDL_unsetenv_unsafe("IMPERA_TILESETS") == 0);
+        assert(TILESET_Select(TILESET_DOS));
+        assert(TILESET_Select(choice));
+        assert(SDL_setenv_unsafe("IMPERA_TILESETS", sheetDirectory, 1) == 0);
+        SDL_Surface *image = sheet(files[choice]);
+        verifySheet(image, choice, 0);
+        SDL_DestroySurface(image);
+        if (choice == TILESET_SHARP) {
+            image = sheet("Ultima_5_Tiles_SharpX68000_NPC.png");
+            verifySheet(image, choice, 256);
+            SDL_DestroySurface(image);
+        }
+    }
+    SDL_free(sheetDirectory);
     /* Sharp cutout pixels, including those touching artwork, stay transparent.
      * Native black ink is an opaque palette entry and must still be drawn. */
     bool transparent = GRAP_BUF_TransparentSprites();

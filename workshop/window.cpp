@@ -2282,7 +2282,7 @@ bool WorkshopWindow::reviewPackage(bool launch) {
         QString executable = QSettings().value("paths/engine").toString();
         if (!QFileInfo(executable).exists()) {
             QDir applications(QFileInfo(imperaModsDirectory()).absolutePath());
-            for (const QString &name : {QString("Impera.exe"), QString("Impera.AppImage"), QString("Impera.app")})
+            for (const QString &name : {QString("Impera.exe"), QString("Impera"), QString("Impera.AppImage"), QString("Impera.app")})
                 if (applications.exists(name)) {
                     executable = applications.filePath(name);
                     break;
@@ -2296,7 +2296,7 @@ bool WorkshopWindow::reviewPackage(bool launch) {
                 return;
         }
         if (executable.endsWith(".app", Qt::CaseInsensitive))
-            executable = QDir(executable).filePath("Contents/MacOS/impera-engine");
+            executable = QDir(executable).filePath("Contents/MacOS/Impera-engine");
         require(QFileInfo(executable).isFile() && QFileInfo(executable).isExecutable(),
                 "Choose an executable Impera file");
         QSettings().setValue("paths/engine", executable);

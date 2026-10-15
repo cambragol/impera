@@ -22,7 +22,7 @@ def package(build, platform, version, destination, unpacked=False):
     stage.mkdir(parents=True)
     windows = platform.startswith('windows-')
     mac = platform.startswith('macos-')
-    binary = 'ultima5.exe' if windows else 'ultima5'
+    binary = 'Impera.exe' if windows else 'Impera'
     candidates = [build / 'Release' / binary, build / binary]
     source = next((p for p in candidates if p.is_file()), None)
     if not source:
@@ -34,7 +34,7 @@ def package(build, platform, version, destination, unpacked=False):
         resources = contents / 'Resources'
         resources.mkdir()
         shutil.copy2(REPO / 'packaging/impera.icns', resources / 'impera.icns')
-        shutil.copy2(source, executables / 'impera-engine')
+        shutil.copy2(source, executables / 'Impera-engine')
         launcher = executables / 'Impera'
         launcher.write_text('''#!/bin/sh
 set -eu
@@ -42,7 +42,7 @@ app_dir="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 runtime="${U5D_RUNTIME_DIR:-$HOME/Library/Application Support/Impera}"
 mkdir -p "$runtime"
 cd "$runtime"
-exec "$app_dir/MacOS/impera-engine" "$@"
+exec "$app_dir/MacOS/Impera-engine" "$@"
 ''')
         launcher.chmod(0o755)
         with (contents / 'Info.plist').open('wb') as f:
@@ -52,7 +52,7 @@ exec "$app_dir/MacOS/impera-engine" "$@"
                               CFBundleShortVersionString=version.removeprefix('v') if re.fullmatch(r'v?\d+\.\d+\.\d+', version) else '0.0.0',
                               LSMinimumSystemVersion='12.0', NSHighResolutionCapable=True), f)
     else:
-        shutil.copy2(source, stage / ('Impera.exe' if windows else 'impera'))
+        shutil.copy2(source, stage / ('Impera.exe' if windows else 'Impera'))
         if windows:
             (stage / 'Run Impera.cmd').write_text('@echo off\r\ncd /d "%~dp0"\r\nImpera.exe %*\r\n', newline='')
         else:
@@ -63,7 +63,7 @@ app_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 runtime="${U5D_RUNTIME_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/impera}"
 mkdir -p "$runtime"
 cd "$runtime"
-exec "$app_dir/impera" "$@"
+exec "$app_dir/Impera" "$@"
 ''')
             launcher.chmod(0o755)
     shutil.copy2(REPO / 'README.md', stage / 'README.md')
@@ -96,9 +96,9 @@ exec "$app_dir/impera" "$@"
     else:
         # Windows filesystems do not retain chmod's Unix execute bits.
         # Define portable permissions in the archive itself on every host.
-        executable_paths = {'impera', 'Impera.sh',
+        executable_paths = {'Impera', 'Impera.sh',
                             'Impera.app/Contents/MacOS/Impera',
-                            'Impera.app/Contents/MacOS/impera-engine'}
+                            'Impera.app/Contents/MacOS/Impera-engine'}
         def portable_permissions(member):
             relative = Path(member.name).relative_to(name).as_posix()
             member.mode = 0o755 if member.isdir() or relative in executable_paths else 0o644

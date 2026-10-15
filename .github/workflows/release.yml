@@ -87,13 +87,13 @@ jobs:
           import os, pathlib, subprocess
           build = pathlib.Path('release-build')
           if os.name == 'nt':
-              engine = build / 'Release/ultima5.exe'
+              engine = build / 'Release/Impera.exe'
               workshop = build / 'workshop/Release/ImperaWorkshop.exe'
           elif '${{ runner.os }}' == 'macOS':
-              engine = build / 'ultima5'
+              engine = build / 'Impera'
               workshop = build / 'workshop/ImperaWorkshop.app/Contents/MacOS/ImperaWorkshop'
           else:
-              engine = build / 'ultima5'
+              engine = build / 'Impera'
               workshop = build / 'workshop/ImperaWorkshop'
           for executable in (engine, workshop):
               print(f'Checking {executable}', flush=True)
@@ -106,8 +106,10 @@ jobs:
               print(result.stdout, end='')
               print(result.stderr, end='')
               assert 'Usage:' in result.stdout, result.stdout + result.stderr
-      - name: Embedded cursor consistency
-        run: python scripts/embed-cursors.py --check
+      - name: Embedded asset consistency
+        run: |
+          python scripts/embed-cursors.py --check
+          python scripts/embed-tilesets.py --check
       - name: Generated icon consistency
         run: python scripts/generate-icons.py --check
       - name: Packaging regression
@@ -136,7 +138,7 @@ jobs:
               result = subprocess.run([str(executable), '--help'], cwd=runtime,
                                       capture_output=True, text=True, check=True,
                                       env={**os.environ, 'HOME': str(runtime)}, timeout=30)
-              assert 'Usage: ultima5' in result.stdout, result.stdout + result.stderr
+              assert 'Usage: Impera' in result.stdout, result.stdout + result.stderr
       - name: Verify packaged native icon
         if: runner.os != 'Linux'
         run: python scripts/verify-package-icons.py --platform ${{ matrix.platform }} --package-root dist
@@ -147,7 +149,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           XDG_DATA_HOME="$RUNNER_TEMP/impera-smoke" dist/*.AppImage --appimage-extract-and-run --help > "$RUNNER_TEMP/impera-help.txt"
-          grep -q 'Usage: ultima5' "$RUNNER_TEMP/impera-help.txt"
+          grep -q 'Usage: Impera' "$RUNNER_TEMP/impera-help.txt"
       - name: Verify AppImage icon
         if: runner.os == 'Linux'
         run: python scripts/verify-package-icons.py --platform linux-x86_64 --package-root dist
