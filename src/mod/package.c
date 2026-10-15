@@ -78,14 +78,14 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
     memset(result, 0, sizeof(*result));
     if (size >= 8 && memcmp(bytes, "IMOD0001", 8) && memcmp(bytes, "IMOD0002", 8) &&
         memcmp(bytes, "IMOD0003", 8) && memcmp(bytes, "IMOD0004", 8) &&
-        memcmp(bytes, "IMOD0005", 8) && memcmp(bytes, "IMOD0006", 8)) {
+        memcmp(bytes, "IMOD0005", 8) && memcmp(bytes, "IMOD0006", 8) && memcmp(bytes, "IMOD0007", 8)) {
         reason = "Unsupported mod package version; update Impera";
         goto fail;
     }
     if (size > MOD_MAX_PACKAGE || !reader || !take(&c, magic, 8) ||
         (memcmp(magic, "IMOD0001", 8) && memcmp(magic, "IMOD0002", 8) &&
          memcmp(magic, "IMOD0003", 8) && memcmp(magic, "IMOD0004", 8) &&
-         memcmp(magic, "IMOD0005", 8) && memcmp(magic, "IMOD0006", 8)) ||
+         memcmp(magic, "IMOD0005", 8) && memcmp(magic, "IMOD0006", 8) && memcmp(magic, "IMOD0007", 8)) ||
         !number(&c, &titleLength) || titleLength == 0 || titleLength > 256 || !number(&c, &count) ||
         count == 0 || count > MOD_MAX_ENTRIES || !take(&c, result->title, titleLength) ||
         memchr(result->title, 0, titleLength))
@@ -125,12 +125,12 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
         } else if (!strcmp(entry->name, "CUTSCENE.OVR") || !strcmp(entry->name, "TEXT.OVR") || !strcmp(entry->name, "RULES.TBL") ||
                    !strcmp(entry->name, "CONTENTS.OVR")) {
             if ((memcmp(magic, "IMOD0002", 8) && memcmp(magic, "IMOD0003", 8) &&
-                 memcmp(magic, "IMOD0004", 8) && memcmp(magic, "IMOD0005", 8) && memcmp(magic, "IMOD0006", 8)) ||
+                 memcmp(magic, "IMOD0004", 8) && memcmp(magic, "IMOD0005", 8) && memcmp(magic, "IMOD0006", 8) && memcmp(magic, "IMOD0007", 8)) ||
                 (!strcmp(entry->name, "RULES.TBL") && memcmp(magic, "IMOD0003", 8) &&
-                 memcmp(magic, "IMOD0004", 8) && memcmp(magic, "IMOD0005", 8) && memcmp(magic, "IMOD0006", 8)) ||
+                 memcmp(magic, "IMOD0004", 8) && memcmp(magic, "IMOD0005", 8) && memcmp(magic, "IMOD0006", 8) && memcmp(magic, "IMOD0007", 8)) ||
                 (!strcmp(entry->name, "CONTENTS.OVR") && memcmp(magic, "IMOD0004", 8) &&
-                 memcmp(magic, "IMOD0005", 8) && memcmp(magic, "IMOD0006", 8)) ||
-                (!strcmp(entry->name, "CUTSCENE.OVR") && memcmp(magic, "IMOD0006", 8)) ||
+                 memcmp(magic, "IMOD0005", 8) && memcmp(magic, "IMOD0006", 8) && memcmp(magic, "IMOD0007", 8)) ||
+                (!strcmp(entry->name, "CUTSCENE.OVR") && memcmp(magic, "IMOD0006", 8) && memcmp(magic, "IMOD0007", 8)) ||
                 baseSize || baseCrc) {
                 reason =
                     "Companion overrides require a supported package version and an empty base";
@@ -188,7 +188,8 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
             reason = "Invalid Hercules font dimensions";
             goto fail;
         }
-        if (!strcmp(entry->name, "CUTSCENE.OVR") && !U5_ValidateCutscenes(entry->data, entry->size)) {
+        if (!strcmp(entry->name, "CUTSCENE.OVR") && (!U5_ValidateCutscenes(entry->data, entry->size) ||
+             (!memcmp(entry->data,"ICUT0002",8) && memcmp(magic,"IMOD0007",8)))) {
             reason = "Unsupported or invalid cutscene pages";
             goto fail;
         }

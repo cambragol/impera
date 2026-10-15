@@ -49,6 +49,10 @@ static void ENDGAME_0000(void)
         unsigned layout=page;
         const char *customText=MOD_CutscenePage(1,page,&layout);
         local_8=(int)layout;
+        U5CutscenePlacement placement;
+        MOD_CutscenePlacement(1,page,&placement);
+        int shiftX=placement.custom?placement.imageX-D_3dfa[local_8]:0;
+        int shiftY=placement.custom?placement.imageY-D_3e00[local_8]:0;
         if (D_3df4[local_8] != local_a)
         {
             ULTIMA_0be4_FreeImage(local_6);
@@ -71,14 +75,14 @@ static void ENDGAME_0000(void)
             {
             case 0:
                 // a366
-                ULTIMA_0d4c_GRAP_4b_PutImage(local_4, 0, 0xd8, 0, 0);
-                ULTIMA_0d4c_GRAP_4b_PutImage(local_4, 4, 0x98, 0x1c, 0); // a385
+                ULTIMA_0d4c_GRAP_4b_PutImage(local_4, 0, (0xd8) + shiftX, (0) + shiftY, 0);
+                ULTIMA_0d4c_GRAP_4b_PutImage(local_4, 4, (0x98) + shiftX, (0x1c) + shiftY, 0); // a385
                 break;
 
             case 3:
                 // a454
-                ULTIMA_0d4c_GRAP_4b_PutImage(local_4, 5, 0xe0, 0, 0);
-                ULTIMA_0d4c_GRAP_4b_PutImage(local_4, 0, 0xb0, 0, 0);
+                ULTIMA_0d4c_GRAP_4b_PutImage(local_4, 5, (0xe0) + shiftX, (0) + shiftY, 0);
+                ULTIMA_0d4c_GRAP_4b_PutImage(local_4, 0, (0xb0) + shiftX, (0) + shiftY, 0);
                 // -> a385
                 break;
 
@@ -89,7 +93,7 @@ static void ENDGAME_0000(void)
         }
 
         // a38c
-        ULTIMA_0d4c_GRAP_4b_PutImage(local_6, D_3dee[local_8], D_3dfa[local_8], D_3e00[local_8], 0);
+        ULTIMA_0d4c_GRAP_4b_PutImage(local_6, D_3dee[local_8], (D_3dfa[local_8]) + shiftX, (D_3e00[local_8]) + shiftY, 0);
 
         D_5146[0] = D_3da6[local_8].x;
         D_5146[1] = D_3da6[local_8].y;
@@ -101,7 +105,7 @@ static void ENDGAME_0000(void)
         D_5158 = D_3de8[local_8];
 
         if (customText)
-            FONT_CutsceneText(local_c,1,layout,customText);
+            FONT_PlacedCutsceneText(local_c,1,layout,&placement,customText);
         else {
             ULTIMA_256e_ReadFileFromDisk(/*0x81fe*/ "END.DAT", D_b21e, 2000, D_3dca[local_8]);
             FONT_0000(local_c, D_b21e);

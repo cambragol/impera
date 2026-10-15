@@ -178,6 +178,10 @@ static void INTRO_014e_Introduction(void)
         unsigned layout=page;
         const char *customText=MOD_CutscenePage(0,page,&layout);
         local_a=(int)layout;
+        U5CutscenePlacement placement;
+        MOD_CutscenePlacement(0,page,&placement);
+        int shiftX=placement.custom?placement.imageX-D_30c4[local_a]:0;
+        int shiftY=placement.custom?placement.imageY-D_30da[local_a]:0;
         // 038a
         if (local_8 != D_30ae[local_a])
         {
@@ -197,24 +201,24 @@ static void INTRO_014e_Introduction(void)
             switch (local_a)
             {
             case 0:
-                ULTIMA_0d4c_GRAP_4b_PutImage(local_4, 0, 0xe0, 0x1e, 0);
-                ULTIMA_0d4c_GRAP_4b_PutImage(local_4, 1, 0xa8, 0x3a, 0);
+                ULTIMA_0d4c_GRAP_4b_PutImage(local_4, 0, (0xe0) + shiftX, (0x1e) + shiftY, 0);
+                ULTIMA_0d4c_GRAP_4b_PutImage(local_4, 1, (0xa8) + shiftX, (0x3a) + shiftY, 0);
                 break;
             case 7:
-                ULTIMA_0d4c_GRAP_4b_PutImage(local_4, 0, 0xe8, 0x1a, 0);
-                ULTIMA_0d4c_GRAP_4b_PutImage(local_4, 2, 200, 0x36, 0);
+                ULTIMA_0d4c_GRAP_4b_PutImage(local_4, 0, (0xe8) + shiftX, (0x1a) + shiftY, 0);
+                ULTIMA_0d4c_GRAP_4b_PutImage(local_4, 2, (200) + shiftX, (0x36) + shiftY, 0);
                 break;
             case 0xe:
-                ULTIMA_0d4c_GRAP_4b_PutImage(local_4, 0, 0xb8, 0, 0);
-                ULTIMA_0d4c_GRAP_4b_PutImage(local_4, 3, 0xf8, 0, 0);
+                ULTIMA_0d4c_GRAP_4b_PutImage(local_4, 0, (0xb8) + shiftX, (0) + shiftY, 0);
+                ULTIMA_0d4c_GRAP_4b_PutImage(local_4, 3, (0xf8) + shiftX, (0) + shiftY, 0);
                 break;
             }
         }
 
-        ULTIMA_0d4c_GRAP_4b_PutImage(local_6, D_3098[local_a], D_30c4[local_a], D_30da[local_a], 0);
+        ULTIMA_0d4c_GRAP_4b_PutImage(local_6, D_3098[local_a], (D_30c4[local_a]) + shiftX, (D_30da[local_a]) + shiftY, 0);
         if (D_30f0[local_a] >= 4)
         {
-            ULTIMA_0d4c_GRAP_4b_PutImage(local_6, D_30f0[local_a] * 2 - 5, D_30c4[local_a], D_30da[local_a] + 0x37, 0);
+            ULTIMA_0d4c_GRAP_4b_PutImage(local_6, D_30f0[local_a] * 2 - 5, (D_30c4[local_a]) + shiftX, (D_30da[local_a] + 0x37) + shiftY, 0);
         }
 
         D_5146[0] = D_2f98[local_a].x;
@@ -230,12 +234,12 @@ static void INTRO_014e_Introduction(void)
 
         if (customText) {
             if (D_30f0[local_a] == 3)
-                ULTIMA_0d4c_GRAP_4b_PutImage(local_6, 3, 0x60, 0x27, 0);
-            FONT_CutsceneText(local_c,0,layout,customText);
+                ULTIMA_0d4c_GRAP_4b_PutImage(local_6, 3, (0x60) + shiftX, (0x27) + shiftY, 0);
+            FONT_PlacedCutsceneText(local_c,0,layout,&placement,customText);
         }
         else if (D_30f0[local_a] == 3)
         {
-            ULTIMA_0d4c_GRAP_4b_PutImage(local_6, 3, 0x60, 0x27, 0);
+            ULTIMA_0d4c_GRAP_4b_PutImage(local_6, 3, (0x60) + shiftX, (0x27) + shiftY, 0);
             FONT_0000(local_c, _TEXT(0x2f31, "Instantly, a shimmering blue door springs up!"));
             D_5156 = D_306c[local_a];
             D_5158 = 0xb4;
@@ -259,8 +263,12 @@ static void INTRO_014e_Introduction(void)
         if (D_30f0[local_a] == 2)
         {
             ULTIMA_0c22_GRAP_0f_SelectPage(1);
-            ULTIMA_0d4c_GRAP_4b_PutImage(local_6, 2, 0x28, 0x56, 0);
-            ULTIMA_0f46_GRAP_66_Reveal(0x28, 0x56, 0x4b, 0x78);
+            ULTIMA_0d4c_GRAP_4b_PutImage(local_6, 2, (0x28) + shiftX, (0x56) + shiftY, 0);
+            /* Keep the reveal rectangle inside the backing page after moving artwork. */
+            int x1=0x28+shiftX,y1=0x56+shiftY,x2=0x4b+shiftX,y2=0x78+shiftY;
+            if(x1<0) x1=0; if(y1<0) y1=0;
+            if(x2>319) x2=319; if(y2>199) y2=199;
+            if(x1<=x2 && y1<=y2) ULTIMA_0f46_GRAP_66_Reveal(x1,y1,x2,y2);
         }
     }
 

@@ -20,6 +20,7 @@
 #include "resource_document.h"
 #include "scene_editor.h"
 #include "cutscene_editor.h"
+#include "mod/cutscene_layout.h"
 #include "text_preview.h"
 #include "ui_theme.h"
 #include "window.h"
@@ -130,6 +131,19 @@ int main(int argc, char **argv) {
             check(Workshop::cutscenePages(restored,1).size()==7,"Package lost added ending");
             p.save(dir.path()+"/pages.imperaproject"); Project loaded; loaded.load(p.projectPath);
             check(loaded.data("CUTSCENE.OVR")==p.data("CUTSCENE.OVR"),"Project lost cutscene pages");
+            auto placed=Workshop::cutscenePages(p,0);
+            placed[0].placement=U5_DefaultCutscenePlacement(0,placed[0].layout);
+            placed[0].placement.custom=1;placed[0].placement.imageX=30;placed[0].placement.x=190;
+            p.resources["CUTSCENE.OVR"].edited=Workshop::changeCutscene(p,0,placed);
+            check(p.package().startsWith("IMOD0007"),"Custom layout lacks its package capability");
+            restored.importPackage(p.package());
+            check(Workshop::cutscenePages(restored,0)[0]==placed[0],"Custom placement lost in package");
+            p.save(p.projectPath);loaded.load(p.projectPath);
+            check(Workshop::cutscenePages(loaded,0)[0]==placed[0],"Custom placement lost in project");
+            auto invalid=placed;invalid[0].placement.right[0]=invalid[0].placement.left[0];
+            rejects([&]{Workshop::changeCutscene(p,0,invalid);});
+            invalid=placed;invalid[0].placement.imageY=200;
+            rejects([&]{Workshop::changeCutscene(p,0,invalid);});
             rejects([&]{Workshop::changeCutscene(p,0,{});});
             rejects([&]{Workshop::changeCutscene(p,1,{{6,"Invalid layout"}});});
             rejects([&]{Workshop::changeCutscene(p,1,{{0,QString(2000,'a')}});});
@@ -144,6 +158,17 @@ int main(int argc, char **argv) {
                 auto list=editor->findChild<QListWidget *>("cutscenePages");
                 auto text=editor->findChild<QPlainTextEdit *>("cutsceneText");
                 int count=list->count();
+                auto customize=editor->findChild<QCheckBox *>("customizeCutsceneLayout");
+                auto imageX=editor->findChild<QSpinBox *>("cutsceneLayout_imageX");
+                auto textX=editor->findChild<QSpinBox *>("cutsceneLayout_textX");
+                customize->setChecked(true);imageX->setValue(25);textX->setValue(200);
+                customize->setChecked(false);
+                check(flush(),"Custom layout draft could not be saved");
+                check(Workshop::cutscenePages(p,scene)[0].placement.imageX==25 &&
+                    Workshop::cutscenePages(p,scene)[0].placement.x==200,"Layout controls were not saved");
+                customize->setChecked(true);
+                editor->findChild<QPushButton *>("resetCutsceneLayout")->click();
+                check(flush() && !Workshop::cutscenePages(p,scene)[0].placement.custom,"Reset did not restore preset layout");
                 text->setPlainText("Saved on navigation"); list->setCurrentRow(1);
                 check(Workshop::cutscenePages(p,scene)[0].text=="Saved on navigation","Page navigation discarded a draft");
                 editor->findChild<QPushButton *>("addCutscenePage")->click();
@@ -167,6 +192,16 @@ int main(int argc, char **argv) {
                 for(auto action:window.findChildren<QAction *>()) if(action->text().startsWith("Undo ")) {action->trigger();break;}
                 app.processEvents(); app.processEvents();
                 check(Workshop::cutscenePages(window.projectForTests(),scene).size()==before,"Cutscene page undo failed");
+                QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+                auto customize=window.findChild<QCheckBox *>("customizeCutsceneLayout");
+                customize->setChecked(true);
+                window.findChild<QSpinBox *>("cutsceneLayout_imageX")->setValue(20);
+                window.findChild<QPushButton *>("applyCutscenePage")->click();
+                auto row=window.findChild<QListWidget *>("cutscenePages")->currentRow();
+                check(Workshop::cutscenePages(window.projectForTests(),scene)[row].placement.custom,"Window layout apply failed");
+                for(auto action:window.findChildren<QAction *>()) if(action->text().startsWith("Undo ")) {action->trigger();break;}
+                app.processEvents();app.processEvents();
+                check(!Workshop::cutscenePages(window.projectForTests(),scene)[row].placement.custom,"Layout undo did not restore preset");
             }
         });
         test("Original illustrated cutscene previews use every vanilla layout (optional)", [&] {
@@ -181,8 +216,50 @@ int main(int argc, char **argv) {
                     for(int y=0;y<200 && !visible;y++) for(int x=0;x<320;x++)
                         if(image.pixel(x,y)!=qRgb(0,0,0)) {visible=true;break;}
                     check(visible,"Illustrated cutscene preview is blank");
+                    auto placed=page;
+                    placed.placement=U5_DefaultCutscenePlacement(scene,page.layout);placed.placement.custom=1;
+                    check(Workshop::previewCutscene(p,scene,placed)==image,"Enabling custom layout changed a preset's composition");
+                    placed.placement.imageX=(placed.placement.imageX+20)%320;
+                    check(Workshop::previewCutscene(p,scene,placed)!=image,"Moving artwork did not affect its preview");
                 }
             }
+        });
+        test("Cutscene layout preview drags artwork and text in game pixels (optional)", [&] {
+            if(!qEnvironmentVariableIsSet("U5_GAME_DIR")) return;
+            Project p;p.openGame(qEnvironmentVariable("U5_GAME_DIR"));
+            QMap<QString,int> state;std::function<bool()> flush;
+            std::unique_ptr<QWidget> editor(Workshop::cutsceneEditor(&p,"STORY.DAT",
+                [&](const QMap<QString,QByteArray> &changes,const QString &) {
+                    for(auto it=changes.begin();it!=changes.end();++it) p.resources[it.key()].edited=it.value();
+                    p.validate();return true;
+                },&state,&flush));
+            editor->resize(1400,850);editor->show();
+            editor->findChild<QCheckBox *>("customizeCutsceneLayout")->setChecked(true);
+            app.processEvents();
+            auto preview=editor->findChild<QLabel *>("cutscenePreview");
+            check(!preview->pixmap().isNull(),"Layout drag preview is missing");
+            const QPointF offset((preview->width()-640)/2.0,(preview->height()-400)/2.0);
+            auto drag=[&](QPointF a,QPointF b,bool cancel=false) {
+                QMouseEvent down(QEvent::MouseButtonPress,a,a,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+                QApplication::sendEvent(preview,&down);
+                QMouseEvent move(QEvent::MouseMove,b,b,Qt::NoButton,Qt::LeftButton,Qt::NoModifier);
+                QApplication::sendEvent(preview,&move);
+                if(cancel) {QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(preview,&escape);}
+                QMouseEvent up(QEvent::MouseButtonRelease,b,b,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(preview,&up);
+            };
+            check(flush() && p.changed().isEmpty(),"Entering layout mode changed the page");
+            drag(offset+QPointF(10,10),offset+QPointF(50,30),true);
+            check(flush() && p.changed().isEmpty(),"Cancelling the first drag left a custom layout override");
+            drag(offset+QPointF(10,10),offset+QPointF(50,30));
+            auto page=Workshop::cutscenePages(p,0)[0];
+            check(page.placement.imageX==20 && page.placement.imageY==10,"Artwork drag saved incorrect game coordinates");
+            drag(offset+QPointF(page.placement.x*2,page.placement.y*2),offset+QPointF(page.placement.x*2+24,page.placement.y*2+18));
+            page=Workshop::cutscenePages(p,0)[0];
+            check(page.placement.x==192 && page.placement.y==137,"Text handle drag saved incorrect coordinates");
+            const auto before=p.data("CUTSCENE.OVR");
+            drag(offset+QPointF(50,30),offset+QPointF(70,40),true);
+            check(flush() && p.data("CUTSCENE.OVR")==before,"Escape did not cancel a layout drag");
         });
         test("Map contents inherit Minoc, edit sparsely, roundtrip packages and move without "
              "painting",

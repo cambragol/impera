@@ -30,7 +30,7 @@ All integers are unsigned little-endian 32-bit values; there is no padding.
 
 | Header | Encoding |
 | --- | --- |
-| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0006` |
+| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0007` |
 | Title length | 1–256 UTF-8 bytes |
 | Resource count | 1–128 |
 | Title | Length bytes; embedded NUL forbidden |
@@ -173,3 +173,38 @@ A cutscene override takes precedence over the original sequence, including any
 other whole-resource companions, overlapping cutscene packages conflict rather
 than silently overwriting one another. Original 21-scene Introduction and six-page
 Ending playback, including their transitions, remain the fallback.
+
+### Per-page cutscene placement (version 7)
+
+`IMOD0007` adds `ICUT0002` while retaining all previous package and cutscene
+schemas. Schema 2 keeps the sequence counts and page headers from schema 1, but
+inserts twelve little-endian u32 values between each page's layout/text-length
+header and its text:
+
+1. Custom placement enabled (0 or 1).
+2. Artwork anchor X.
+3. Artwork anchor Y.
+4. Text left edge outside the wrap band.
+5. Text right edge outside the wrap band.
+6. Text left edge inside the wrap band.
+7. Text right edge inside the wrap band.
+8. Wrap band top.
+9. Wrap band bottom.
+10. First text line X.
+11. First text line Y.
+12. Lower portal paragraph Y.
+
+A disabled custom flag inherits the selected original layout. Artwork anchors
+must lie within the 320 × 200 page. Text edges must form nonempty intervals within
+0–320, the wrap band must be ordered within 0–200, text X within 0–319, and text
+Y/lower paragraph Y within 0–191. All encoded coordinate values are bounded by
+320, even on records whose custom flag is disabled. Invalid values reject the
+entire package. An inactive wrap band can use top = bottom = 200.
+
+Custom artwork placement translates the entire original illustration group,
+including decorative lettering, portal art and secondary/revealed frames. Drawing
+clips to the game page, and the reveal region is clamped before page transfers.
+The same placement object and font-layout kernel drive Workshop previews and
+Impera playback. Layout changes are per page; duplication copies them and reordering
+moves them with their text. If no page needs custom placement, Workshop emits the
+original schema 1 / package version 6 instead.

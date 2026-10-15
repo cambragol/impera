@@ -787,3 +787,9 @@ void FONT_CutsceneText(byte *font, int scene, unsigned page, const char *text) {
     U5_DrawCutscenePageText(scene,page,text,CutsceneGlyph,font);
     ULTIMA_0c22_GRAP_0f_SelectPage(0);
 }
+
+void FONT_PlacedCutsceneText(byte *font, int scene, unsigned page, const U5CutscenePlacement *placement, const char *text) {
+    ULTIMA_0c22_GRAP_0f_SelectPage(1);
+    U5_DrawPlacedCutsceneText(scene,page,placement,text,CutsceneGlyph,font);
+    ULTIMA_0c22_GRAP_0f_SelectPage(0);
+}

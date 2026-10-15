@@ -510,7 +510,7 @@ QMap<QString, QStringList> contentChanges(const Project &project,
                 auto after = cutscenePages(project, scene);
                 bool different = before.size() != after.size();
                 for (int i = 0; !different && i < before.size(); ++i)
-                    different = before[i].layout != after[i].layout || before[i].text != after[i].text;
+                    different = !(before[i] == after[i]);
                 if (different) parts.append("Pages");
             } else {
                 for (const auto &source : d.sources.isEmpty() ? QStringList{d.resource} : d.sources)

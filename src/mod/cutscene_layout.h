@@ -1,6 +1,7 @@
 /* Shared vanilla page layouts, taken from the introduction/ending tables in vars.c. */
 #ifndef IMPERA_CUTSCENE_LAYOUT_H
 #define IMPERA_CUTSCENE_LAYOUT_H
+#include "cutscene_placement.h"
 #include <stddef.h>
 #include <string.h>
 typedef struct {
@@ -40,6 +41,22 @@ static const U5CutsceneLayout U5CutsceneLayouts[2][21] = {
         {{0, 0}, {154, 320}, 112, 200, 0, 0, 1, 2, 160, 0, 0, 2932},
     },
 };
+static U5CutscenePlacement U5_DefaultCutscenePlacement(int scene, unsigned page) {
+    const U5CutsceneLayout *l = &U5CutsceneLayouts[scene][page];
+    U5CutscenePlacement p = {0};
+    p.imageX = l->imageX;
+    p.imageY = l->imageY;
+    for (int i = 0; i < 2; i++) {
+        p.left[i] = l->left[i];
+        p.right[i] = l->right[i];
+    }
+    p.top = l->top;
+    p.bottom = l->bottom;
+    p.x = l->x;
+    p.y = l->y;
+    p.secondY = 180;
+    return p;
+}
 static const unsigned char U5CutsceneWidths[90] = {
     2, 6, 7, 7, 7, 7, 3, 4, 4, 5, 6, 3, 3, 2, 7, 6, 5, 6, 6, 6, 6, 6, 6, 6, 6, 2, 3, 5, 5, 5,
     6, 7, 7, 6, 6, 6, 6, 6, 6, 6, 4, 7, 7, 6, 7, 6, 6, 7, 6, 7, 6, 6, 6, 6, 7, 6, 6, 6, 3, 7,
@@ -146,9 +163,20 @@ static void U5_DrawCutsceneText(const U5CutsceneLayout *layout, const char *para
         }
     }
 }
-static void U5_DrawCutscenePageText(int scene, unsigned page, const char *text,
-                                    void (*draw)(void *, int, int, int), void *context) {
+static void U5_DrawPlacedCutsceneText(int scene, unsigned page,
+                                      const U5CutscenePlacement *placement, const char *text,
+                                      void (*draw)(void *, int, int, int), void *context) {
     U5CutsceneLayout layout = U5CutsceneLayouts[scene][page];
+    if (placement && placement->custom) {
+        for (int i = 0; i < 2; i++) {
+            layout.left[i] = placement->left[i];
+            layout.right[i] = placement->right[i];
+        }
+        layout.top = placement->top;
+        layout.bottom = placement->bottom;
+        layout.x = placement->x;
+        layout.y = placement->y;
+    }
     if (!scene && page == 6) {
         const char *split = strchr(text, '\n');
         if (split) {
@@ -159,11 +187,15 @@ static void U5_DrawCutscenePageText(int scene, unsigned page, const char *text,
             memcpy(first, text, n);
             first[n] = 0;
             U5_DrawCutsceneText(&layout, first, 5, draw, context);
-            layout.y = 180;
+            layout.y = placement && placement->custom ? placement->secondY : 180;
             U5_DrawCutsceneText(&layout, split + 1, 5, draw, context);
             return;
         }
     }
     U5_DrawCutsceneText(&layout, text, 5, draw, context);
+}
+static void U5_DrawCutscenePageText(int scene, unsigned page, const char *text,
+                                    void (*draw)(void *, int, int, int), void *context) {
+    U5_DrawPlacedCutsceneText(scene, page, NULL, text, draw, context);
 }
 #endif

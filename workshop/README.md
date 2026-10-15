@@ -401,10 +401,23 @@ font, text exclusions, justification, indents and discretionary hyphens. It show
 the completed page; transition/reveal animation remains in the game. Page edits,
 navigation, save and export preserve drafts; page operations support undo/redo.
 
+Choose **Edit layout** to position the artwork and text independently for the
+selected page. Drag the gold artwork outline or blue text-start handle in the
+preview, or enter coordinates in the right-hand Layout controls. Text edges
+control wrapping; **Wrap around artwork** sets different edges within a vertical
+section of the page. The portal page also exposes its lower paragraph position.
+Artwork moves as a group, including its decorative lettering and revealed frames.
+**Reset layout** restores the selected original preset. Layout drags commit as one
+undoable edit; Escape cancels an unfinished drag. Numeric edits use **Apply page**
+and are also preserved when navigating or saving. Turn off **Edit layout** to hide
+the guides and controls without changing your saved placement.
+
 Edited sequences are stored in `CUTSCENE.OVR` (schema 1, package version 6), leaving
 `STORY.DAT` and `END.DAT` unchanged. A sequence that has not been edited continues
 using the original data, including existing `TEXT.OVR` ending edits. New packages
 require an Impera build with cutscene page support; older engines reject them.
+Custom placement uses schema 2 / package version 7 and needs the matching updated
+Impera runtime. Preset-only edits continue using schema 1 / package version 6.
 
 ### Narrative
 

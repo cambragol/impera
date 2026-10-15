@@ -307,3 +307,9 @@ const char *MOD_CutscenePage(int scene, unsigned page, unsigned *layout) {
     if(r) U5_CutsceneRead(r->data,r->size,scene,page,layout,&text,NULL);
     return text;
 }
+
+void MOD_CutscenePlacement(int scene, unsigned page, U5CutscenePlacement *placement) {
+    const ModResource *r=mountedResource("CUTSCENE.OVR");
+    memset(placement,0,sizeof(*placement));
+    if(r) U5_CutsceneReadPlacement(r->data,r->size,scene,page,NULL,NULL,NULL,placement);
+}

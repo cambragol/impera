@@ -117,7 +117,7 @@ QByteArray Project::package() const {
     auto list = changed();
     require(!list.isEmpty(), "There are no changes to export");
     require(list.size() <= MOD_MAX_ENTRIES, "Too many modified resources");
-    QByteArray out(list.contains("CUTSCENE.OVR") ? "IMOD0006"
+    QByteArray out(list.contains("CUTSCENE.OVR") ? (data("CUTSCENE.OVR").startsWith("ICUT0002") ? "IMOD0007" : "IMOD0006")
                    : usesExplicitDialogue(*this)     ? "IMOD0005"
                    : list.contains("CONTENTS.OVR") ? "IMOD0004"
                    : list.contains("RULES.TBL")    ? "IMOD0003"
@@ -231,8 +231,8 @@ void Project::save(const QString &path) {
         requirements["packageVersion"] = 5;
     }
     if (changed().contains("CUTSCENE.OVR")) {
-        requirements["cutscenePages"] = 1;
-        requirements["packageVersion"] = 6;
+        requirements["cutscenePages"] = data("CUTSCENE.OVR").startsWith("ICUT0002") ? 2 : 1;
+        requirements["packageVersion"] = data("CUTSCENE.OVR").startsWith("ICUT0002") ? 7 : 6;
     }
     if (!requirements.isEmpty())
         root["requires"] = requirements;
@@ -367,7 +367,7 @@ QVector<ModDiagnostic> validateMod(const Project &project, const QString &modsDi
                                .arg(project.resources[name].original.size())
                                .arg(project.data(name).size())});
         if (name == "CUTSCENE.OVR")
-            result.append({ModDiagnostic::Information, name, "Requires cutscene pages v1 / package v6. Older Impera versions reject this package."});
+            result.append({ModDiagnostic::Information, name, "Requires an Impera build supporting the exported cutscene schema. Older versions reject this package."});
         if (name == "RULES.TBL")
             result.append(
                 {ModDiagnostic::Information, name,

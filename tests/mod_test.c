@@ -382,6 +382,31 @@ static void cutsceneResources(void) {
     FILE_SetDataDirectory(NULL); assert(!MOD_CutsceneCount(0));
     remove("application/Mods/cutscenes.imperamod");
     data.bytes[16]=21; assert(!U5_ValidateCutscenes(data.bytes,data.size));
+    Buffer custom={0};
+    bytes(&custom,"ICUT0002",8); number(&custom,1);number(&custom,0);
+    number(&custom,0);number(&custom,6);
+    const unsigned coordinates[]={1,30,40,0,320,0,320,200,200,10,20,180};
+    for(unsigned i=0;i<12;i++) number(&custom,coordinates[i]);
+    bytes(&custom,"Hello",6);
+    assert(U5_ValidateCutscenes(custom.bytes,custom.size));
+    for(size_t n=0;n<custom.size;n++) assert(!U5_ValidateCutscenes(custom.bytes,n));
+    header(&package,1);memcpy(package.bytes,"IMOD0007",8);
+    rawEntry(&package,"CUTSCENE.OVR",NULL,0,custom.bytes,custom.size);
+    assert(MOD_Decode(package.bytes,package.size,readBase,NULL,&decoded,error,sizeof(error)));
+    MOD_Free(&decoded);
+    memcpy(package.bytes,"IMOD0006",8);
+    assert(!MOD_Decode(package.bytes,package.size,readBase,NULL,&decoded,error,sizeof(error)));
+    memcpy(package.bytes,"IMOD0007",8);
+    put("application/Mods/cutscenes.imperamod",package.bytes,package.size);
+    FILE_SetDataDirectory("game");
+    U5CutscenePlacement position;
+    MOD_CutscenePlacement(0,0,&position);
+    assert(position.custom && position.imageX==30 && position.imageY==40 && position.x==10 && position.y==20);
+    assert(position.right[0]==320 && position.secondY==180);
+    FILE_SetDataDirectory(NULL); MOD_CutscenePlacement(0,0,&position);assert(!position.custom);
+    remove("application/Mods/cutscenes.imperamod");
+    memset(custom.bytes+24+4*4,0,4); /* A zero-width text area is invalid. */
+    assert(!U5_ValidateCutscenes(custom.bytes,custom.size));
 }
 int main(void) {
     assert(SDL_CreateDirectory("application/Mods"));
