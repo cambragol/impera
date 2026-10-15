@@ -2,6 +2,7 @@
 #include "common/common.h"
 #include "common/file.h"
 #include "mod/contents.h"
+#include "mod/cutscenes.h"
 #include "mod/creation_scene.h"
 #include "mod/engine_tables.h"
 #include "mod/narrative.h"
@@ -356,6 +357,76 @@ static void contentsResources(void)
     remove("application/Mods/contents-b.imperamod");
     remove("application/Mods/contents-c-conflict.imperamod");
 }
+static void cutsceneResources(void) {
+    Buffer data={0}, package;
+    bytes(&data,"ICUT0001",8); number(&data,2); number(&data,1);
+    const char *texts[]={"New first page","New second page","New ending"};
+    for(unsigned i=0;i<3;i++) { number(&data,i); number(&data,(unsigned)strlen(texts[i])+1); bytes(&data,texts[i],strlen(texts[i])+1); }
+    assert(U5_ValidateCutscenes(data.bytes,data.size));
+    for(size_t n=0;n<data.size;n++) assert(!U5_ValidateCutscenes(data.bytes,n));
+    header(&package,1); memcpy(package.bytes,"IMOD0006",8);
+    rawEntry(&package,"CUTSCENE.OVR",NULL,0,data.bytes,data.size);
+    ModPackage decoded={0}; char error[256];
+    assert(MOD_Decode(package.bytes,package.size,readBase,NULL,&decoded,error,sizeof(error)));
+    MOD_Free(&decoded);
+    memcpy(package.bytes,"IMOD0005",8);
+    assert(!MOD_Decode(package.bytes,package.size,readBase,NULL,&decoded,error,sizeof(error)));
+    memcpy(package.bytes,"IMOD0006",8);
+    put("application/Mods/cutscenes.imperamod",package.bytes,package.size);
+    FILE_SetDataDirectory("game");
+    assert(MOD_CutsceneCount(0)==2 && MOD_CutsceneCount(1)==1);
+    unsigned layout=0;
+    assert(!strcmp(MOD_CutscenePage(0,1,&layout),texts[1]) && layout==1);
+    assert(!strcmp(MOD_CutscenePage(1,0,&layout),texts[2]) && layout==2);
+    assert(!MOD_CutscenePage(1,1,&layout));
+    FILE_SetDataDirectory(NULL); assert(!MOD_CutsceneCount(0));
+    remove("application/Mods/cutscenes.imperamod");
+    data.bytes[16]=21; assert(!U5_ValidateCutscenes(data.bytes,data.size));
+    Buffer custom={0};
+    bytes(&custom,"ICUT0002",8); number(&custom,1);number(&custom,0);
+    number(&custom,0);number(&custom,6);
+    const unsigned coordinates[]={1,30,40,0,320,0,320,200,200,10,20,180};
+    for(unsigned i=0;i<12;i++) number(&custom,coordinates[i]);
+    bytes(&custom,"Hello",6);
+    assert(U5_ValidateCutscenes(custom.bytes,custom.size));
+    for(size_t n=0;n<custom.size;n++) assert(!U5_ValidateCutscenes(custom.bytes,n));
+    header(&package,1);memcpy(package.bytes,"IMOD0007",8);
+    rawEntry(&package,"CUTSCENE.OVR",NULL,0,custom.bytes,custom.size);
+    assert(MOD_Decode(package.bytes,package.size,readBase,NULL,&decoded,error,sizeof(error)));
+    MOD_Free(&decoded);
+    memcpy(package.bytes,"IMOD0006",8);
+    assert(!MOD_Decode(package.bytes,package.size,readBase,NULL,&decoded,error,sizeof(error)));
+    memcpy(package.bytes,"IMOD0007",8);
+    put("application/Mods/cutscenes.imperamod",package.bytes,package.size);
+    FILE_SetDataDirectory("game");
+    U5CutscenePlacement position;
+    MOD_CutscenePlacement(0,0,&position);
+    assert(position.custom && position.imageX==30 && position.imageY==40 && position.x==10 && position.y==20);
+    assert(position.right[0]==320 && position.secondY==180);
+    FILE_SetDataDirectory(NULL); MOD_CutscenePlacement(0,0,&position);assert(!position.custom);
+    remove("application/Mods/cutscenes.imperamod");
+    memset(custom.bytes+24+4*4,0,4); /* A zero-width text area is invalid. */
+    assert(!U5_ValidateCutscenes(custom.bytes,custom.size));
+}
+static void compositionResources(void) {
+    Buffer data={0},package;
+    bytes(&data,"ICUT0003",8);number(&data,1);number(&data,0);number(&data,1);
+    number(&data,2);number(&data,1);number(&data,3);bytes(&data,"PNG",3);
+    const unsigned char pixels[]={255,0,0,128,0,0,0,255};bytes(&data,pixels,sizeof(pixels));
+    number(&data,1);number(&data,1);number(&data,0);number(&data,319);number(&data,199);
+    const unsigned fields[]={1,2,100,30,0,0,0,0,0,0,0,0,0,6};
+    for(unsigned i=0;i<14;i++)number(&data,fields[i]);bytes(&data,"Hello",6);
+    assert(U5_ValidateCutscenes(data.bytes,data.size));
+    for(size_t n=0;n<data.size;n++)assert(!U5_ValidateCutscenes(data.bytes,n));
+    header(&package,1);memcpy(package.bytes,"IMOD0008",8);rawEntry(&package,"CUTSCENE.OVR",NULL,0,data.bytes,data.size);
+    ModPackage decoded={0};char error[256];
+    assert(MOD_Decode(package.bytes,package.size,readBase,NULL,&decoded,error,sizeof(error)));MOD_Free(&decoded);
+    memcpy(package.bytes,"IMOD0007",8);assert(!MOD_Decode(package.bytes,package.size,readBase,NULL,&decoded,error,sizeof(error)));
+    memcpy(package.bytes,"IMOD0008",8);put("application/Mods/composition.imperamod",package.bytes,package.size);
+    FILE_SetDataDirectory("game");size_t size=0;const void *composition=MOD_CutsceneComposition(0,&size);
+    assert(composition&&size==data.size&&MOD_CutsceneCount(0)==1&&!MOD_CutsceneComposition(1,&size));
+    FILE_SetDataDirectory(NULL);remove("application/Mods/composition.imperamod");
+}
 int main(void) {
     assert(SDL_CreateDirectory("application/Mods"));
     assert(SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "APPIMAGE", "application/Impera.AppImage", true));
@@ -453,6 +524,8 @@ int main(void) {
     sceneResources();
     engineTables();
     contentsResources();
+    cutsceneResources();
+    compositionResources();
     puts("Mod package validation, atomic mounting, order, conflicts, reloads and original preservation "
          "passed");
     return 0;

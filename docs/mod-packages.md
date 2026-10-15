@@ -30,7 +30,7 @@ All integers are unsigned little-endian 32-bit values; there is no padding.
 
 | Header | Encoding |
 | --- | --- |
-| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0005` |
+| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0008` |
 | Title length | 1–256 UTF-8 bytes |
 | Resource count | 1–128 |
 | Title | Length bytes; embedded NUL forbidden |
@@ -150,3 +150,98 @@ empty original base and zero base CRC; the engine validates their schemas before
 mounting the package. Ordinary resource checks remain unchanged in all versions.
 Older engines reject unsupported versions explicitly. Current Impera retains
 version 1 and 2 compatibility.
+
+### Illustrated cutscene pages (version 6)
+
+`CUTSCENE.OVR` replaces either or both illustrated page sequences without editing
+original DAT files. It requires `IMOD0006`; it has an empty base, like the other
+virtual companions. Schema `ICUT0001` is followed by little-endian u32 introduction
+and ending counts. A zero count inherits that original sequence; an override has
+1–128 pages. At least one sequence must be overridden.
+
+Introduction records precede ending records. Each record contains a u32 layout
+index (0–20 for the Introduction, 0–5 for the Ending), a u32 text length including
+the terminator, and that many bytes of NUL-terminated ASCII. The limit is 2,000
+bytes including the terminator. Embedded NULs, unsupported controls, characters
+above `{`, invalid layouts, truncated records and trailing bytes reject the whole
+package. Layouts reference the original artwork arrangement and text exclusions;
+the editor and engine share proportional wrapping and positioning. The portal
+layout uses its first newline to separate its upper and lower text regions.
+
+A cutscene override takes precedence over the original sequence, including any
+`TEXT.OVR` ending entries. An inherited Ending still honors `TEXT.OVR`. As with
+other whole-resource companions, overlapping cutscene packages conflict rather
+than silently overwriting one another. Original 21-scene Introduction and six-page
+Ending playback, including their transitions, remain the fallback.
+
+### Per-page cutscene placement (version 7)
+
+`IMOD0007` adds `ICUT0002` while retaining all previous package and cutscene
+schemas. Schema 2 keeps the sequence counts and page headers from schema 1, but
+inserts twelve little-endian u32 values between each page's layout/text-length
+header and its text:
+
+1. Custom placement enabled (0 or 1).
+2. Artwork anchor X.
+3. Artwork anchor Y.
+4. Text left edge outside the wrap band.
+5. Text right edge outside the wrap band.
+6. Text left edge inside the wrap band.
+7. Text right edge inside the wrap band.
+8. Wrap band top.
+9. Wrap band bottom.
+10. First text line X.
+11. First text line Y.
+12. Lower portal paragraph Y.
+
+A disabled custom flag inherits the selected original layout. Artwork anchors
+must lie within the 320 × 200 page. Text edges must form nonempty intervals within
+0–320, the wrap band must be ordered within 0–200, text X within 0–319, and text
+Y/lower paragraph Y within 0–191. All encoded coordinate values are bounded by
+320, even on records whose custom flag is disabled. Invalid values reject the
+entire package. An inactive wrap band can use top = bottom = 200.
+
+Custom artwork placement translates the entire original illustration group,
+including decorative lettering, portal art and secondary/revealed frames. Drawing
+clips to the game page, and the reveal region is clamped before page transfers.
+The same placement object and font-layout kernel drive Workshop previews and
+Impera playback. Layout changes are per page; duplication copies them and reordering
+moves them with their text. If no page needs custom placement, Workshop emits the
+original schema 1 / package version 6 instead.
+
+### Image and text-box compositions (version 8)
+
+`IMOD0008` supports `ICUT0003` alongside the earlier schemas. All integers are
+little-endian u32 unless specified otherwise. The header contains the magic, the
+introduction and ending page counts, and an asset count. A sequence count of zero
+inherits the original sequence; a specified sequence has 1–128 pages. At least one
+sequence is specified. The shared validator rejects resources larger than 8 MiB.
+
+Up to 256 embedded assets follow. Each asset contains width, height, UTF-8 label
+byte length, non-NUL label bytes (1–256), and width × height × 4 straight RGBA bytes.
+Dimensions are 1–1024 on each axis. Assets are deduplicated across both sequences.
+Imported game images are snapshots of the chosen original or edited artwork and
+have the same representation as imported PNGs. There are no external paths.
+
+Pages follow in introduction/ending order. Each starts with an image count (0–64)
+and text-box count (0–32). Image records contain asset index, X, Y. X/Y anchor the
+native-size image within 320 × 200; drawing outside the page clips safely.
+Image order is back to front. All text boxes are drawn after all images.
+
+Each text-box record contains fourteen words followed by NUL-terminated text:
+X, Y, width, height, preserved-flow flag, eight preserved-flow coordinates, and text
+byte length including its terminator (1–2000). Rectangles must be nonempty and fit
+inside 320 × 200. Text permits LF, CR, and printable ASCII through `{`, with no
+embedded NUL. Eight signed two's-complement coordinates (bounded to −320…320)
+preserve original text layout during conversion: left/right outside and inside the
+wrap band, band top/bottom, start X/Y, all relative to the text-box origin. When the
+flag is zero these coordinates are ignored and normal rectangular wrapping is used.
+Text edits and moves preserve this flow. Resizing adjusts both right margins by
+the width change while preserving indentation and the wrap band. Ordinary text boxes wrap overlong words without silently discarding glyphs.
+Text clips to its rectangle; Workshop reports overflow without deleting source text.
+
+PNG colours and partial alpha are preserved. Impera retains full RGB pixel provenance
+through native framebuffer copies independently of the selected map tileset. Plain
+UI drawing clears that provenance normally. Package validation checks all counts,
+indices, byte ranges, dimensions, text and flow coordinates before mounting; malformed
+or truncated data rejects the entire package. Older engines reject version 8 explicitly.

@@ -359,7 +359,7 @@ static void LinearToRGB(void)
             const byte* source=g_linearEgaBuffer0+y*loresWidth+x;
             for(int sy=0;sy<2;sy++) for(int sx=0;sx<2;sx++)
                 pixels[(y*2+sy)*pitch+x*2+sx]=s_pixelUI || EVT_ImmediateExitEnabled()?
-                    TILESET_Color(*source,s_egaPalette):TILESET_BufferColor(source,sx,sy,s_egaPalette);
+                    TILESET_UIBufferColor(source,s_egaPalette):TILESET_BufferColor(source,sx,sy,s_egaPalette);
         }
     }
 

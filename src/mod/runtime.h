@@ -1,6 +1,7 @@
 #ifndef IMPERA_MOD_RUNTIME_H
 #define IMPERA_MOD_RUNTIME_H
 #include <stdio.h>
+#include "cutscene_placement.h"
 #include <stdint.h>
 /* directory supplies original game resources; packages come from application/Mods.
  * U5D_MODS_DIR selects a private Workshop/test session instead. */
@@ -15,4 +16,8 @@ const uint8_t *MOD_BritanniaIndex(void);
 int MOD_InitializeWorldObjects(void *worlds512);
 const char *MOD_NarrativeText(const char *resource, unsigned offset);
 const char *MOD_SceneMessage(const char *resource, unsigned offset, const char *fallback);
+const void *MOD_CutsceneComposition(int scene, size_t *size);
+void MOD_CutscenePlacement(int scene, unsigned page, U5CutscenePlacement *placement);
+unsigned MOD_CutsceneCount(int scene);
+const char *MOD_CutscenePage(int scene, unsigned page, unsigned *layout);
 #endif

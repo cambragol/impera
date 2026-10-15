@@ -24,6 +24,7 @@ bool TILESET_SpriteOutline(void);
 int TILESET_Pixel(int tile, int x, int y); /* -1: DOS fallback */
 Uint32 TILESET_Color(int color, const Uint32 *ega);
 Uint32 TILESET_LastColor(int color, int subX, int subY, const Uint32 *ega);
+Uint32 TILESET_UIBufferColor(const byte *pixel, const Uint32 *ega);
 Uint32 TILESET_BufferColor(const byte *pixel, int subX, int subY, const Uint32 *ega);
 /* Register/copy alongside legacy byte buffers to preserve native artwork.
  * Copy with a NULL source clears provenance for UI or blanked regions. */
@@ -32,6 +33,7 @@ void TILESET_Unregister(byte *pixels);
 void TILESET_RecordSprite(byte *pixel, int color, bool transparent);
 Uint32 TILESET_LastSpriteColor(int color, int subX, int subY, const Uint32 *ega, bool transparent);
 void TILESET_Record(byte *pixel, int color);
+void TILESET_RecordRGBA(byte *pixel, Uint32 rgba);
 void TILESET_Copy(byte *destination, const byte *source, size_t size);
 /* Tile/SpritePixel selects the sample consumed by LastColor and Record. */
 unsigned TILESET_Sample(void);

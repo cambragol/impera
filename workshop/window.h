@@ -61,7 +61,6 @@ class WorkshopWindow : public QMainWindow {
     QWidget *graphicsEditor(const QString &name);
     QWidget *dialogueEditor(const QString &name);
     QWidget *characterEditor(const QString &name);
-    QWidget *storyEditor();
     QWidget *stateEditor();
     QWidget *npcEditor(const QString &name);
     QWidget *combatEditor(const QString &name, int pageIndex = -1);

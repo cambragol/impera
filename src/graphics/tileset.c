@@ -13,6 +13,7 @@
  * retain the UI palette; alternate artwork uses an independent RGB palette.
  * Every logical pixel can describe four native Sharp subpixels without
  * changing map cells, collision, input coordinates or saved game state. */
+#define TILE_RGB_TOKEN 0x7fffffu
 #define TILE_TOKEN_MASK 0x7fffffu
 #define TILE_SPRITE_FLAG 0x800000u
 static int selected;
@@ -136,6 +137,13 @@ void TILESET_Record(byte *pixel, int color)
             l->backs[pixel - l->pixels] = 0;
     }
 }
+void TILESET_RecordRGBA(byte *pixel, Uint32 rgba) {
+    Layer *l=layer(pixel);
+    if(!l||!l->refs||!l->backs) return;
+    *pixel=16;
+    l->refs[pixel-l->pixels]=(16u<<24)|TILE_RGB_TOKEN;
+    l->backs[pixel-l->pixels]=rgba|0xff000000u;
+}
 void TILESET_RecordSprite(byte *pixel, int color, bool transparent)
 {
     Layer *l = layer(pixel);
@@ -204,12 +212,23 @@ Uint32 TILESET_LastSpriteColor(int color, int subX, int subY, const Uint32 *ega,
 {
     return color < 0 ? 0 : sampledColor(color, subX, subY, ega, transparent);
 }
+Uint32 TILESET_UIBufferColor(const byte *pixel,const Uint32 *ega) {
+    if(*pixel==16) {
+        Layer *l=layer(pixel);unsigned ref=l&&l->refs?l->refs[pixel-l->pixels]:0;
+        if(ref>>24==*pixel && (ref&TILE_TOKEN_MASK)==TILE_RGB_TOKEN && l->backs)
+            return l->backs[pixel-l->pixels];
+    }
+    return TILESET_Color(*pixel,ega);
+}
 Uint32 TILESET_BufferColor(const byte *pixel, int subX, int subY, const Uint32 *ega)
 {
-    if (!selected)
-        return ega[*pixel & 15];
+    if(!selected && *pixel!=16) return ega[*pixel&15];
     Layer *l = layer(pixel);
     unsigned ref = l && l->refs ? l->refs[pixel - l->pixels] : 0;
+    if(ref>>24==*pixel && (ref&TILE_TOKEN_MASK)==TILE_RGB_TOKEN && l->backs)
+        return l->backs[pixel-l->pixels];
+    if (!selected)
+        return ega[*pixel & 15];
     unsigned saved = sample;
     sample = ref >> 24 == *pixel ? (ref & TILE_TOKEN_MASK) : 0;
     Uint32 color = sampledColor(*pixel, subX, subY, ega, (ref & TILE_SPRITE_FLAG) != 0);
@@ -217,6 +236,7 @@ Uint32 TILESET_BufferColor(const byte *pixel, int subX, int subY, const Uint32 *
     {
         unsigned back = l->backs[pixel - l->pixels];
         sample = back & TILE_TOKEN_MASK;
+        if(sample==TILE_RGB_TOKEN) sample=0;
         int index = back >> 24;
         if (sample)
         {
@@ -396,6 +416,7 @@ void TILESET_Refresh(void)
                     layers[i].refs[p] = 0;
                     continue;
                 }
+                if(token==TILE_RGB_TOKEN) continue;
                 token--;
                 int color = GRAP_BUF_TilePixel(token / 256, token % 16, token % 256 / 16);
                 layers[i].pixels[p] = (byte)color;

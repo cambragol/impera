@@ -4,6 +4,7 @@
 #include "contents.h"
 #include "engine_tables.h"
 #include "narrative.h"
+#include "cutscenes.h"
 #include "package.h"
 #include "world_resources.h"
 #include <SDL3/SDL.h>
@@ -292,4 +293,29 @@ const char *MOD_SceneMessage(const char *resource, unsigned offset, const char *
 unsigned MOD_TableValue(unsigned table, unsigned index, unsigned fallback) {
     const ModResource *r = mountedResource("RULES.TBL");
     return r ? U5_TableValue(r->data, r->size, table, index, fallback) : fallback;
+}
+
+unsigned MOD_CutsceneCount(int scene) {
+    const ModResource *r=mountedResource("CUTSCENE.OVR");
+    unsigned count=0;
+    if(r) U5_CutsceneRead(r->data,r->size,scene,0,NULL,NULL,&count);
+    return count;
+}
+const char *MOD_CutscenePage(int scene, unsigned page, unsigned *layout) {
+    const ModResource *r=mountedResource("CUTSCENE.OVR");
+    const char *text=NULL;
+    if(r) U5_CutsceneRead(r->data,r->size,scene,page,layout,&text,NULL);
+    return text;
+}
+
+void MOD_CutscenePlacement(int scene, unsigned page, U5CutscenePlacement *placement) {
+    const ModResource *r=mountedResource("CUTSCENE.OVR");
+    memset(placement,0,sizeof(*placement));
+    if(r) U5_CutsceneReadPlacement(r->data,r->size,scene,page,NULL,NULL,NULL,placement);
+}
+
+const void *MOD_CutsceneComposition(int scene, size_t *size) {
+    const ModResource *r=mountedResource("CUTSCENE.OVR");
+    if(!r||r->size<20||memcmp(r->data,"ICUT0003",8)||!MOD_CutsceneCount(scene)) return NULL;
+    *size=r->size;return r->data;
 }

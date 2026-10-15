@@ -11,6 +11,9 @@
 #include "audio/audio.h"
 
 #include "font.h"
+#include "mod/cutscene_layout.h"
+#include "mod/cutscene_composition.h"
+#include "graphics/grap_buf.h"
 #include "intro.h"
 #include "tiles.h"
 
@@ -777,3 +780,45 @@ static void FONT_0e52(void) {}
 
 // STUB (burning up some cpu cycles. FMT: nop)
 static void FONT_0e7b(void) {}
+
+static void CutsceneGlyph(void *font, int glyph, int x, int y) {
+    ULTIMA_1044_GRAP_4e_CopyBitImageIntoPage((byte *)font,glyph,x,y);
+}
+void FONT_CutsceneText(byte *font, int scene, unsigned page, const char *text) {
+    ULTIMA_0c22_GRAP_0f_SelectPage(1);
+    U5_DrawCutscenePageText(scene,page,text,CutsceneGlyph,font);
+    ULTIMA_0c22_GRAP_0f_SelectPage(0);
+}
+
+void FONT_PlacedCutsceneText(byte *font, int scene, unsigned page, const U5CutscenePlacement *placement, const char *text) {
+    ULTIMA_0c22_GRAP_0f_SelectPage(1);
+    U5_DrawPlacedCutsceneText(scene,page,placement,text,CutsceneGlyph,font);
+    ULTIMA_0c22_GRAP_0f_SelectPage(0);
+}
+
+typedef struct {byte *font;const U5CompositionText *box;} CompositionFont;
+static void CompositionImage(void *context,const U5CompositionAsset *image,int x,int y) {
+    (void)context;GRAP_BUF_PutRGBA(image->rgba,(int)image->width,(int)image->height,x,y);
+}
+static void CompositionGlyph(void *context,int glyph,int x,int y) {
+    CompositionFont *c=(CompositionFont *)context;
+    BitImageView view;
+    if(!IMAGE_GetBitImageView(c->font,glyph,&view)) return;
+    const unsigned char white[4]={255,255,255,255};
+    for(int row=0;row<view.height;row++) for(int col=0;col<view.width;col++)
+        if((view.bits[row*view.stride+col/8]&(128>>(col%8))) &&
+            x+col>=0 && x+col<c->box->width && y+row>=0 && y+row<c->box->height)
+            GRAP_BUF_PutRGBA(white,1,1,c->box->x+x+col,c->box->y+y+row);
+}
+static void CompositionText(void *context,const U5CompositionText *box) {
+    CompositionFont c={((CompositionFont *)context)->font,box};
+    U5_DrawCompositionText(box,CompositionGlyph,&c);
+}
+void FONT_ComposeCutscene(byte *font,const void *bytes,size_t size,int scene,unsigned page) {
+    ULTIMA_1b94_SelectTextWindow(0);D_a9bd[1]=2;
+    ULTIMA_0c22_GRAP_0f_SelectPage(1);ULTIMA_16ba_PrintChar(CTRL_CHAR_CLEAR_WINDOW);
+    CompositionFont context={font,NULL};
+    U5CompositionPainter painter={&context,CompositionImage,CompositionText};
+    U5_CompositionRead(bytes,size,scene,page,NULL,&painter);
+    ULTIMA_0c22_GRAP_0f_SelectPage(0);
+}

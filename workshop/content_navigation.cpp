@@ -1,3 +1,5 @@
+#include "cutscene_editor.h"
+#include "cutscene_composition.h"
 #include "map_positions.h"
 #include "content_navigation.h"
 #include "shop_editor.h"
@@ -293,8 +295,10 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
             group = "Compatibility details";
             break;
         }
+        if (name == "CUTSCENE.OVR") continue;
         ContentDestination d{"content/" + name, workspace, group, title, name, -1};
         d.sources = {name};
+        if (name == "STORY.DAT" || name == "END.DAT") d.sources.append("CUTSCENE.OVR");
         if (name == "UNDER.OOL" && project.resources.contains("INIT.OOL")) d.sources.append("INIT.OOL");
         result.append(d);
     }
@@ -501,6 +505,20 @@ QMap<QString, QStringList> contentChanges(const Project &project,
                         parts.append("Dialogue");
                         break;
                     }
+            } else if (d.resource == "STORY.DAT" || d.resource == "END.DAT") {
+                int scene = d.resource == "END.DAT" ? 1 : 0;
+                bool different=false;
+                if(project.resources.value("CUTSCENE.OVR").edited.startsWith("ICUT0003")) {
+                    auto overridden=compositionPages(project,scene,false);
+                    different=!overridden.isEmpty();
+                } else {
+                    auto before = cutscenePages(original, scene);
+                    auto after = cutscenePages(project, scene);
+                    different = before.size() != after.size();
+                    for (int i = 0; !different && i < before.size(); ++i)
+                        different = !(before[i] == after[i]);
+                }
+                if (different) parts.append("Pages");
             } else {
                 for (const auto &source : d.sources.isEmpty() ? QStringList{d.resource} : d.sources)
                     if (changed(source))

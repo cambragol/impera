@@ -388,6 +388,51 @@ Unmatched ladders are warnings. Missing combat rooms, truncated layouts and newl
 introduced impossible features block export. An already-loaded dungeon in a save
 can retain its old layout; leave and re-enter to load the package's layout.
 
+### Introduction and Ending
+
+Both cutscenes use the same page canvas. **Add page** creates a blank page;
+**Duplicate page**, **Remove page**, **Move up**, and **Move down** manage the
+sequence. Original pages open as separate images and text boxes.
+
+**Add image → Import PNG** adds artwork at its native pixel size, preserving full
+colour and transparency (including opaque black). **Game artwork** shows thumbnails
+from the game's artwork banks. Choose **Current mod artwork** or **Original game
+artwork** to import either version. Imported artwork is copied into the mod package;
+the original PNG and game-artwork files are never modified or required alongside
+the exported package. Images can be dragged, deleted, and moved in front
+of or behind other images with **Bring forward** / **Send backward**.
+
+**Add text box** creates an Ultima 5 proportional-font text box. Edit its text in
+the right pane, drag the box to move it, and drag any of its four corner grips to resize.
+The right pane also provides precise position and size fields. Text always draws
+above every image. A red box and an overflow message identify text that does not
+fit; enlarge the box or shorten the text. The canvas uses the same text-layout
+kernel, image alpha blending, and clipping as Impera. It shows the completed page.
+
+Click an element to select it, or select it from the right-pane selector when
+objects overlap. **Delete** removes either kind of element; pressing Delete while
+the canvas has focus does the same. Escape cancels an unfinished move or resize.
+Drags, deletions, ordering, and page operations support undo/redo.
+Text edits are grouped after a short pause; navigation, save and export flush drafts.
+
+Edited sequences use `CUTSCENE.OVR` schema 3 / package version 8 and require the
+updated Impera runtime. Image data is embedded and deduplicated; unused images are
+removed from exports. Older page/layout packages remain readable. Unedited
+sequences continue inheriting original game data and narrative overrides. Original
+text flow and first-line indentation are preserved during conversion, text edits,
+and moves. Resizing adjusts wrap widths while retaining indentation and wrap bands.
+New text boxes use ordinary rectangular wrapping.
+
+Select a text box to open **Text layout** in the right pane. Set the first-line
+indent, left/right margins, and text top in game pixels. Enable **Wrap around
+artwork** to give a horizontal band different margins; set its top, bottom, left,
+and right margins. Right margins are measured inward from the box's right edge.
+The selected box shows green margin/indent handles and amber wrap-band handles on
+the preview; drag them to adjust the layout directly. Blue grips resize the box
+from any corner while keeping the opposite corner fixed. Escape cancels a drag.
+**Reset layout** restores ordinary wrapping without moving the box or changing its
+text. Layout changes use the same undo/redo history as other cutscene edits.
+
 ### Narrative
 
 The **Narrative** library group contains **Character creation**, **Ending**,
@@ -399,7 +444,7 @@ Shops includes equipment descriptions, reagent descriptions, tavern responses,
 guild supplies, healer messages, shipwright messages and inn services.
 
 **Apply text** commits an undoable edit. Navigation/save/export also check the
-current draft. Fixed edits retain original offsets and show the byte allowance,
+current draft. Other narrative fixed edits retain original offsets and show the byte allowance,
 including the terminating byte; nothing is silently truncated. **Extended text**
 stores a verified entry in a mod-only `TEXT.OVR` companion, retaining the original
 DAT bytes. Limits remain 1,999 text bytes for creation/ending/karma and 1,499 for
@@ -410,8 +455,8 @@ Shop buttons insert `[shop]`, `[keeper]`, `[time]`, `[price]`, `[quantity]`,
 **Insert word** adds an original compressed-word token (`[word:NN]`); its spacing
 matches the engine. `[[` escapes an opening bracket. Proportional previews support
 `{` paragraph indentation and `_` discretionary hyphens. Font/layout previews
-are approximate: ending artwork exclusions and the engine's word justification
-can change wrapping. A byte-valid message can still overflow a scene; use **Test
+are approximate in the other narrative editors. The Introduction/Ending editor
+uses the shared cutscene layout renderer. A byte-valid message can still overflow a scene; use **Test
 in Impera** to verify its final appearance.
 
 Extended-text exports use **package version 2 / narrative schema 1**. Use an
