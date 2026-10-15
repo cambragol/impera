@@ -11,8 +11,8 @@ by **wonst719** as its base. Credit for the original decompilation and reconstru
 game engine belongs to that project.
 
 You must supply your own Ultima 5 game files. Game data and optional music are
-external and are not bundled into the engine. The build still produces an
-executable named `ultima5`, and environment variables retain the `U5D_` prefix.
+external and are not bundled into the engine. Desktop builds produce `Impera` (`Impera.exe` on Windows). Environment
+variables retain the `U5D_` prefix.
 
 > **Want music? Download the Ultima 5 MP3 music from
 > [Exodus — Downloads](https://exodus.voyd.net/downloads/), extract the archive,
@@ -68,20 +68,20 @@ Choosing Custom again lets you replace it. Canceling or selecting an invalid
 image keeps the current artwork. An unavailable custom image falls back to DOS
 on startup. No tile-animation artwork is substituted from DOS.
 
-The optional sheets live in `textures/tilesets` in this repository. For an installed
-release, place a `textures/tilesets` folder beside `Impera.exe` or the Linux
-AppImage; on macOS put it under `Impera.app/Contents/Resources`. Keep these names:
+All alternative tilesets are embedded in Impera and Workshop; no external PNGs
+are needed. Their source sheets live in `textures/tilesets` in this repository:
 
-| Choice | Required sheets |
+| Choice | Source sheets |
 | --- | --- |
 | Amiga | `Ultima_5_Tiles_Amiga.png` |
 | Apple II | `Ultima_5_Tiles_AppleII.png` |
 | Grayscale | `Ultima_5_Tiles_Grayscale.png` |
 | Sharp X68000 | `Ultima_5_Tiles_SharpX68000_World.png` and `Ultima_5_Tiles_SharpX68000_NPC.png` |
 
-Alternatively, set `IMPERA_TILESETS` to the folder containing the sheets. The
-Linux development launcher finds the repository's sheets automatically.
-These original-game artwork sheets are **not bundled into engine release packages**.
+To use loose replacement sheets, set `IMPERA_TILESETS` to the folder containing the sheets. The
+explicit directory overrides the embedded sheets. Mod packages take precedence
+over both. After changing the source PNGs, run `python scripts/embed-tilesets.py`
+to update the checked-in engine resources; native builds need no Python.
 Missing or invalid sheets leave the current tileset active and show a message
 in Engine Options; a saved choice whose sheets are unavailable falls back to DOS
 at startup.

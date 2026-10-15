@@ -95,15 +95,15 @@ set(SOURCES
 	src/time/time_sdl.c
 )
 
-add_executable(ultima5 ${SOURCES})
+add_executable(Impera ${SOURCES})
 if(WIN32)
     enable_language(RC)
-    target_sources(ultima5 PRIVATE packaging/impera.rc)
-    target_include_directories(ultima5 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/packaging")
+    target_sources(Impera PRIVATE packaging/impera.rc)
+    target_include_directories(Impera PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/packaging")
 endif()
 
 option(U5D_BUILD_TESTS "Build native savegame regression tests" OFF)
-set(U5D_TARGETS ultima5)
+set(U5D_TARGETS Impera)
 if(U5D_BUILD_TESTS)
     enable_testing()
     add_executable(impera_text_window_test tests/text_window_test.c src/text/text_window.c)

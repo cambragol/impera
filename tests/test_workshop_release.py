@@ -107,14 +107,14 @@ class WorkshopReleaseTest(unittest.TestCase):
         with mock.patch('subprocess.run', side_effect=launched) as run, contextlib.redirect_stdout(io.StringIO()):
             exec(compile(code, step['name'], 'exec'))
         self.assertEqual([Path(call.args[0][0]).name for call in run.call_args_list],
-                         ['ultima5.exe', 'ImperaWorkshop.exe'])
+                         ['Impera.exe', 'ImperaWorkshop.exe'])
 
     def test_verified_testing_archives_survive_smoke_check(self):
         spec = importlib.util.spec_from_file_location('combined_check', ROOT / 'scripts/check-combined-release.py')
         check = importlib.util.module_from_spec(spec); spec.loader.exec_module(check)
         with tempfile.TemporaryDirectory() as temporary, contextlib.chdir(temporary):
             root = Path(temporary)
-            for folder, product, output in [('dist', 'Impera', 'Usage: ultima5'),
+            for folder, product, output in [('dist', 'Impera', 'Usage: Impera'),
                                              ('workshop-dist', 'ImperaWorkshop',
                                               'PASS native dialogue packaged smoke test')]:
                 path = root / folder / f'{product}-vtest-linux-x86_64.AppImage'

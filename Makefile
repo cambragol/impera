@@ -65,7 +65,7 @@ OBJS += \
 	src/time/time_dos.o
 
 SRCS = $(OBJS:.o=.c)
-TARGET = ultima5.exe
+TARGET = Impera.exe
 
 DEPDIR := .deps
 MODULE_DIRS := ./ ./src/ ./src/audio/ ./src/backend/ ./src/common/ ./src/event/ ./src/graphics/ ./src/key/ ./src/time/

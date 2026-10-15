@@ -53,7 +53,7 @@ def stage_appdir(archive, directory):
             relative = parts[1:]
             if member.issym() or member.islnk() or not (member.isfile() or member.isdir()) or '..' in parts or Path(member.name).is_absolute():
                 raise ValueError(f'Unsafe archive member: {member.name}')
-            if relative and relative[0] not in {'impera', 'Impera.sh', 'README.md', 'Licenses', 'textures'}:
+            if relative and relative[0] not in {'Impera', 'Impera.sh', 'README.md', 'Licenses', 'textures'}:
                 raise ValueError(f'Unexpected archive member: {member.name}')
         filters = {'filter': 'data'} if hasattr(tarfile, 'data_filter') else {}
         stream.extractall(directory, **filters)
