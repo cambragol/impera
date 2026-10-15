@@ -49,6 +49,7 @@ extern void GRAP_BUF_UpdateTimeTileset(int mode, byte hour, byte minute);
 extern void GRAP_BUF_PutAnimatedMoongateTile(int tileX, int tileY, int visibleRows, byte floorType, int xOffset, int yOffset);
 extern void GRAP_BUF_PutTileRevealStep(int tileX, int tileY, int tileIdx, int progress, int xOffset, int yOffset);
 extern void GRAP_BUF_PutTile(int tileX, int tileY, int tileIdx, int xOffset, int yOffset);
+extern void GRAP_BUF_PutRGBA(const unsigned char *rgba,int width,int height,int x,int y);
 extern void GRAP_BUF_PutImage(ImageView* view, int x, int y, int flags);
 extern void GRAP_BUF_PutBitImage(BitImageView* view, int x, int y);
 extern void GRAP_BUF_TransferPage(int srcPage, int dstPage, int x1, int y1, int x2, int y2, int dstX, int dstY);

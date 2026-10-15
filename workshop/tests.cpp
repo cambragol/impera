@@ -20,6 +20,7 @@
 #include "resource_document.h"
 #include "scene_editor.h"
 #include "cutscene_editor.h"
+#include "cutscene_composition.h"
 #include "mod/cutscene_layout.h"
 #include "text_preview.h"
 #include "ui_theme.h"
@@ -148,60 +149,27 @@ int main(int argc, char **argv) {
             rejects([&]{Workshop::changeCutscene(p,1,{{6,"Invalid layout"}});});
             rejects([&]{Workshop::changeCutscene(p,1,{{0,QString(2000,'a')}});});
             rejects([&]{Workshop::changeCutscene(p,0,{{0,QString(QChar(0x100))}});});
-            for(int scene=0;scene<2;scene++) {
-                QMap<QString,int> state; std::function<bool()> flush;
-                std::unique_ptr<QWidget> editor(Workshop::cutsceneEditor(&p,scene?"END.DAT":"STORY.DAT",
-                    [&](const QMap<QString,QByteArray> &changes,const QString &) {
-                        for(auto it=changes.begin();it!=changes.end();++it) p.resources[it.key()].edited=it.value();
-                        p.validate();return true;
-                    },&state,&flush));
-                auto list=editor->findChild<QListWidget *>("cutscenePages");
-                auto text=editor->findChild<QPlainTextEdit *>("cutsceneText");
-                int count=list->count();
-                auto customize=editor->findChild<QCheckBox *>("customizeCutsceneLayout");
-                auto imageX=editor->findChild<QSpinBox *>("cutsceneLayout_imageX");
-                auto textX=editor->findChild<QSpinBox *>("cutsceneLayout_textX");
-                customize->setChecked(true);imageX->setValue(25);textX->setValue(200);
-                customize->setChecked(false);
-                check(flush(),"Custom layout draft could not be saved");
-                check(Workshop::cutscenePages(p,scene)[0].placement.imageX==25 &&
-                    Workshop::cutscenePages(p,scene)[0].placement.x==200,"Layout controls were not saved");
-                customize->setChecked(true);
-                editor->findChild<QPushButton *>("resetCutsceneLayout")->click();
-                check(flush() && !Workshop::cutscenePages(p,scene)[0].placement.custom,"Reset did not restore preset layout");
-                text->setPlainText("Saved on navigation"); list->setCurrentRow(1);
-                check(Workshop::cutscenePages(p,scene)[0].text=="Saved on navigation","Page navigation discarded a draft");
-                editor->findChild<QPushButton *>("addCutscenePage")->click();
-                check(list->count()==count+1 && text->toPlainText().isEmpty(),"Add page failed");
-                text->setPlainText("A duplicate");
-                editor->findChild<QPushButton *>("duplicateCutscenePage")->click();
-                check(list->count()==count+2 && text->toPlainText()=="A duplicate","Duplicate page lost draft");
-                editor->findChild<QPushButton *>("removeCutscenePage")->click();
-                check(list->count()==count+1 && flush(),"Remove page failed");
-            }
             WorkshopWindow window;
             check(window.openGame(dir.path()),"Cannot open cutscene fixture");
             for(auto resource:{"STORY.DAT","END.DAT"}) {
-                window.selectResource(resource);
-                QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
-                check(window.findChild<QWidget *>("cutsceneEditor"),"Both sequences must use the same editor");
-                const int scene=QString(resource)=="END.DAT"?1:0;
-                const int before=Workshop::cutscenePages(window.projectForTests(),scene).size();
+                window.selectResource(resource);QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+                check(window.findChild<QWidget *>("compositionCanvas"),"Missing composition canvas");
+                int scene=QString(resource)=="END.DAT";
+                int before=Workshop::compositionPages(window.projectForTests(),scene).size();
                 window.findChild<QPushButton *>("addCutscenePage")->click();
-                check(Workshop::cutscenePages(window.projectForTests(),scene).size()==before+1,"Window add page failed");
-                for(auto action:window.findChildren<QAction *>()) if(action->text().startsWith("Undo ")) {action->trigger();break;}
-                app.processEvents(); app.processEvents();
-                check(Workshop::cutscenePages(window.projectForTests(),scene).size()==before,"Cutscene page undo failed");
-                QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
-                auto customize=window.findChild<QCheckBox *>("customizeCutsceneLayout");
-                customize->setChecked(true);
-                window.findChild<QSpinBox *>("cutsceneLayout_imageX")->setValue(20);
-                window.findChild<QPushButton *>("applyCutscenePage")->click();
-                auto row=window.findChild<QListWidget *>("cutscenePages")->currentRow();
-                check(Workshop::cutscenePages(window.projectForTests(),scene)[row].placement.custom,"Window layout apply failed");
+                check(Workshop::compositionPages(window.projectForTests(),scene).size()==before+1,"Adding a composition page failed");
                 for(auto action:window.findChildren<QAction *>()) if(action->text().startsWith("Undo ")) {action->trigger();break;}
                 app.processEvents();app.processEvents();
-                check(!Workshop::cutscenePages(window.projectForTests(),scene)[row].placement.custom,"Layout undo did not restore preset");
+                check(Workshop::compositionPages(window.projectForTests(),scene).size()==before,"Composition page undo failed");
+                QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+                int row=window.findChild<QListWidget *>("cutscenePages")->currentRow();
+                int textCount=Workshop::compositionPages(window.projectForTests(),scene)[row].texts.size();
+                window.findChild<QPushButton *>("addCutsceneText")->click();
+                window.findChild<QPushButton *>("deleteCutsceneElement")->click();
+                check(Workshop::compositionPages(window.projectForTests(),scene)[row].texts.size()==textCount,"Text box deletion failed");
+                for(auto action:window.findChildren<QAction *>())if(action->text().startsWith("Undo ")){action->trigger();break;}
+                app.processEvents();app.processEvents();
+                check(Workshop::compositionPages(window.projectForTests(),scene)[row].texts.size()==textCount+1,"Undo did not restore a deleted text box");
             }
         });
         test("Original illustrated cutscene previews use every vanilla layout (optional)", [&] {
@@ -209,6 +177,7 @@ int main(int argc, char **argv) {
             Project p;p.openGame(qEnvironmentVariable("U5_GAME_DIR"));
             for(int scene=0;scene<2;scene++) {
                 auto pages=Workshop::cutscenePages(p,scene);
+                auto compositions=Workshop::compositionPages(p,scene);int number=0;
                 for(const auto &page:pages) {
                     auto image=Workshop::previewCutscene(p,scene,page);
                     check(image.size()==QSize(320,200),"Cutscene preview has incorrect game dimensions");
@@ -216,6 +185,7 @@ int main(int argc, char **argv) {
                     for(int y=0;y<200 && !visible;y++) for(int x=0;x<320;x++)
                         if(image.pixel(x,y)!=qRgb(0,0,0)) {visible=true;break;}
                     check(visible,"Illustrated cutscene preview is blank");
+                    check(Workshop::previewComposition(p,compositions[number++])==image,"Converting an original page changed its composition");
                     auto placed=page;
                     placed.placement=U5_DefaultCutscenePlacement(scene,page.layout);placed.placement.custom=1;
                     check(Workshop::previewCutscene(p,scene,placed)==image,"Enabling custom layout changed a preset's composition");
@@ -224,42 +194,79 @@ int main(int argc, char **argv) {
                 }
             }
         });
-        test("Cutscene layout preview drags artwork and text in game pixels (optional)", [&] {
-            if(!qEnvironmentVariableIsSet("U5_GAME_DIR")) return;
-            Project p;p.openGame(qEnvironmentVariable("U5_GAME_DIR"));
+        test("Cutscene compositions embed PNG alpha, clip text, deduplicate assets and roundtrip", [&] {
+            QTemporaryDir dir;auto p=fixture(dir.path());
+            QImage png(2,2,QImage::Format_ARGB32);png.fill(qRgba(255,0,0,128));png.setPixel(1,0,qRgba(0,0,0,255));png.setPixel(0,1,qRgba(0,255,0,0));
+            const QString path=dir.path()+"/custom.png";check(png.save(path),"Cannot save PNG fixture");
+            auto imported=Workshop::importCutscenePng(path);check(imported.image.pixel(1,0)==png.pixel(1,0),"PNG alpha import changed pixels");
+            imported.position={0,0};QImage blue(2,2,QImage::Format_ARGB32);blue.fill(qRgba(0,0,255,255));
+            Workshop::CutsceneComposition page;page.images={{"Blue",blue,{0,0}},imported,imported};
+            auto once=page;once.images.removeLast();auto preview=Workshop::previewComposition(p,once);
+            check(preview.pixel(0,0)==qRgb(128,0,127)&&preview.pixel(1,0)==qRgb(0,0,0)&&preview.pixel(0,1)==qRgb(0,0,255),"PNG transparency or opaque black composition failed");
+            page.texts.append({QRect(0,0,5,8),"A",false,{}});
+            QStringList issues;check(Workshop::previewComposition(p,page,&issues).pixel(0,0)==qRgb(255,255,255),"Text did not render above images");
+            page.texts[0].text="A long paragraph that cannot fit";
+            Workshop::previewComposition(p,page,&issues);check(!issues.isEmpty(),"Text overflow was not reported");
+            auto bytes=Workshop::changeComposition(p,0,{page});check(U5_CompositionWord(reinterpret_cast<const unsigned char *>(bytes.constData())+16)==2,"Repeated images were not deduplicated");
+            p.resources["CUTSCENE.OVR"].edited=bytes;auto package=p.package();check(package.startsWith("IMOD0008"),"Composition package capability missing");
+            QFile::remove(path);Project restored;restored.openGame(dir.path());restored.importPackage(package);
+            auto pages=Workshop::compositionPages(restored,0);
+            check(pages.size()==1&&pages[0].images.size()==3&&pages[0].images[1].image.pixel(1,0)==png.pixel(1,0),"Embedded image package depends on source PNG");
+            p.save(dir.path()+"/composition.imperaproject");restored.load(p.projectPath);
+            check(Workshop::compositionPages(restored,0)[0].texts[0].text==page.texts[0].text,"Text box project roundtrip failed");
+            for(int i=0;i<bytes.size();i++) check(!U5_CompositionRead(bytes.constData(),i,-1,0,nullptr,nullptr),"Truncated composition was accepted");
+            auto invalid=page;invalid.texts[0].bounds.setWidth(321);rejects([&]{Workshop::changeComposition(p,0,{invalid});});
+            page.images.clear();bytes=Workshop::changeComposition(p,0,{page});check(U5_CompositionWord(reinterpret_cast<const unsigned char *>(bytes.constData())+16)==0,"Deleted images remained in package assets");
+            QImage oversized(1025,1,QImage::Format_ARGB32);oversized.fill(Qt::red);oversized.save(path);
+            rejects([&]{Workshop::importCutscenePng(path);});
+        });
+        test("Composition canvas imports original and modded artwork, deletes objects and edits boxes", [&] {
+            QTemporaryDir dir;auto p=fixture(dir.path());
+            QByteArray raw=QByteArray::fromHex("010006000000020002002200000022000000");
+            auto original=U5::compress(raw);raw[10]=raw[14]=char(0x33);auto modded=U5::compress(raw);
+            file(dir.path()+"/STORY1.16",original);p.resources["STORY1.16"]={original,modded};
+            p.resources["CUTSCENE.OVR"].edited=Workshop::changeComposition(p,0,{Workshop::CutsceneComposition{}});
             QMap<QString,int> state;std::function<bool()> flush;
-            std::unique_ptr<QWidget> editor(Workshop::cutsceneEditor(&p,"STORY.DAT",
-                [&](const QMap<QString,QByteArray> &changes,const QString &) {
-                    for(auto it=changes.begin();it!=changes.end();++it) p.resources[it.key()].edited=it.value();
-                    p.validate();return true;
-                },&state,&flush));
-            editor->resize(1400,850);editor->show();
-            editor->findChild<QCheckBox *>("customizeCutsceneLayout")->setChecked(true);
-            app.processEvents();
-            auto preview=editor->findChild<QLabel *>("cutscenePreview");
-            check(!preview->pixmap().isNull(),"Layout drag preview is missing");
-            const QPointF offset((preview->width()-640)/2.0,(preview->height()-400)/2.0);
-            auto drag=[&](QPointF a,QPointF b,bool cancel=false) {
-                QMouseEvent down(QEvent::MouseButtonPress,a,a,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
-                QApplication::sendEvent(preview,&down);
-                QMouseEvent move(QEvent::MouseMove,b,b,Qt::NoButton,Qt::LeftButton,Qt::NoModifier);
-                QApplication::sendEvent(preview,&move);
-                if(cancel) {QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(preview,&escape);}
-                QMouseEvent up(QEvent::MouseButtonRelease,b,b,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
-                QApplication::sendEvent(preview,&up);
+            std::unique_ptr<QWidget> editor(Workshop::compositionEditor(&p,"STORY.DAT",[&](const QMap<QString,QByteArray> &edits,const QString &){for(auto it=edits.begin();it!=edits.end();++it)p.resources[it.key()].edited=it.value();p.validate();return true;},&state,&flush));
+            editor->resize(1500,850);editor->show();app.processEvents();
+            auto chooseArt=[&](int version) {
+                bool handled=false;
+                QTimer::singleShot(0,[&] {
+                    auto dialog=qobject_cast<QDialog *>(QApplication::activeModalWidget());if(!dialog)return;
+                    auto bank=dialog->findChild<QComboBox *>("gameArtworkBank");auto source=dialog->findChild<QComboBox *>("gameArtworkVersion");auto list=dialog->findChild<QListWidget *>("gameArtworkImages");
+                    if(!bank||!source||!list){dialog->reject();return;}
+                    bank->setCurrentIndex(bank->findData("STORY1.16"));source->setCurrentIndex(version);list->setCurrentRow(0);handled=list->count()==1;dialog->accept();
+                });
+                editor->findChild<QAction *>("importGameCutsceneArt")->trigger();check(handled,"Game artwork chooser did not expose source variants");
             };
-            check(flush() && p.changed().isEmpty(),"Entering layout mode changed the page");
-            drag(offset+QPointF(10,10),offset+QPointF(50,30),true);
-            check(flush() && p.changed().isEmpty(),"Cancelling the first drag left a custom layout override");
-            drag(offset+QPointF(10,10),offset+QPointF(50,30));
-            auto page=Workshop::cutscenePages(p,0)[0];
-            check(page.placement.imageX==20 && page.placement.imageY==10,"Artwork drag saved incorrect game coordinates");
-            drag(offset+QPointF(page.placement.x*2,page.placement.y*2),offset+QPointF(page.placement.x*2+24,page.placement.y*2+18));
-            page=Workshop::cutscenePages(p,0)[0];
-            check(page.placement.x==192 && page.placement.y==137,"Text handle drag saved incorrect coordinates");
-            const auto before=p.data("CUTSCENE.OVR");
-            drag(offset+QPointF(50,30),offset+QPointF(70,40),true);
-            check(flush() && p.data("CUTSCENE.OVR")==before,"Escape did not cancel a layout drag");
+            chooseArt(0);chooseArt(1);
+            auto page=Workshop::compositionPages(p,0)[0];check(page.images.size()==2&&page.images[0].image.pixel(0,0)==U5::palette()[3]&&page.images[1].image.pixel(0,0)==U5::palette()[2],"Game artwork import ignored original/modded choice");
+            editor->findChild<QPushButton *>("duplicateCutsceneElement")->click();
+            check(Workshop::compositionPages(p,0)[0].images.size()==3,"Image duplication failed");
+            editor->findChild<QPushButton *>("deleteCutsceneElement")->click();
+            auto object=editor->findChild<QComboBox *>("cutsceneElement");object->setCurrentIndex(0);
+            editor->findChild<QPushButton *>("bringCutsceneImageForward")->click();
+            check(Workshop::compositionPages(p,0)[0].images[1].image.pixel(0,0)==U5::palette()[3],"Image ordering failed");
+            editor->findChild<QPushButton *>("sendCutsceneImageBackward")->click();object->setCurrentIndex(1);
+            auto canvas=editor->findChild<QWidget *>("compositionCanvas");
+            QPointF origin((canvas->width()-640)/2.0,(canvas->height()-400)/2.0);
+            auto drag=[&](QPointF a,QPointF b,bool cancel=false) {
+                QMouseEvent down(QEvent::MouseButtonPress,a,a,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(canvas,&down);
+                QMouseEvent move(QEvent::MouseMove,b,b,Qt::NoButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(canvas,&move);
+                if(cancel){QKeyEvent key(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(canvas,&key);}
+                QMouseEvent up(QEvent::MouseButtonRelease,b,b,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(canvas,&up);
+            };
+            drag(origin+QPointF(17,17),origin+QPointF(57,37));page=Workshop::compositionPages(p,0)[0];check(page.images[1].position==QPoint(28,18),"Image drag used incorrect coordinates");
+            auto before=p.data("CUTSCENE.OVR");drag(origin+QPointF(57,37),origin+QPointF(77,57),true);check(flush()&&p.data("CUTSCENE.OVR")==before,"Escape did not cancel image drag");
+            editor->findChild<QPushButton *>("deleteCutsceneElement")->click();check(Workshop::compositionPages(p,0)[0].images.size()==1,"Delete did not remove an image");
+            editor->findChild<QPushButton *>("addCutsceneText")->click();
+            auto text=editor->findChild<QPlainTextEdit *>("compositionText");text->setPlainText("Editable text");
+            editor->findChild<QSpinBox *>("compositionWidth")->setValue(100);editor->findChild<QSpinBox *>("compositionHeight")->setValue(40);
+            check(flush(),"Text draft could not be applied");page=Workshop::compositionPages(p,0)[0];check(page.texts[0].bounds==QRect(16,16,100,40)&&page.texts[0].text=="Editable text","Text box properties failed");
+            app.processEvents();origin=QPointF((canvas->width()-640)/2.0,(canvas->height()-400)/2.0);
+            drag(origin+QPointF(230,110),origin+QPointF(270,130));page=Workshop::compositionPages(p,0)[0];check(page.texts[0].bounds.size()==QSize(120,50),"Text-box resize handle failed");
+            drag(origin+QPointF(40,40),origin+QPointF(60,60));page=Workshop::compositionPages(p,0)[0];check(page.texts[0].bounds.topLeft()==QPoint(26,26),"Text-box drag failed");
+            editor->findChild<QPushButton *>("deleteCutsceneElement")->click();check(Workshop::compositionPages(p,0)[0].texts.isEmpty(),"Delete did not remove a text box");
         });
         test("Map contents inherit Minoc, edit sparsely, roundtrip packages and move without "
              "painting",

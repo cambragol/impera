@@ -10,6 +10,10 @@
 #include "graphics/widescreen.h"
 #include "macros.h"
 #include "vars.h"
+#include "font.h"
+#include "mod/cutscene_composition.h"
+#include "mod/cutscenes.h"
+#include "text/text_window.h"
 #include <SDL3/SDL.h>
 #include <assert.h>
 #include <stdio.h>
@@ -444,6 +448,35 @@ static void workshopPackage(void) {
     verifySheet(original, TILESET_SHARP, 0);
     SDL_DestroySurface(original);
 }
+static void compositionPixels(void) {
+    assert(TILESET_Select(TILESET_DOS));GRAP_BUF_SetPage(1);
+    unsigned char blue[]={0,0,255,255,0,0,255,255},over[]={255,0,0,128,0,0,0,255};
+    GRAP_BUF_PutRGBA(blue,2,1,0,0);GRAP_BUF_PutRGBA(over,2,1,0,0);
+    assert(TILESET_BufferColor(g_linearEgaBuffer1,0,0,IMPERA_TextPalette)==0xff80007fu);
+    assert(TILESET_UIBufferColor(g_linearEgaBuffer1,IMPERA_TextPalette)==0xff80007fu);
+    assert(TILESET_BufferColor(g_linearEgaBuffer1+1,0,0,IMPERA_TextPalette)==0xff000000u);
+    GRAP_BUF_TransferPage(1,0,0,0,1,0,10,10);
+    assert(TILESET_BufferColor(g_linearEgaBuffer0+3210,0,0,IMPERA_TextPalette)==0xff80007fu);
+    assert(TILESET_Select(TILESET_GRAY));
+    assert(TILESET_BufferColor(g_linearEgaBuffer0+3210,0,0,IMPERA_TextPalette)==0xff80007fu);
+    GRAP_BUF_SetPage(0);GRAP_BUF_SetPenColor(15);GRAP_BUF_Pset(10,10);
+    assert(TILESET_BufferColor(g_linearEgaBuffer0+3210,0,0,IMPERA_TextPalette)==IMPERA_TextPalette[15]);
+    unsigned char data[256]={0};memcpy(data,"ICUT0003",8);unsigned p=8;
+#define CW(v) do {unsigned word=(v);for(int n=0;n<4;n++)data[p++]=(unsigned char)(word>>(8*n));} while(0)
+    CW(1);CW(0);CW(1);CW(2);CW(2);CW(4);memcpy(data+p,"Test",4);p+=4;
+    for(int i=0;i<4;i++){data[p++]=0;data[p++]=0;data[p++]=255;data[p++]=255;}
+    CW(1);CW(1);CW(0);CW(0);CW(0);
+    CW(0);CW(0);CW(16);CW(1);CW(0);for(int i=0;i<8;i++)CW(0);CW(2);data[p++]='A';data[p++]=0;
+#undef CW
+    assert(U5_ValidateCutscenes(data,p));
+    byte font[202]={0};font[0]=96;
+    for(int i=0;i<96;i++){font[2+i*2]=194;font[3+i*2]=0;}
+    font[194]=2;font[196]=2;font[198]=font[199]=255;
+    FONT_ComposeCutscene(font,data,p,0,0);
+    assert(TILESET_BufferColor(g_linearEgaBuffer1,0,0,IMPERA_TextPalette)==0xffffffffu);
+    assert(TILESET_BufferColor(g_linearEgaBuffer1+320,0,0,IMPERA_TextPalette)==0xff0000ffu);
+    GRAP_BUF_SetPage(0);
+}
 int main(void)
 {
     assert(SDL_Init(SDL_INIT_VIDEO));
@@ -635,6 +668,7 @@ int main(void)
     rendering();
 #endif
     workshopPackage();
+    compositionPixels();
     GRAP_Cleanup();
     SDL_Quit();
     puts("Alternate tileset mappings, palettes, native detail, transparency, "

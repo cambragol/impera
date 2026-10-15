@@ -775,3 +775,22 @@ void GRAP_BUF_TransferPage_Reveal(int srcPage, int dstPage, int x1, int y1, int 
 
     GRAP_BUF_Present();
 }
+
+void GRAP_BUF_PutRGBA(const unsigned char *rgba,int width,int height,int x,int y) {
+    byte *buffer=D_52ba_vdp._52d8_page?g_linearEgaBuffer1:g_linearEgaBuffer0;
+    for(int row=0;row<height;row++) for(int col=0;col<width;col++) {
+        int dx=x+col,dy=y+row;
+        if(dx<0||dx>=320||dy<0||dy>=200) continue;
+        const unsigned char *source=rgba+((size_t)row*width+col)*4;
+        unsigned alpha=source[3];if(!alpha) continue;
+        byte *pixel=buffer+dy*320+dx;
+        Uint32 background=TILESET_BufferColor(pixel,0,0,IMPERA_TextPalette),color=0xff000000u;
+        for(int channel=0;channel<3;channel++) {
+            int shift=16-channel*8;
+            unsigned back=(background>>shift)&255;
+            color|=((source[channel]*alpha+back*(255-alpha)+127)/255)<<shift;
+        }
+        TILESET_RecordRGBA(pixel,color);
+    }
+    if(!D_52ba_vdp._52d8_page) s_dirty=true;
+}

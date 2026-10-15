@@ -117,7 +117,7 @@ QByteArray Project::package() const {
     auto list = changed();
     require(!list.isEmpty(), "There are no changes to export");
     require(list.size() <= MOD_MAX_ENTRIES, "Too many modified resources");
-    QByteArray out(list.contains("CUTSCENE.OVR") ? (data("CUTSCENE.OVR").startsWith("ICUT0002") ? "IMOD0007" : "IMOD0006")
+    QByteArray out(list.contains("CUTSCENE.OVR") ? (data("CUTSCENE.OVR").startsWith("ICUT0003") ? "IMOD0008" : (data("CUTSCENE.OVR").startsWith("ICUT0002") ? "IMOD0007" : "IMOD0006"))
                    : usesExplicitDialogue(*this)     ? "IMOD0005"
                    : list.contains("CONTENTS.OVR") ? "IMOD0004"
                    : list.contains("RULES.TBL")    ? "IMOD0003"
@@ -231,8 +231,8 @@ void Project::save(const QString &path) {
         requirements["packageVersion"] = 5;
     }
     if (changed().contains("CUTSCENE.OVR")) {
-        requirements["cutscenePages"] = data("CUTSCENE.OVR").startsWith("ICUT0002") ? 2 : 1;
-        requirements["packageVersion"] = data("CUTSCENE.OVR").startsWith("ICUT0002") ? 7 : 6;
+        requirements["cutscenePages"] = data("CUTSCENE.OVR").startsWith("ICUT0003") ? 3 : (data("CUTSCENE.OVR").startsWith("ICUT0002") ? 2 : 1);
+        requirements["packageVersion"] = data("CUTSCENE.OVR").startsWith("ICUT0003") ? 8 : (data("CUTSCENE.OVR").startsWith("ICUT0002") ? 7 : 6);
     }
     if (!requirements.isEmpty())
         root["requires"] = requirements;

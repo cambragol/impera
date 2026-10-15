@@ -30,7 +30,7 @@ All integers are unsigned little-endian 32-bit values; there is no padding.
 
 | Header | Encoding |
 | --- | --- |
-| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0007` |
+| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0008` |
 | Title length | 1–256 UTF-8 bytes |
 | Resource count | 1–128 |
 | Title | Length bytes; embedded NUL forbidden |
@@ -208,3 +208,40 @@ The same placement object and font-layout kernel drive Workshop previews and
 Impera playback. Layout changes are per page; duplication copies them and reordering
 moves them with their text. If no page needs custom placement, Workshop emits the
 original schema 1 / package version 6 instead.
+
+### Image and text-box compositions (version 8)
+
+`IMOD0008` supports `ICUT0003` alongside the earlier schemas. All integers are
+little-endian u32 unless specified otherwise. The header contains the magic, the
+introduction and ending page counts, and an asset count. A sequence count of zero
+inherits the original sequence; a specified sequence has 1–128 pages. At least one
+sequence is specified. The shared validator rejects resources larger than 8 MiB.
+
+Up to 256 embedded assets follow. Each asset contains width, height, UTF-8 label
+byte length, non-NUL label bytes (1–256), and width × height × 4 straight RGBA bytes.
+Dimensions are 1–1024 on each axis. Assets are deduplicated across both sequences.
+Imported game images are snapshots of the chosen original or edited artwork and
+have the same representation as imported PNGs. There are no external paths.
+
+Pages follow in introduction/ending order. Each starts with an image count (0–64)
+and text-box count (0–32). Image records contain asset index, X, Y. X/Y anchor the
+native-size image within 320 × 200; drawing outside the page clips safely.
+Image order is back to front. All text boxes are drawn after all images.
+
+Each text-box record contains fourteen words followed by NUL-terminated text:
+X, Y, width, height, preserved-flow flag, eight preserved-flow coordinates, and text
+byte length including its terminator (1–2000). Rectangles must be nonempty and fit
+inside 320 × 200. Text permits LF, CR, and printable ASCII through `{`, with no
+embedded NUL. Eight signed two's-complement coordinates (bounded to −320…320)
+preserve original text layout during conversion: left/right outside and inside the
+wrap band, band top/bottom, start X/Y, all relative to the text-box origin. When the
+flag is zero these coordinates are ignored and normal rectangular wrapping is used.
+Editing or resizing a converted text box clears preserved flow. Moving it preserves
+flow. Ordinary text boxes wrap overlong words without silently discarding glyphs.
+Text clips to its rectangle; Workshop reports overflow without deleting source text.
+
+PNG colours and partial alpha are preserved. Impera retains full RGB pixel provenance
+through native framebuffer copies independently of the selected map tileset. Plain
+UI drawing clears that provenance normally. Package validation checks all counts,
+indices, byte ranges, dimensions, text and flow coordinates before mounting; malformed
+or truncated data rejects the entire package. Older engines reject version 8 explicitly.

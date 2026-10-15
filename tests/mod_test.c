@@ -408,6 +408,25 @@ static void cutsceneResources(void) {
     memset(custom.bytes+24+4*4,0,4); /* A zero-width text area is invalid. */
     assert(!U5_ValidateCutscenes(custom.bytes,custom.size));
 }
+static void compositionResources(void) {
+    Buffer data={0},package;
+    bytes(&data,"ICUT0003",8);number(&data,1);number(&data,0);number(&data,1);
+    number(&data,2);number(&data,1);number(&data,3);bytes(&data,"PNG",3);
+    const unsigned char pixels[]={255,0,0,128,0,0,0,255};bytes(&data,pixels,sizeof(pixels));
+    number(&data,1);number(&data,1);number(&data,0);number(&data,319);number(&data,199);
+    const unsigned fields[]={1,2,100,30,0,0,0,0,0,0,0,0,0,6};
+    for(unsigned i=0;i<14;i++)number(&data,fields[i]);bytes(&data,"Hello",6);
+    assert(U5_ValidateCutscenes(data.bytes,data.size));
+    for(size_t n=0;n<data.size;n++)assert(!U5_ValidateCutscenes(data.bytes,n));
+    header(&package,1);memcpy(package.bytes,"IMOD0008",8);rawEntry(&package,"CUTSCENE.OVR",NULL,0,data.bytes,data.size);
+    ModPackage decoded={0};char error[256];
+    assert(MOD_Decode(package.bytes,package.size,readBase,NULL,&decoded,error,sizeof(error)));MOD_Free(&decoded);
+    memcpy(package.bytes,"IMOD0007",8);assert(!MOD_Decode(package.bytes,package.size,readBase,NULL,&decoded,error,sizeof(error)));
+    memcpy(package.bytes,"IMOD0008",8);put("application/Mods/composition.imperamod",package.bytes,package.size);
+    FILE_SetDataDirectory("game");size_t size=0;const void *composition=MOD_CutsceneComposition(0,&size);
+    assert(composition&&size==data.size&&MOD_CutsceneCount(0)==1&&!MOD_CutsceneComposition(1,&size));
+    FILE_SetDataDirectory(NULL);remove("application/Mods/composition.imperamod");
+}
 int main(void) {
     assert(SDL_CreateDirectory("application/Mods"));
     assert(SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "APPIMAGE", "application/Impera.AppImage", true));
@@ -506,6 +525,7 @@ int main(void) {
     engineTables();
     contentsResources();
     cutsceneResources();
+    compositionResources();
     puts("Mod package validation, atomic mounting, order, conflicts, reloads and original preservation "
          "passed");
     return 0;

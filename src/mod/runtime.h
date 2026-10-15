@@ -16,6 +16,7 @@ const uint8_t *MOD_BritanniaIndex(void);
 int MOD_InitializeWorldObjects(void *worlds512);
 const char *MOD_NarrativeText(const char *resource, unsigned offset);
 const char *MOD_SceneMessage(const char *resource, unsigned offset, const char *fallback);
+const void *MOD_CutsceneComposition(int scene, size_t *size);
 void MOD_CutscenePlacement(int scene, unsigned page, U5CutscenePlacement *placement);
 unsigned MOD_CutsceneCount(int scene);
 const char *MOD_CutscenePage(int scene, unsigned page, unsigned *layout);

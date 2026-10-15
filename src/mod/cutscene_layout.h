@@ -63,7 +63,7 @@ static const unsigned char U5CutsceneWidths[90] = {
     3, 7, 8, 3, 5, 5, 4, 5, 5, 5, 5, 5, 2, 3, 5, 2, 7, 6, 5, 5, 5, 4, 4, 4, 5, 5, 7, 5, 5, 4};
 /* The engine's FONT_0000 wrapping, justification, indents and discretionary hyphens.
  * A callback keeps native game drawing and Workshop preview on identical positions. */
-static void U5_DrawCutsceneText(const U5CutsceneLayout *layout, const char *param_2, int space,
+static void U5_DrawCutsceneTextKernel(const U5CutsceneLayout *layout, const char *param_2, int space, int drawBottom, int boxed,
                                 void (*draw)(void *, int, int, int), void *context) {
     int x = layout->x, y = layout->y;
     int local_12;
@@ -83,6 +83,7 @@ static void U5_DrawCutsceneText(const U5CutsceneLayout *layout, const char *para
     local_4 = x - layout->left[local_12];
 
     while (param_2[local_e] != '\0') {
+        int splitWord=0;
         local_a = 0;
         local_10 = local_e;
         while (param_2[local_10] != '\0' && local_4 < local_c && param_2[local_10] != '\n') {
@@ -124,6 +125,19 @@ static void U5_DrawCutsceneText(const U5CutsceneLayout *layout, const char *para
             }
         }
 
+        /* Rectangular boxes must not discard an unbreakable word or a glyph
+         * wider than the box. Wrap a fitting prefix and clip at the box edge. */
+        if(boxed && local_10<=local_e && param_2[local_e]!='\n') {
+            int fit=local_e,used=x-layout->left[local_12];
+            while(param_2[fit] && param_2[fit]!='\n') {
+                int ch=(unsigned char)param_2[fit];
+                int advance=ch<=32?space:(ch=='{'?15:(ch=='_'?0:U5CutsceneWidths[ch-33]+1));
+                if(fit>local_e && used+advance>=local_c) break;
+                used+=advance;fit++;
+                if(used>=local_c) break;
+            }
+            local_10=fit;local_4=used;local_a=0;splitWord=1;
+        }
         local_8 = local_c - local_4;
         local_6 = local_10;
         local_10 = local_e;
@@ -139,7 +153,7 @@ static void U5_DrawCutsceneText(const U5CutsceneLayout *layout, const char *para
             } else if (param_2[local_10] == '{') {
                 x += 0xf;
             } else if (param_2[local_10] != '_') {
-                if (y < 0xc0) {
+                if (y < drawBottom) {
                     // NOTE: "or" mix
                     draw(context, param_2[local_10] - 0x20, x, y);
                 }
@@ -149,7 +163,7 @@ static void U5_DrawCutsceneText(const U5CutsceneLayout *layout, const char *para
 
         local_e = local_6;
         if (param_2[local_e] != '\0') {
-            if (param_2[local_e] == '_' && y < 0xc0) {
+            if (param_2[local_e] == '_' && y < drawBottom) {
                 draw(context, 0xd, x, y);
             }
 
@@ -159,9 +173,17 @@ static void U5_DrawCutsceneText(const U5CutsceneLayout *layout, const char *para
 
             x = layout->left[local_12];
             local_c = layout->right[local_12] - x;
-            local_e++;
+            if(!splitWord) local_e++;
         }
     }
+}
+static void U5_DrawCutsceneTextBounded(const U5CutsceneLayout *layout,const char *text,int space,int bottom,
+    void (*draw)(void *,int,int,int),void *context) {
+    U5_DrawCutsceneTextKernel(layout,text,space,bottom,0,draw,context);
+}
+static void U5_DrawCutsceneText(const U5CutsceneLayout *layout,const char *text,int space,
+    void (*draw)(void *,int,int,int),void *context) {
+    U5_DrawCutsceneTextBounded(layout,text,space,192,draw,context);
 }
 static void U5_DrawPlacedCutsceneText(int scene, unsigned page,
                                       const U5CutscenePlacement *placement, const char *text,

@@ -313,3 +313,9 @@ void MOD_CutscenePlacement(int scene, unsigned page, U5CutscenePlacement *placem
     memset(placement,0,sizeof(*placement));
     if(r) U5_CutsceneReadPlacement(r->data,r->size,scene,page,NULL,NULL,NULL,placement);
 }
+
+const void *MOD_CutsceneComposition(int scene, size_t *size) {
+    const ModResource *r=mountedResource("CUTSCENE.OVR");
+    if(!r||r->size<20||memcmp(r->data,"ICUT0003",8)||!MOD_CutsceneCount(scene)) return NULL;
+    *size=r->size;return r->data;
+}

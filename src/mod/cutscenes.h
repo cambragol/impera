@@ -1,6 +1,7 @@
 #ifndef IMPERA_CUTSCENES_H
 #define IMPERA_CUTSCENES_H
 #include "cutscene_layout.h"
+#include "cutscene_composition.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -17,6 +18,11 @@ static int U5_CutsceneReadPlacement(const void *data, size_t size, int scene, un
                                     unsigned *layout, const char **text, unsigned *count,
                                     U5CutscenePlacement *placement) {
     const unsigned char *b = (const unsigned char *)data;
+    if(size>=8 && !memcmp(b,"ICUT0003",8)) {
+        if(text) *text=NULL;
+        if(placement) memset(placement,0,sizeof(*placement));
+        return U5_CompositionRead(data,size,scene,index,count,NULL);
+    }
     int v2 = size >= 8 && !memcmp(b, "ICUT0002", 8);
     if (size < 16 || (!v2 && memcmp(b, "ICUT0001", 8)))
         return 0;

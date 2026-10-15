@@ -390,34 +390,37 @@ can retain its old layout; leave and re-enter to load the package's layout.
 
 ### Introduction and Ending
 
-**Cutscenes → Introduction story** and **Ending** use the same illustrated page editor.
-Select a page to edit its text and choose an original artwork layout. **Add page**
-inserts a blank page after the selection; **Duplicate**, **Remove**, **Move up** and
-**Move down** manage the sequence. Each sequence keeps between 1 and 128 pages.
-The Introduction includes its original portal scene as an editable page.
+Both cutscenes use the same page canvas. **Add page** creates a blank page;
+**Duplicate page**, **Remove page**, **Move up**, and **Move down** manage the
+sequence. Original pages open as separate images and text boxes.
 
-The live 320 × 200 preview combines the project's artwork, the original proportional
-font, text exclusions, justification, indents and discretionary hyphens. It shows
-the completed page; transition/reveal animation remains in the game. Page edits,
-navigation, save and export preserve drafts; page operations support undo/redo.
+**Add image → Import PNG** adds artwork at its native pixel size, preserving full
+colour and transparency (including opaque black). **Game artwork** shows thumbnails
+from the game's artwork banks. Choose **Current mod artwork** or **Original game
+artwork** to import either version. Imported artwork is copied into the mod package;
+the original PNG and game-artwork files are never modified or required alongside
+the exported package. Images can be dragged, duplicated, deleted, and moved in front
+of or behind other images with **Bring forward** / **Send backward**.
 
-Choose **Edit layout** to position the artwork and text independently for the
-selected page. Drag the gold artwork outline or blue text-start handle in the
-preview, or enter coordinates in the right-hand Layout controls. Text edges
-control wrapping; **Wrap around artwork** sets different edges within a vertical
-section of the page. The portal page also exposes its lower paragraph position.
-Artwork moves as a group, including its decorative lettering and revealed frames.
-**Reset layout** restores the selected original preset. Layout drags commit as one
-undoable edit; Escape cancels an unfinished drag. Numeric edits use **Apply page**
-and are also preserved when navigating or saving. Turn off **Edit layout** to hide
-the guides and controls without changing your saved placement.
+**Add text box** creates an Ultima 5 proportional-font text box. Edit its text in
+the right pane, drag the box to move it, and drag its bottom-right handle to resize.
+The right pane also provides precise position and size fields. Text always draws
+above every image. A red box and an overflow message identify text that does not
+fit; enlarge the box or shorten the text. The canvas uses the same text-layout
+kernel, image alpha blending, and clipping as Impera. It shows the completed page.
 
-Edited sequences are stored in `CUTSCENE.OVR` (schema 1, package version 6), leaving
-`STORY.DAT` and `END.DAT` unchanged. A sequence that has not been edited continues
-using the original data, including existing `TEXT.OVR` ending edits. New packages
-require an Impera build with cutscene page support; older engines reject them.
-Custom placement uses schema 2 / package version 7 and needs the matching updated
-Impera runtime. Preset-only edits continue using schema 1 / package version 6.
+Click an element to select it, or select it from the right-pane selector when
+objects overlap. **Delete** removes either kind of element; pressing Delete while
+the canvas has focus does the same. Escape cancels an unfinished move or resize.
+Drags, deletions, duplication, ordering, and page operations support undo/redo.
+Text edits are grouped after a short pause; navigation, save and export flush drafts.
+
+Edited sequences use `CUTSCENE.OVR` schema 3 / package version 8 and require the
+updated Impera runtime. Image data is embedded and deduplicated; unused images are
+removed from exports. Older page/layout packages remain readable. Unedited
+sequences continue inheriting original game data and narrative overrides. Original
+text flow is preserved during conversion; editing or resizing a text box gives it
+ordinary rectangular wrapping.
 
 ### Narrative
 

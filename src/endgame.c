@@ -48,6 +48,17 @@ static void ENDGAME_0000(void)
     {
         unsigned layout=page;
         const char *customText=MOD_CutscenePage(1,page,&layout);
+        size_t compositionSize=0;
+        const void *composition=MOD_CutsceneComposition(1,&compositionSize);
+        if(composition) {
+            FONT_ComposeCutscene(local_c,composition,compositionSize,1,page);
+            if(page) {
+                ULTIMA_1b16_ClearKbdBuffer();
+                while(ULTIMA_1d5e_PollKey()==0) ;
+            }
+            ULTIMA_0f6e_GRAP_1b_TransferFullscreen(1,0);
+            continue;
+        }
         local_8=(int)layout;
         U5CutscenePlacement placement;
         MOD_CutscenePlacement(1,page,&placement);
