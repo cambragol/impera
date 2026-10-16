@@ -367,12 +367,26 @@ void GRAP_BUF_LoadTileset(byte* tileset)
 
 bool GRAP_BUF_HasTileset(void) { return s_tileset != NULL; }
 
+/* Apple II tilesets are 14 px wide; everything else is 16. */
+int GRAP_BUF_TileWidth(void)
+{
+    return TILESET_Selected() == TILESET_APPLE ? 14 : 16;
+}
+
 byte GRAP_BUF_TilePixel(int tile, int x, int y)
 {
-    if (!s_tileset || tile < 0 || tile >= 512 || x < 0 || y < 0 || x >= 16 || y >= 16) {TILESET_SetSample(0);return 0;}
-    int alternate=TILESET_Pixel(tile,x,y);
-    if(alternate>=0) return (byte)alternate;
-    TILESET_SetSample((unsigned)(tile*256+y*16+x+1));
+    int tw = GRAP_BUF_TileWidth();
+    if (!s_tileset || tile < 0 || tile >= 512 || x < 0 || y < 0 || x >= tw || y >= 16)
+    {
+        TILESET_SetSample(0);
+        return 0;
+    }
+
+    int alternate = TILESET_Pixel(tile, x, y);
+    if (alternate >= 0)
+        return (byte)alternate;
+
+    TILESET_SetSample((unsigned)(tile * 256 + y * 16 + x + 1));
     byte packed = s_tileset[tile * 128 + y * 8 + x / 2];
     return x & 1 ? packed & 15 : packed >> 4;
 }
@@ -422,7 +436,7 @@ void GRAP_BUF_DrawSprite(byte* pixels, int stride, int x, int y, int tile,
 void GRAP_BUF_PutMapSprite(int x, int y, int tile)
 {
     byte* pixels = D_52ba_vdp._52d8_page ? g_linearEgaBuffer1 : g_linearEgaBuffer0;
-    GRAP_BUF_DrawSprite(pixels, 320, 8 + x * 16, 8 + y * 16, tile, 8, 8, 184, 184,
+    GRAP_BUF_DrawSprite(pixels, 320, 8 + x * GRAP_BUF_TileWidth(), 8 + y * 16, tile, 8, 8, 184, 184,
         x-(D_5893_map_id>=128?D_5896_map_x:5),
         y-(D_5893_map_id>=128?D_5897_map_y:5));
     s_dirty = true;
@@ -450,13 +464,17 @@ void GRAP_BUF_UpdateTimeTileset(int mode, byte hour, byte minute)
 
 void GRAP_BUF_PutTile(int tileX, int tileY, int tileIdx, int xOffset, int yOffset)
 {
-    int dstX=tileX*16+xOffset,dstY=tileY*16+yOffset;
-    byte* pixels=GetPage(D_52ba_vdp._52d8_page);
-    for(int y=0;y<16;y++) for(int x=0;x<16;x++) {
-        int color=GRAP_BUF_TilePixel(tileIdx,x,y);
-        TILESET_Record(pixels+(dstY+y)*320+dstX+x,color);
-        pixels[(dstY+y)*320+dstX+x]=(byte)color;
-    }
+    int tw = GRAP_BUF_TileWidth();
+    int dstX = tileX * tw + xOffset;
+    int dstY = tileY * 16 + yOffset;
+    byte* pixels = GetPage(D_52ba_vdp._52d8_page);
+    for (int y = 0; y < 16; y++)
+        for (int x = 0; x < tw; x++)
+        {
+            int color = GRAP_BUF_TilePixel(tileIdx, x, y);
+            TILESET_Record(pixels + (dstY + y) * 320 + dstX + x, color);
+            pixels[(dstY + y) * 320 + dstX + x] = (byte)color;
+        }
 
     s_dirty = true;
 }
@@ -491,13 +509,16 @@ static u16 StepLfsrSeed(u16 seed, u16 mask)
 
 static void PutTileRevealPixel(int tileX, int tileY, int tileIdx, int relX, int relY, int xOffset, int yOffset)
 {
-    int dstX;
-    int dstY;
+    int tw = GRAP_BUF_TileWidth();
+    if (relX < 0 || relX >= tw || relY < 0 || relY >= 16)
+        return;
 
-    dstX=tileX*16+xOffset+relX;dstY=tileY*16+yOffset+relY;
-    int color=GRAP_BUF_TilePixel(tileIdx,relX,relY);
-    byte* pixel=GetPage(D_52ba_vdp._52d8_page)+dstY*320+dstX;
-    TILESET_Record(pixel,color);*pixel=(byte)color;
+    int dstX = tileX * tw + xOffset + relX;
+    int dstY = tileY * 16 + yOffset + relY;
+    int color = GRAP_BUF_TilePixel(tileIdx, relX, relY);
+    byte* pixel = GetPage(D_52ba_vdp._52d8_page) + dstY * 320 + dstX;
+    TILESET_Record(pixel, color);
+    *pixel = (byte)color;
     s_dirty = true;
 }
 

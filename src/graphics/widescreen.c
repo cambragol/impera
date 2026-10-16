@@ -210,6 +210,7 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
 {
     if (!D_58a4 || (D_5893_map_id >= 33 && D_5893_map_id < 128) ||
         l.columns < 11 || l.rows < 11 || !GRAP_BUF_HasTileset()) return false;
+    const int tileW = GRAP_BUF_TileWidth();
     TILESET_Copy(pixels,NULL,(size_t)l.width*l.height);
     memset(pixels, 0, (size_t)l.width * l.height);
     /* Relocate the original status and command column intact. */
@@ -278,8 +279,8 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
                         if (reflection && row > 0 && WIDE_Visible(dx, dy - 1)) {
                             for (int y = 0; y < 16; y++)
                                 if(l.mapY+(row-1)*16+y>=8 && l.mapY+(row-1)*16+y<l.height-8)
-                                for (int x = 0; x < 16; x++)
-                                    { byte* pixel=pixels+(l.mapY+(row-1)*16+y)*l.width+l.mapX+col*16+x;
+                                for (int x = 0; x < tileW; x++)
+                                    { byte* pixel=pixels+(l.mapY+(row-1)*16+y)*l.width+l.mapX+col*tileW+x;
                                       int color=GRAP_BUF_TilePixel(D_b11e[TILE_MAP_MIRROR_9E],x,y);
                                       TILESET_Record(pixel,color);*pixel=(byte)color; }
                         }
@@ -287,16 +288,18 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
                 }
                 for (int y = 0; y < 16; y++)
                     if(l.mapY+row*16+y>=8 && l.mapY+row*16+y<l.height-8)
-                    for (int x = 0; x < 16; x++)
-                        { byte* pixel=pixels+(l.mapY+row*16+y)*l.width+l.mapX+col*16+x;
+                    for (int x = 0; x < tileW; x++)
+                        { byte* pixel=pixels+(l.mapY+row*16+y)*l.width+l.mapX+col*tileW+x;
                           int color=GRAP_BUF_TilePixel(idx,x,y);TILESET_Record(pixel,color);*pixel=(byte)color; }
             }
         }
     }
     /* Keep the engine's central tiles, effects, targeting and modal overlays. */
-    Copy(pixels, l.width, l.mapX + (cx - 5) * 16, l.mapY + (cy - 5) * 16,
-         8, 8, 176, l.height-8-(l.mapY+(cy-5)*16)<176 ?
-         l.height-8-(l.mapY+(cy-5)*16) : 176);
+    int centralW = 11 * tileW, centralH = 11 * 16;
+    int centralCopyH = l.height - 8 - (l.mapY + (cy-5)*16);
+    if (centralCopyH > centralH) centralCopyH = centralH;
+    Copy(pixels, l.width, l.mapX + (cx - 5) * tileW, l.mapY + (cy - 5) * 16,
+         8, 8, centralW, centralCopyH);
     for(int row=0;row<l.rows;row++) for(int col=0;col<l.columns;col++) {
         int dx=col-cx,dy=row-cy;
         if(abs(dx)<=5 && abs(dy)<=5 || !WIDE_Visible(dx,dy)) continue;
@@ -304,15 +307,15 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
         if(actorSprite>=0 && !GRAP_BUF_SpriteIsTransparent(actorSprite)) continue;
         byte tile=WIDE_MapTile(dx,dy);
         if(WIDE_GroundTile(dx,dy)!=tile)
-            GRAP_BUF_DrawSprite(pixels,l.width,l.mapX+col*16,l.mapY+row*16,
-                D_b11e[tile],l.mapX,8,l.mapX+l.columns*16,l.height-8,dx,dy);
+            GRAP_BUF_DrawSprite(pixels,l.width,l.mapX+col*tileW,l.mapY+row*16,
+                D_b11e[tile],l.mapX,8,l.mapX+l.columns*tileW,l.height-8,dx,dy);
     }
     for (int row = 0; row < l.rows; row++)
         for (int col = 0; col < l.columns; col++) {
             int sprite = sprites[row * l.columns + col];
             if (sprite >= 0)
-                GRAP_BUF_DrawSprite(pixels, l.width, l.mapX + col * 16, l.mapY + row * 16,
-                    sprite, l.mapX, 8, l.mapX + l.columns * 16, l.height - 8,col-cx,row-cy);
+                GRAP_BUF_DrawSprite(pixels, l.width, l.mapX + col * tileW, l.mapY + row * 16,
+                    sprite, l.mapX, 8, l.mapX + l.columns * tileW, l.height - 8,col-cx,row-cy);
         }
     free(sprites);
     /* Restore outline margins at the seam after copying central effects. */
@@ -328,9 +331,9 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
             else continue;
             for (int sy = -1; sy <= 16; sy++)
                 for (int sx = -1; sx <= 16; sx++) {
-                    int px = col * 16 + sx, py = row * 16 + sy;
-                    if (px < 0 || py < 0 || px >= l.columns * 16 || py >= l.rows * 16) continue;
-                    if (px >= (cx - 5) * 16 && px < (cx + 6) * 16 &&
+                    int px = col * tileW + sx, py = row * 16 + sy;
+                    if (px < 0 || py < 0 || px >= l.columns * tileW || py >= l.rows * 16) continue;
+                    if (px >= (cx - 5) * tileW && px < (cx + 6) * tileW &&
                         py >= (cy - 5) * 16 && py < (cy + 6) * 16) continue;
                     if (l.mapY+py>=8 && l.mapY+py<l.height-8 && WIDE_SpritePixel(tile, dx, dy, sx, sy) == 0)
                         pixels[(l.mapY + py) * l.width + l.mapX + px] = 0;

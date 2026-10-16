@@ -351,10 +351,29 @@ static bool readSheet(SDL_Surface *image, int choice, int first)
             for (int x = 0; x < 32; x++)
             {
                 Uint8 r, g, b, a;
-                int px = choice == TILESET_CUSTOM ? (int)((int64_t)(col * 32 + x) * image->w / 1024)
-                                                  : col * tileWidth + x * tileWidth / 32;
-                int py = choice == TILESET_CUSTOM ? (int)((int64_t)(row * 32 + y) * image->h / 512)
-                                                  : row * tileHeight + y * tileHeight / 32;
+                int px, py;
+                if (choice == TILESET_CUSTOM)
+                {
+                    px = (int)((int64_t)(col * 32 + x) * image->w / 1024);
+                    py = (int)((int64_t)(row * 32 + y) * image->h / 512);
+                }
+                else if (choice == TILESET_APPLE)
+                {
+                    /* Uniform 2:1 expansion of the 14-wide source into the
+                     * 32-wide storage row: storage x=0..27 -> source 0..13,
+                     * storage x=28..31 clamps to the last source column.
+                     * TILESET_Pixel never asks for logical x>=14 when the
+                     * Apple set is active, so the clamp is a no-op. */
+                    int sx = x / 2 < tileWidth  ? x / 2 : tileWidth  - 1;
+                    int sy = y / 2 < tileHeight ? y / 2 : tileHeight - 1;
+                    px = col * tileWidth  + sx;
+                    py = row * tileHeight + sy;
+                }
+                else
+                {
+                    px = col * tileWidth  + x * tileWidth  / 32;
+                    py = row * tileHeight + y * tileHeight / 32;
+                }
                 if (!SDL_ReadSurfacePixel(image, px, py, &r, &g, &b, &a) ||
                     (choice != TILESET_CUSTOM && a != 255))
                     return false;
