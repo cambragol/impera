@@ -327,6 +327,96 @@ int main(int argc, char** argv)
     MOUSE_Initialize();
     assert(loadedCursors == 9);
     D_58a4=1;
+    extern void KEY_SDL_ClearInput(void);
+    extern void EVT_PollMessages(void);
+    uint savedAdvance = D_538e;
+    /* Wheel routing uses native UI coordinates, including aspect-correct
+     * fullscreen scaling. Message history never changes live text pixels. */
+    D_535e_textWindows[2] = (TextWindow){24,11,39,23,0,12,15,0};
+    GRAP_BUF_ResetTextHistory();
+    for (int row=0;row<13;row++) for(int y=0;y<8;y++)
+        memset(g_linearEgaBuffer0+(88+row*8+y)*320+192,row+1,128);
+    GRAP_BUF_ScrollWindow(192,88,319,191,-8);
+    byte past=0;
+    assert(g_linearEgaBuffer0[88*320+192]==2);
+    MOUSE_Wheel(800,480,0.5f);
+    assert(!GRAP_BUF_TextHistoryPixel(192,88,&past));
+    MOUSE_Wheel(800,480,0.5f);
+    assert(GRAP_BUF_TextHistoryPixel(192,88,&past) && past==1);
+    assert(GRAP_BUF_TextHistoryPixel(192,96,&past) && past==2);
+    assert(g_linearEgaBuffer0[88*320+192]==2);
+    byte cursorFont[8]={255,255,255,255,255,255,255,255};
+    D_538e=0;GRAP_BUF_PrintChar(cursorFont,0,15,0,24,23);
+    assert(GRAP_BUF_TextHistoryPixel(192,88,&past)&&past==1);
+    D_538e=1;
+    MOUSE_Wheel(800,480,-1);
+    assert(!GRAP_BUF_TextHistoryPixel(192,88,&past));
+    // Real SDL wheel events and natural/flipped scrolling.
+    SDL_Event wheel={0};wheel.type=SDL_EVENT_MOUSE_WHEEL;
+    wheel.wheel.mouse_x=800;wheel.wheel.mouse_y=480;wheel.wheel.y=-1;
+    wheel.wheel.direction=SDL_MOUSEWHEEL_FLIPPED;
+    assert(SDL_PushEvent(&wheel));EVT_PollMessages();
+    assert(GRAP_BUF_TextHistoryPixel(192,88,&past)&&past==1);
+    GRAP_BUF_PrintChar(cursorFont,0,15,0,24,23);
+    assert(!GRAP_BUF_TextHistoryPixel(192,88,&past));
+    MOUSE_Wheel(800,480,1);
+    SDL_Event typing={0};typing.type=SDL_EVENT_KEY_DOWN;typing.key.key=SDLK_A;
+    assert(SDL_PushEvent(&typing));EVT_PollMessages();
+    assert(!GRAP_BUF_TextHistoryPixel(192,88,&past));
+    KEY_SDL_ClearInput();
+    // Multiple notches navigate only a registered list, without Enter or
+    // falling through to party movement when the list closes.
+    MOUSE_MenuSet(192,8,120,7,3);
+    MOUSE_Wheel(800,144,-3);
+    for(int n=0;n<3;n++) assert(MOUSE_PollCommand()==U5_KEY_DOWN);
+    assert(MOUSE_PollCommand()==0);
+    MOUSE_Wheel(800,144,1);
+    assert(MOUSE_PollCommand()==U5_KEY_UP);
+    MOUSE_MenuEnd();
+    wheel.wheel.mouse_y=144;wheel.wheel.y=1;wheel.wheel.direction=SDL_MOUSEWHEEL_NORMAL;
+    assert(SDL_PushEvent(&wheel));
+    assert(MOUSE_ScrollRead()==U5_KEY_UP);
+    // Events received during a list redraw remain available for its next read.
+    MOUSE_Wheel(800,144,-2);
+    assert(MOUSE_PollCommand()==0);
+    MOUSE_MenuSet(192,8,128,9,0);
+    assert(MOUSE_PollCommand()==U5_KEY_DOWN);
+    assert(MOUSE_PollCommand()==U5_KEY_DOWN);
+    MOUSE_MenuEnd();MOUSE_Cancel();
+    MOUSE_Wheel(800,144,-1);
+    assert(MOUSE_PollCommand()==0);
+    // Scrolling outside either panel does nothing.
+    MOUSE_Wheel(384,460.8f,1);
+    assert(!GRAP_BUF_TextHistoryPixel(192,88,&past));
+    // Scrollback is bounded, survives explicit message clears, and resets
+    // when the message panel changes size rather than mixing row widths.
+    GRAP_BUF_ResetTextHistory();
+    for(int n=0;n<600;n++) {
+        for(int y=88;y<96;y++) memset(g_linearEgaBuffer0+y*320+192,n%15+1,128);
+        GRAP_BUF_ScrollWindow(192,88,319,191,-8);
+    }
+    GRAP_BUF_ScrollTextHistory(10000);
+    assert(GRAP_BUF_TextHistoryPixel(192,88,&past)&&past==14);
+    GRAP_BUF_ScrollTextHistory(-10000);
+    assert(!GRAP_BUF_TextHistoryPixel(192,88,&past));
+    GRAP_BUF_ResetTextHistory();
+    for(int row=0;row<13;row++) for(int y=0;y<8;y++)
+        memset(g_linearEgaBuffer0+(88+row*8+y)*320+192,row<3?row+1:0,128);
+    GRAP_BUF_SetPage(0);GRAP_BUF_SetPenColor(0);
+    GRAP_BUF_FillWindow(192,88,319,191,0);
+    GRAP_BUF_ScrollTextHistory(10000);
+    assert(GRAP_BUF_TextHistoryPixel(192,88,&past)&&past==1);
+    assert(g_linearEgaBuffer0[88*320+192]==0);
+    GRAP_SDL_SetPixelUI(true);
+    GRAP_BUF_FillWindow(0,0,319,199,0);
+    GRAP_SDL_SetPixelUI(false);
+    assert(GRAP_BUF_TextHistoryPixel(192,88,&past)&&past==1);
+    // Modal UI clears must not erase the message archive.
+    D_535e_textWindows[2].right=38;
+    assert(!GRAP_BUF_TextHistoryPixel(192,88,&past));
+    D_535e_textWindows[2].right=39;
+    GRAP_BUF_ResetTextHistory();
+    D_538e = savedAdvance;
     MOVEMENT_SetDiagonal(false);
     assert(MOUSE_CursorDirection(448,350)==U5_KEY_UP);
     assert(MOUSE_CursorDirection(320,570)==U5_KEY_DOWN);

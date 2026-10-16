@@ -5,6 +5,7 @@
 #include "vars.h"
 #include "key/mouse.h"
 #include "graphics/crt.h"
+#include "graphics/grap_buf.h"
 
 #include <SDL3/SDL.h>
 
@@ -53,6 +54,7 @@ void EVT_PollMessages(void)
             /* Handle exit before menus or cutscenes can consume the key. */
             if (s_immediateExit && ev.key.key == SDLK_E && (ev.key.mod & SDL_KMOD_CTRL))
                 exit(0);
+            GRAP_BUF_EndTextScroll();
 			MOUSE_Cancel();
 			KEY_SDL_ProcessKeyDown(ev.key);
 			break;
@@ -60,6 +62,10 @@ void EVT_PollMessages(void)
             KEY_SDL_ReleaseKey(ev.key.key);
             break;
 
+        case SDL_EVENT_MOUSE_WHEEL:
+            MOUSE_Wheel(ev.wheel.mouse_x, ev.wheel.mouse_y,
+                        ev.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -ev.wheel.y : ev.wheel.y);
+            break;
         case SDL_EVENT_MOUSE_MOTION:
             cursorMoved=true;
             break;

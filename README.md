@@ -264,6 +264,12 @@ as time within a loaded session; time while the application is closed does not.
 
 ## Mouse controls
 
+With Mouse Control enabled, use the wheel over the message box to browse up to
+512 lines of earlier output. Scroll down to return to the latest text; typing,
+clicking, or new output also returns to the live prompt. The wheel over an open
+status, inventory, or equipment list moves up and down without confirming a
+selection or moving the party. These controls also work in fullscreen.
+
 Enable **Mouse Control** in Engine Options. The embedded cursors show the four or eight
 movement directions over the overhead map and a pointer over menus, cutscenes,
 and the status/text column. Cursor pixels scale with the displayed game pixels

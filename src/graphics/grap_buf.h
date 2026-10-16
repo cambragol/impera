@@ -55,4 +55,10 @@ extern void GRAP_BUF_PutBitImage(BitImageView* view, int x, int y);
 extern void GRAP_BUF_TransferPage(int srcPage, int dstPage, int x1, int y1, int x2, int y2, int dstX, int dstY);
 extern void GRAP_BUF_TransferPage_Reveal(int srcPage, int dstPage, int x1, int y1, int x2, int y2, int dstX, int dstY);
 
+/* Message scrollback is presentation-only; the live text cursor never moves. */
+void GRAP_BUF_ResetTextHistory(void);
+void GRAP_BUF_EndTextScroll(void);
+void GRAP_BUF_ScrollTextHistory(int lines);
+bool GRAP_BUF_TextHistoryPixel(int x, int y, byte *color);
+
 #endif
