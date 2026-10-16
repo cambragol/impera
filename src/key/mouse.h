@@ -4,11 +4,13 @@
 #if defined(TARGET_SDL)
 void MOUSE_MenuSet(int x, int y, int width, int count, int selected);
 void MOUSE_MenuEnd(void);
+int MOUSE_ScrollRead(void);
 int MOUSE_MenuRead(int x, int y, int width, int count, int selected);
 #else
 #define MOUSE_MenuSet(x,y,w,n,s) ((void)0)
 #define MOUSE_MenuEnd() ((void)0)
 #define MOUSE_MenuRead(x,y,w,n,s) ULTIMA_266c_GetChar()
+#define MOUSE_ScrollRead() ULTIMA_266c_GetChar()
 #endif
 void MOUSE_SetCombatAimInput(int entity, int range);
 void MOUSE_EndCombatAimInput(void);
@@ -30,6 +32,7 @@ void MOUSE_BeginDirectionInput(bool talk);
 void MOUSE_EndDirectionInput(void);
 void MOUSE_Button(float x, float y, int button, bool down, int clicks);
 void MOUSE_Cancel(void);
+void MOUSE_Wheel(float x, float y, float delta);
 int MOUSE_PollCommand(void);
 int MOUSE_TakeDirection(void);
 bool MOUSE_TakeTarget(int* dx, int* dy);

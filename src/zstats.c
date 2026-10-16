@@ -412,7 +412,7 @@ static int ZSTATS_06e8(char* param_1, int param_2, byte* param_3, char** param_4
 
         // 07d3
         ULTIMA_1b94_SelectTextWindow(2);
-        local_e = ULTIMA_266c_GetChar();
+        local_e = MOUSE_ScrollRead();
         switch (local_e)
         {
         case U5_KEY_UP:
@@ -635,7 +635,7 @@ void ZSTATS_0a3a_ZstatsCmd(void)
 
             // ed3f
             ULTIMA_1b94_SelectTextWindow(2);
-            local_6 = ULTIMA_266c_GetChar();
+            local_6 = MOUSE_ScrollRead();
         }
         else if (local_4 == 0xc)
         {
@@ -643,7 +643,7 @@ void ZSTATS_0a3a_ZstatsCmd(void)
 
             // ed3f
             ULTIMA_1b94_SelectTextWindow(2);
-            local_6 = ULTIMA_266c_GetChar();
+            local_6 = MOUSE_ScrollRead();
         }
         else
         {

@@ -11,6 +11,10 @@
 #include "widescreen.h"
 #include "tileset.h"
 #include "text/text_window.h"
+#if defined(TARGET_SDL)
+#include "grap_sdl.h"
+#include "event/event.h"
+#endif
 
 #if defined(ENABLE_GRAP_OVERLAY_DEBUG)
 #include "common/dbg_font_data.h"
@@ -54,11 +58,88 @@ static pfGrapFlushFrame* s_pfFlushFrame;
 static u32 s_lastPresentTick = 0;
 static bool s_dirty = false;
 
+#define TEXT_HISTORY_LINES 512
+static byte s_textHistory[TEXT_HISTORY_LINES][8 * 128];
+static int s_historyNext, s_historyCount, s_historyOffset;
+static int s_historyLeft, s_historyTop, s_historyWidth, s_historyHeight;
+void GRAP_BUF_ResetTextHistory(void)
+{
+    s_historyNext = s_historyCount = s_historyOffset = 0;
+    s_historyWidth = 0;
+    s_dirty = true;
+}
+static bool TextHistoryWindow(void)
+{
+    const TextWindow *w = &D_535e_textWindows[2];
+    int left = w->left * 8, top = w->top * 8;
+    int width = (w->right - w->left + 1) * 8;
+    int height = (w->bottom - w->top + 1) * 8;
+    // Only the gameplay message panel, never full-screen text or artwork.
+    if (left < 192 || top < 80 || width < 8 || width > 128 ||
+        height < 8 || left + width > 320 || top + height > 200)
+        return false;
+    if (left != s_historyLeft || top != s_historyTop || width != s_historyWidth ||
+        height != s_historyHeight) {
+        GRAP_BUF_ResetTextHistory();
+        s_historyLeft = left; s_historyTop = top;
+        s_historyWidth = width; s_historyHeight = height;
+    }
+    return true;
+}
+static bool RecordTextHistory(void)
+{
+#if defined(TARGET_SDL)
+    return D_58a4 && !GRAP_SDL_PixelUI() && !EVT_ImmediateExitEnabled() &&
+           D_52ba_vdp._52d8_page == 0 && TextHistoryWindow();
+#else
+    return false;
+#endif
+}
+void GRAP_BUF_EndTextScroll(void)
+{
+    if (s_historyOffset) { s_historyOffset = 0; s_dirty = true; }
+}
+void GRAP_BUF_ScrollTextHistory(int lines)
+{
+    if (!g_linearEgaBuffer0 || !TextHistoryWindow()) return;
+    long long offset = (long long)s_historyOffset + lines;
+    if (offset < 0) offset = 0;
+    if (offset > s_historyCount) offset = s_historyCount;
+    if (offset != s_historyOffset) { s_historyOffset = (int)offset; s_dirty = true; }
+}
+static void ArchiveTextLine(int y)
+{
+    for (int row = 0; row < 8; ++row)
+        memcpy(s_textHistory[s_historyNext] + row * s_historyWidth,
+               g_linearEgaBuffer0 + (y + row) * loresWidth + s_historyLeft, s_historyWidth);
+    s_historyNext = (s_historyNext + 1) % TEXT_HISTORY_LINES;
+    if (s_historyCount < TEXT_HISTORY_LINES) ++s_historyCount;
+}
+bool GRAP_BUF_TextHistoryPixel(int x, int y, byte *color)
+{
+    if (!s_historyOffset) return false;
+    // A geometry change can reset the offset while validating the window.
+    if (!TextHistoryWindow() || !s_historyOffset ||
+        x < s_historyLeft || x >= s_historyLeft + s_historyWidth ||
+        y < s_historyTop || y >= s_historyTop + s_historyHeight) return false;
+    int row = (y - s_historyTop) / 8;
+    int line = s_historyCount - s_historyOffset + row;
+    if (line < s_historyCount) {
+        int slot = (s_historyNext - s_historyCount + line + TEXT_HISTORY_LINES) % TEXT_HISTORY_LINES;
+        *color = s_textHistory[slot][((y - s_historyTop) % 8) * s_historyWidth + x - s_historyLeft];
+    } else {
+        *color = g_linearEgaBuffer0[(s_historyTop + (line - s_historyCount) * 8 +
+                                   (y - s_historyTop) % 8) * loresWidth + x];
+    }
+    return true;
+}
+
 // T1K:19d9
 static u16 s_tileRevealSeed = 0;
 
 void GRAP_BUF_Initialize(pfGrapFlushFrame* pfFlushFrame)
 {
+    GRAP_BUF_ResetTextHistory();
     g_linearEgaBuffer0 = malloc(loresWidth * loresHeight);
     memset(g_linearEgaBuffer0, 0, loresWidth * loresHeight);
 
@@ -312,6 +393,11 @@ static void textPixel(void *host, int x, int y, byte color) {
 }
 void GRAP_BUF_PrintChar(byte* ptr, int offset, byte fgColor, byte bgColor, int penX, int penY)
 {
+    // Input cursors are redrawn continuously with advance disabled; they
+    // must not snap scrollback to the bottom while the player is reading.
+    if (D_538e && RecordTextHistory() && penX * 8 >= s_historyLeft && penX * 8 < s_historyLeft + s_historyWidth &&
+        penY * 8 >= s_historyTop && penY * 8 < s_historyTop + s_historyHeight)
+        GRAP_BUF_EndTextScroll();
     IMPERA_TextGlyph(ptr, offset, s_colorTable[fgColor], s_colorTable[bgColor], penX * 8,
                      penY * 8 + s_textPixelOffset, NULL, textPixel);
     s_dirty = true;
@@ -322,6 +408,11 @@ static void textCopy(void *host, byte *dst, const byte *src, size_t size) {
 }
 void GRAP_BUF_ScrollWindow(int left, int top, int right, int bottom, int amount)
 {
+    if (amount == -8 && RecordTextHistory() && left == s_historyLeft && top == s_historyTop &&
+        right == left + s_historyWidth - 1 && bottom == top + s_historyHeight - 1) {
+        ArchiveTextLine(top);
+        GRAP_BUF_EndTextScroll();
+    }
     IMPERA_TextScroll(g_linearEgaBuffer0, loresWidth, left, top, right, bottom, amount, NULL,
                       textCopy);
     s_dirty = true;
@@ -336,6 +427,21 @@ void GRAP_BUF_FillWindow(int x1, int y1, int x2, int y2, int xorMode)
         return;
 
     byte* target = GetPage(D_52ba_vdp._52d8_page);
+    if (!xorMode && target == g_linearEgaBuffer0 && RecordTextHistory()) {
+        if (x1 == s_historyLeft && y1 == s_historyTop &&
+            x2 == x1 + s_historyWidth - 1 && y2 == y1 + s_historyHeight - 1) {
+            int last = -1;
+            for (int y = y1; y <= y2; ++y)
+                for (int x = x1; x <= x2; ++x)
+                    if (target[y * loresWidth + x] != s_grapPenColor) last = (y - y1) / 8;
+            for (int line = 0; line <= last; ++line) ArchiveTextLine(y1 + line * 8);
+            GRAP_BUF_EndTextScroll();
+        } else if (x1 <= s_historyLeft && y1 <= s_historyTop &&
+                   x2 >= s_historyLeft + s_historyWidth - 1 &&
+                   y2 >= s_historyTop + s_historyHeight - 1) {
+            GRAP_BUF_ResetTextHistory();
+        }
+    }
 
     for (int y = y1; y <= y2; y++)
     {

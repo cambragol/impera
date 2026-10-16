@@ -5,6 +5,8 @@
 #include "cursor_assets.h"
 #include "funcs.h"
 #include "graphics/grap_sdl.h"
+#include "graphics/grap_buf.h"
+#include "event/event.h"
 #include "macros.h"
 #include "mod/contents_game.h"
 #include "talk.h"
@@ -31,7 +33,10 @@ static bool s_input, s_right, s_single;
 static int s_cursorWidth, s_cursorHeight;
 static void LoadCursors(void);
 static int DirectionOctant(float dx, float dy);
-static bool s_menu, s_menuClick;
+static bool s_menu, s_menuClick, s_scrollOnly, s_wheelContext;
+static int s_wheelSteps;
+static float s_wheelFraction;
+static int s_wheelArea;
 static int s_menuX, s_menuY, s_menuWidth, s_menuCount, s_menuSelected, s_menuTarget = -1;
 static float s_hoverX = -1, s_hoverY = -1;
 
@@ -39,18 +44,67 @@ void MOUSE_MenuSet(int x, int y, int width, int count, int selected)
 {
     if (x != s_menuX || y != s_menuY || width != s_menuWidth || count != s_menuCount) {
         s_menuTarget = -1; s_menuClick = false; s_hoverX = s_hoverY = -1;
+        s_wheelSteps = 0; s_wheelFraction = 0;
     }
     s_menuX=x; s_menuY=y; s_menuWidth=width; s_menuCount=count; s_menuSelected=selected;
     s_menu = s_enabled && count > 0;
     if (s_menu) { s_right = false; s_single = false; }
 }
-void MOUSE_MenuEnd(void) { s_menu = false; }
+void MOUSE_MenuEnd(void)
+{
+    s_menu = s_scrollOnly = s_wheelContext = false;
+    s_wheelSteps = 0; s_wheelFraction = 0;
+}
+static int FinishMenuRead(int key)
+{
+    int pending = s_wheelSteps;
+    float fraction = s_wheelFraction;
+    MOUSE_MenuEnd();
+    // Keep collecting wheel input while the same list redraws between reads.
+    // Confirmation/cancellation and returning to commands end this context.
+    if (s_enabled && (key == U5_KEY_UP || key == U5_KEY_DOWN ||
+                      key == U5_KEY_PGUP || key == U5_KEY_PGDN)) {
+        s_wheelContext = true;
+        s_wheelSteps = pending;
+        s_wheelFraction = fraction;
+    }
+    return key;
+}
+int MOUSE_ScrollRead(void)
+{
+    MOUSE_MenuSet(192, 8, 128, 9, 0);
+    s_scrollOnly = true;
+    int key = ULTIMA_266c_GetChar();
+    return FinishMenuRead(key);
+}
+void MOUSE_Wheel(float x, float y, float delta)
+{
+    float ux, uy;
+    if (!s_enabled || delta == 0 || EVT_ImmediateExitEnabled() || GRAP_SDL_PixelUI() ||
+        !GRAP_SDL_MouseUIPoint(x, y, &ux, &uy) || (SDL_isnanf(delta) || SDL_isinff(delta))) return;
+    const TextWindow *w = &D_535e_textWindows[2];
+    int area = ux >= w->left * 8 && ux < (w->right + 1) * 8 &&
+               uy >= w->top * 8 && uy < (w->bottom + 1) * 8 &&
+               w->left >= 24 && w->top >= 10 && D_58a4 ? 1 :
+               (s_menu || s_wheelContext) && ux >= 192 && ux < 320 && uy >= 8 && uy < 80 ? 2 : 0;
+    if (!area) { s_wheelFraction = 0; s_wheelArea = 0; return; }
+    if (area != s_wheelArea) s_wheelFraction = 0;
+    s_wheelArea = area;
+    s_wheelFraction += SDL_clamp(delta, -32.0f, 32.0f);
+    int steps = (int)s_wheelFraction;
+    s_wheelFraction -= steps;
+    if (area == 1) GRAP_BUF_ScrollTextHistory(steps);
+    else {
+        s_wheelSteps = SDL_clamp(s_wheelSteps + steps, -32, 32);
+        s_menuTarget = -1; s_menuClick = false;
+        SDL_GetMouseState(&s_hoverX, &s_hoverY);
+    }
+}
 int MOUSE_MenuRead(int x, int y, int width, int count, int selected)
 {
     MOUSE_MenuSet(x,y,width,count,selected);
     int key = ULTIMA_266c_GetChar();
-    MOUSE_MenuEnd();
-    return key;
+    return FinishMenuRead(key);
 }
 static int MenuItem(float x, float y)
 {
@@ -61,6 +115,12 @@ static int MenuItem(float x, float y)
 }
 static int PollMenu(void)
 {
+    if (s_wheelSteps) {
+        int key = s_wheelSteps > 0 ? U5_KEY_UP : U5_KEY_DOWN;
+        s_wheelSteps += s_wheelSteps > 0 ? -1 : 1;
+        return key;
+    }
+    if (s_scrollOnly) return 0;
     float x,y; SDL_GetMouseState(&x,&y);
     if (!s_menuClick && (x != s_hoverX || y != s_hoverY)) {
         s_hoverX=x; s_hoverY=y; s_menuTarget=MenuItem(x,y);
@@ -264,6 +324,8 @@ void MOUSE_Initialize(void)
 }
 void MOUSE_Cancel(void)
 {
+    s_wheelSteps = 0; s_wheelFraction = 0; s_wheelArea = 0;
+    s_wheelContext = false;
     s_aimKey=0;
     MOUSE_ClearCombatAttack();
     s_menuTarget = -1; s_menuClick = false;
@@ -274,7 +336,7 @@ void MOUSE_Cancel(void)
 void MOUSE_SetCommandInput(bool enabled)
 {
     s_input = enabled;
-    if (enabled) s_direction = 0;
+    if (enabled) { s_direction = 0; s_wheelSteps = 0; s_wheelFraction = 0; s_wheelContext = false; }
 }
 static int DirectionOctant(float dx, float dy)
 {
@@ -423,6 +485,7 @@ void MOUSE_EndDirectionInput(void)
 void MOUSE_Button(float x, float y, int button, bool down, int clicks)
 {
     if (!s_enabled) return;
+    if (down) GRAP_BUF_EndTextScroll();
     if(down) debug("Mouse button=%d clicks=%d position=%.1f,%.1f menu=%d direction=%d aim=%d map=%u active=%u",button,clicks,(double)x,(double)y,s_menu,s_directionInput,s_aimInput,D_5893_map_id,D_589e);
     if (s_menu) {
         if (down && button == SDL_BUTTON_LEFT) {
