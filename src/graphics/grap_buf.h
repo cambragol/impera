@@ -56,5 +56,7 @@ extern void GRAP_BUF_TransferPage(int srcPage, int dstPage, int x1, int y1, int 
 extern void GRAP_BUF_TransferPage_Reveal(int srcPage, int dstPage, int x1, int y1, int x2, int y2, int dstX, int dstY);
 
 extern int GRAP_BUF_TileWidth(void);
+extern int GRAP_BUF_SidebarX(void);
+extern int GRAP_BUF_ContentWidth(void);
 
 #endif

@@ -373,6 +373,20 @@ int GRAP_BUF_TileWidth(void)
     return TILESET_Selected() == TILESET_APPLE ? 14 : 16;
 }
 
+/* Sidebar x depends on the map's right edge: 8 px origin + 11 * tileW + 8 px gap.
+ * DOS: 16 + 11*16 = 192. Apple: 16 + 11*14 = 170. */
+int GRAP_BUF_SidebarX(void)
+{
+    return 16 + 11 * GRAP_BUF_TileWidth();
+}
+
+/* The sidebar is 128 px wide, so content ends at SidebarX + 128.
+ * DOS: 320. Apple: 298. */
+int GRAP_BUF_ContentWidth(void)
+{
+    return GRAP_BUF_SidebarX() + 128;
+}
+
 byte GRAP_BUF_TilePixel(int tile, int x, int y)
 {
     int tw = GRAP_BUF_TileWidth();
