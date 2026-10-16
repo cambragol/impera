@@ -53,7 +53,7 @@ static SDL_FRect NativeRect(int width,int height)
     float w=320*l.scale,h=200*(s_videoMode==GRAP_VIDEO_FULLSCREEN?l.scaleY:l.scale);
     return (SDL_FRect){(width-w)/2,(height-h)/2,w,h};
 }
-static int s_windowedWidth=1280, s_windowedHeight=960;
+static int s_windowedWidth=640, s_windowedHeight=480;
 static SDL_Texture* s_wideTexture;
 static SDL_Texture* s_darknessTexture;
 static SDL_Surface* s_wideSurface;
@@ -262,8 +262,8 @@ void GRAP_SDL_SetPixelUI(bool enabled)
     if(s_sdlTexture) SDL_SetTextureScaleMode(s_sdlTexture,s_fullscreen || enabled ? SDL_SCALEMODE_NEAREST : SDL_SCALEMODE_LINEAR);
 }
 
-int windowWidth = 1280;
-int windowHeight = 960;
+int windowWidth = 640;
+int windowHeight = 480;
 
 void GRAP_SDL_FlushFrame(void);
 
@@ -288,6 +288,10 @@ void GRAP_SDL_Initialize(void)
         windowWidth = mode->w;
         windowHeight = mode->h;
         flags |= SDL_WINDOW_FULLSCREEN;
+    }
+    else
+    {
+        flags |= SDL_WINDOW_RESIZABLE;
     }
 
     if (!SDL_CreateWindowAndRenderer("Impera - An Ultima 5 Engine", windowWidth, windowHeight,
