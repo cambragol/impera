@@ -384,15 +384,18 @@ static void LinearToRGB(void)
 #endif
 }
 
-static int s_darknessColumns,s_darknessRows,s_darknessMap,s_darknessLevel;
+static int s_darknessColumns,s_darknessRows,s_darknessMap,s_darknessLevel,s_darknessTileset;
 static void PrepareDarkness(int columns,int rows,bool completed)
 {
     if(!WIDE_DitheredDarkness() || EVT_ImmediateExitEnabled() || s_pixelUI || !D_58a4 || D_5893_map_id>32) {
         SDL_DestroyTexture(s_darknessTexture);s_darknessTexture=NULL;return;
     }
-    if(!completed && s_darknessTexture && columns==s_darknessColumns && rows==s_darknessRows && s_darknessMap==D_5893_map_id && s_darknessLevel==D_5895_map_level) return;
+    const int tw = GRAP_BUF_TileWidth();
+    const int tileset = TILESET_Selected();
+    if(!completed && s_darknessTexture && columns==s_darknessColumns && rows==s_darknessRows &&
+       s_darknessMap==D_5893_map_id && s_darknessLevel==D_5895_map_level && s_darknessTileset==tileset) return;
     /* One tile of padding keeps the mask over every exposed scrolling edge. */
-    int width=(columns+2)*16,height=(rows+2)*GRAP_BUF_TileWidth();
+    int width=(columns+2)*tw,height=(rows+2)*16;
     byte* mask=malloc((size_t)width*height);
     SDL_Surface* surface=SDL_CreateSurface(width,height,SDL_PIXELFORMAT_ARGB8888);
     if(mask && surface && WIDE_DarknessMask(mask,columns+2,rows+2)) {
@@ -403,7 +406,8 @@ static void PrepareDarkness(int columns,int rows,bool completed)
         }
         /* Reuse GPU storage while walking; only dimensions require a new
          * texture. Changing darkness should be an upload, not reallocation. */
-        bool reuse=s_darknessTexture && columns==s_darknessColumns && rows==s_darknessRows;
+        bool reuse=s_darknessTexture && columns==s_darknessColumns && rows==s_darknessRows &&
+                   s_darknessTileset==tileset;
         SDL_Texture* next=reuse?s_darknessTexture:SDL_CreateTextureFromSurface(s_sdlRenderer,surface);
         if(next && (!reuse || SDL_UpdateTexture(next,NULL,surface->pixels,surface->pitch))) {
             if(!reuse) {
@@ -411,7 +415,9 @@ static void PrepareDarkness(int columns,int rows,bool completed)
                 SDL_SetTextureScaleMode(next,SDL_SCALEMODE_NEAREST);
                 SDL_DestroyTexture(s_darknessTexture);s_darknessTexture=next;
             }
-            s_darknessColumns=columns;s_darknessRows=rows;s_darknessMap=D_5893_map_id;s_darknessLevel=D_5895_map_level;
+            s_darknessColumns=columns;s_darknessRows=rows;
+            s_darknessMap=D_5893_map_id;s_darknessLevel=D_5895_map_level;
+            s_darknessTileset=tileset;
         } else DEBUG_Error("Cannot update dithered darkness texture: %s",SDL_GetError());
     } else DEBUG_Error("Cannot allocate dithered darkness mask");
     free(mask);SDL_DestroySurface(surface);
@@ -419,8 +425,9 @@ static void PrepareDarkness(int columns,int rows,bool completed)
 static void DrawDarkness(SDL_FRect dst,int width,int height,int mapX,int mapY,int columns,int rows)
 {
     if(!s_darknessTexture) return;
-    SDL_FRect map={dst.x+mapX*dst.w/width,dst.y+mapY*dst.h/height,columns*GRAP_BUF_TileWidth()*dst.w/width,rows*16*dst.h/height};
-    SDL_FRect source={16,16,columns*GRAP_BUF_TileWidth(),rows*16};
+    const int tw=GRAP_BUF_TileWidth();
+    SDL_FRect map={dst.x+mapX*dst.w/width,dst.y+mapY*dst.h/height,columns*tw*dst.w/width,rows*16*dst.h/height};
+    SDL_FRect source={(float)tw,16,columns*tw,rows*16};
     SDL_Rect clip={(int)map.x,(int)(dst.y+8*dst.h/height),(int)map.w,(int)((height-16)*dst.h/height)};
     if(s_expandedFrame) SDL_SetRenderClipRect(s_sdlRenderer,&clip);
     SDL_RenderTexture(s_sdlRenderer,s_darknessTexture,&source,&map);

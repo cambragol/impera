@@ -367,6 +367,7 @@ static bool SolidMasonry(byte tile)
  * Visible masonry (including concealed doors) keeps its solid silhouette. */
 bool WIDE_DarknessMask(byte* mask,int columns,int rows)
 {
+    const int tw=GRAP_BUF_TileWidth();
     int stride=columns+4;
     bool* lit=malloc((size_t)stride*(rows+4)*sizeof(bool));
     bool* solid=malloc((size_t)stride*(rows+4)*sizeof(bool));
@@ -396,30 +397,30 @@ bool WIDE_DarknessMask(byte* mask,int columns,int rows)
             }
         if(!visible || candidateCount==0) {
             for(int py=0;py<16;py++)
-                memset(mask+(row*16+py)*columns*16+col*16,visible?0:16,16);
+                memset(mask+(row*16+py)*columns*tw+col*tw,visible?0:16,tw);
             continue;
         }
-        for(int py=0;py<16;py++) for(int px=0;px<16;px++) {
+        for(int py=0;py<16;py++) for(int px=0;px<tw;px++) {
             int shade=0;
             if(!visible) shade=16;
             else if(!masonry && (col!=columns/2 || row!=rows/2)) {
                 int nearest=24*24;
                 for(int candidate=0;candidate<candidateCount;candidate++) {
                     int ox=candidateX[candidate],oy=candidateY[candidate];
-                    int x=px-ox*16,y=py-oy*16;
-                    int dx=x<0?-x:x>15?x-15:0,dy=y<0?-y:y>15?y-15:0;
+                    int x=px-ox*tw,y=py-oy*16;
+                    int dx=x<0?-x:x>tw-1?x-(tw-1):0,dy=y<0?-y:y>15?y-15:0;
                     int distance=dx*dx+dy*dy;
                     if(distance>=nearest) continue;
                     /* Darkness beyond masonry cannot fade through it onto the
                      * lit side. Trace the short pixel segment to this boundary. */
-                    int endX=ox*16+(x<0?0:x>15?15:x);
+                    int endX=ox*tw+(x<0?0:x>tw-1?tw-1:x);
                     int endY=oy*16+(y<0?0:y>15?15:y);
                     int steps=abs(endX-px)>abs(endY-py)?abs(endX-px):abs(endY-py);
                     bool blocked=false;
                     for(int step=1;step<steps;step++) {
                         int rx=px+(endX-px)*step/steps;
                         int ry=py+(endY-py)*step/steps;
-                        int cx=rx>=0?rx/16:(rx-15)/16;
+                        int cx=rx>=0?rx/tw:(rx-(tw-1))/tw;
                         int cy=ry>=0?ry/16:(ry-15)/16;
                         if(solid[(row+cy+2)*stride+col+cx+2]) { blocked=true;break; }
                     }
@@ -428,7 +429,7 @@ bool WIDE_DarknessMask(byte* mask,int columns,int rows)
                 int distance=0;while(distance<24 && (distance+1)*(distance+1)<=nearest) distance++;
                 shade=(24-distance)*16/24;if(shade>15) shade=15;
             }
-            mask[(row*16+py)*columns*16+col*16+px]=(byte)shade;
+            mask[(row*16+py)*columns*tw+col*tw+px]=(byte)shade;
         }
     }
     free(solid);free(lit);return true;
