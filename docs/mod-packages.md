@@ -257,7 +257,7 @@ version 9 rather than reading custom tile IDs as DOS bytes.
 and embedded RGBA animation frames. IDs 0–255 override original terrain;
 512–65535 identify additions. The schema also reserves actor definitions for the
 subsequent NPC/monster authoring phase. There are at most 1024 definitions,
-64 frames per artwork variant, and 8 MiB per library. Frames are 16×16 or 32×32,
+64 frames per artwork variant, and 8 MiB per library. Frames are 16×16 or 32×32, with 14×16 also supported for Apple II,
 with durations of 10–60000 milliseconds. Artwork variants fall back to the tile's
 default artwork. Alpha is explicit: opaque black stays opaque, and no synthetic
 black outline is added. Physical properties belong to the definition, not to

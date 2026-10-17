@@ -1,3 +1,4 @@
+#include "color_palette.h"
 #include "window.h"
 #include "contents_editor.h"
 #include "custom_tiles.h"
@@ -1519,36 +1520,13 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
         QSignalBlocker block(gallery);
         gallery->setCurrentRow(i);
     });
-    auto paletteRow = new QHBoxLayout;
-    QVector<QRgb> brushColors = U5::palette();
-    if (!graphics->pngResource.isEmpty()) {
-        QSet<QRgb> unique;
-        brushColors.clear();
-        for (const auto &image : graphics->images)
-            for (int y = 0; y < image.height(); y++)
-                for (int x = 0; x < image.width(); x++)
-                    unique.insert(image.pixel(x, y));
-        brushColors = unique.values().toVector();
-        std::sort(brushColors.begin(), brushColors.end());
-    }
-    for (QRgb color : brushColors.mid(0, 24)) {
-        auto b = new QPushButton;
-        b->setFixedSize(30, 30);
-        b->setStyleSheet(
-            QString("background:%1;border:1px solid #8290a0;").arg(QColor(color).name()));
-        paletteRow->addWidget(b);
-        connect(b, &QPushButton::clicked, w, [=] { canvas->brush = color; });
-    }
-    if (!graphics->pngResource.isEmpty())
-        button(paletteRow, "Choose color…", [=] {
-            auto color = QColorDialog::getColor(QColor(canvas->brush), w, "Brush color");
-            if (color.isValid())
-                canvas->brush = color.rgba();
-        });
-    if (!graphics->tiles)
-        button(paletteRow, "Transparent", [=] { canvas->brush = qRgba(0, 0, 0, 0); });
-    paletteRow->addStretch();
-    layout->addLayout(paletteRow);
+    auto palette = new Workshop::ColorPalette(16);
+    palette->setObjectName("artworkPalette");
+    palette->setColors(Workshop::artworkColors(*graphics), !graphics->tiles,
+                       !graphics->pngResource.isEmpty());
+    palette->select(canvas->brush);
+    palette->changed = [=](QRgb color) { canvas->brush = color; };
+    layout->addWidget(palette);
     connect(slot, &QComboBox::currentIndexChanged, w, [=](int i) {
         editorState[name + "/image"] = i;
         canvas->image = graphics->images[i];
@@ -1588,6 +1566,8 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
             require(!img.isNull() && img.size() == canvas->image.size(),
                     "PNG dimensions must match the selected image");
             change(img.convertToFormat(QImage::Format_ARGB32));
+            palette->setColors(Workshop::artworkColors(*graphics), !graphics->tiles,
+                               !graphics->pngResource.isEmpty());
         });
     });
     button(actions, "Export slot PNG", [=] {
@@ -1641,6 +1621,8 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
                 auto bytes = U5::writeGraphics(next);
                 edit({{name, bytes}}, "Import tilesheet");
                 *graphics = next;
+                palette->setColors(Workshop::artworkColors(*graphics), !graphics->tiles,
+                                   !graphics->pngResource.isEmpty());
                 canvas->image = graphics->images[slot->currentIndex()];
                 canvas->size();
                 for (int i = 0; i < graphics->images.size(); i++)

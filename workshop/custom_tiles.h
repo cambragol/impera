@@ -7,6 +7,7 @@ struct Frame {
     QImage image;
     unsigned duration = 150, variant = 0;
 };
+QSize artworkSize(unsigned variant);
 QMap<unsigned, QByteArray> records(const Project &);
 TypeDef definition(const Project &, unsigned);
 QVector<Frame> frames(const QByteArray &);

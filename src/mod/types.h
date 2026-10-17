@@ -27,7 +27,8 @@ extern "C" {
  * moveProfile:u8,range:u8,projectileAppearance:u8,companion:u8, effectModes:u16,
  * name[64],description[128],frames:u16,skiffDirections:u8,humanoidSeat:u8,combatMap:u8,reserved[3].
  * Frames: variant:u8 (0 default,1..5),side:u8 (16/32),duration:u16 (10..60000 ms),
- * followed by side*side RGBA bytes. Each variant has the same frame count.
+ * followed by width*height RGBA bytes. Width 14 means Apple II 14x16;
+ * widths 16 and 32 are square. Each variant has the same frame count.
  * ITYMAP01 header: UUID[16], count:u32,reserved[4]. Sorted cells:
  * kind:u8 (0 map,1 BRIT.CBT,2 DUNGEON.CBT), map:u8,floor:i8,x:u8,y:u8,
  * reserved[3],type:u32,reserved[4]. Save records reuse the final word
@@ -56,6 +57,7 @@ int TYPES_DefWalkable(unsigned actorShape, const TypeDef *);
 int TYPES_Validate(const void *, size_t);
 int TYPES_ValidateMap(const void *, size_t, const void *, size_t);
 const unsigned char *TYPES_Find(const void *, size_t, uint32_t);
+static inline unsigned TYPES_FrameHeight(unsigned width) { return width == 14 ? 16 : width; }
 const unsigned char *TYPES_Frame(const unsigned char *, unsigned variant, uint64_t ms,
                                  unsigned *side);
 void TYPES_CellDecode(const unsigned char *, TypeCell *);

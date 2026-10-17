@@ -206,8 +206,8 @@ static Uint32 sampledColor(int color, int subX, int subY, const Uint32 *ega, boo
             TYPES_SampleArt(token / 256, (unsigned)selected, SDL_GetTicks(), &side);
         if (rgba) {
             unsigned x = token % 16, y = token % 256 / 16;
-            unsigned px = x * (side / 16) + (side == 32 ? subX : 0),
-                     py = y * (side / 16) + (side == 32 ? subY : 0);
+            unsigned px = (x * 2 + subX) * side / 32,
+                     py = (y * 2 + subY) * TYPES_FrameHeight(side) / 32;
             const unsigned char *p = rgba + (py * side + px) * 4;
             Uint32 value = (Uint32)p[3] << 24 | (Uint32)p[0] << 16 | (Uint32)p[1] << 8 | p[2];
             return transparent ? value : over(value, ega[0]);

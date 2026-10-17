@@ -63,6 +63,23 @@ int main(void) {
     assert(TYPES_Frame(defs + 32, 0, 0, &side)[0] == 0 && side == 16);
     assert(TYPES_Frame(defs + 32, 4, 100, &side)[0] == 255);
     assert(TYPES_Frame(defs + 32, 0, 200, &side)[0] == 0);
+    /* Rectangular Apple II frames retain row stride and animation offsets. */
+    unsigned appleLen = len + 2 * (4 + 14 * 16 * 4);
+    unsigned char *apple = calloc(1, appleLen);
+    memcpy(apple, defs, len);
+    TYPES_Put32(apple + 32, appleLen - 32);
+    apple[32 + 248] = 4;
+    for (unsigned i = 0, off = len; i < 2; i++, off += 4 + 14 * 16 * 4) {
+        apple[off] = 2;
+        apple[off + 1] = 14;
+        apple[off + 2] = 100;
+        apple[off + 4] = 50 + i;
+    }
+    assert(TYPES_Validate(apple, appleLen));
+    assert(TYPES_Frame(apple + 32, 2, 100, &side)[0] == 51);
+    assert(side == 14 && TYPES_FrameHeight(side) == 16);
+    assert(TYPES_Frame(apple + 32, 4, 100, &side)[0] == 255 && side == 16);
+    free(apple);
     unsigned char map[48] = {0};
     memcpy(map, "ITYMAP01", 8);
     map[8] = 1;

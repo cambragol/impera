@@ -1,4 +1,5 @@
 #include "custom_tiles.h"
+#include "color_palette.h"
 #include "window.h"
 #include <QApplication>
 #include <QMouseEvent>
@@ -141,9 +142,83 @@ int main(int argc, char **argv) {
         ui->findChild<QPushButton *>("applyCustomTile")->click();
         CHECK(edits == 1);
         CHECK(QString::fromUtf8(CustomTiles::definition(p, 40000).name) == "Polished crystal");
+        auto variants = ui->findChild<QComboBox *>("customTileVariant");
+        auto colors = ui->findChild<QWidget *>("customTilePalette");
+        CHECK(variants && colors);
+        for (int i = 0; i < 4; i++) {
+            auto tool = ui->findChild<QToolButton *>(QString("customTileTool%1").arg(i));
+            CHECK(tool && !tool->icon().isNull() && !tool->toolTip().isEmpty());
+            tool->click();
+            CHECK(state["customTiles/tool"] == i && tool->isChecked());
+        }
+        ui->findChild<QToolButton *>("customTileTool0")->click();
+        const QStringList sheets{"TILES.16", "TILE_AMI.PNG", "TILE_APP.PNG", "TILE_GRY.PNG",
+                                 "TILE_SHW.PNG"};
+        for (int i = 0; i < sheets.size(); i++) {
+            variants->setCurrentIndex(i);
+            auto canvasSize = ui->findChild<QWidget *>("customTileCanvas")->size();
+            auto nativeSize = CustomTiles::artworkSize(i);
+            CHECK(canvasSize.width() * nativeSize.height() ==
+                  canvasSize.height() * nativeSize.width());
+            auto expected = Workshop::artworkColors(U5::readGraphics(sheets[i], p.data(sheets[i])));
+            QSet<QRgb> actual;
+            for (auto b : colors->findChildren<QToolButton *>())
+                if (b->property("rgba").isValid())
+                    actual.insert(b->property("rgba").toUInt());
+            CHECK(actual.size() == expected.size() + 1);
+            for (auto rgba : expected)
+                CHECK(actual.contains(rgba));
+            auto strip = ui->findChild<QListWidget *>("customTileFrames");
+            CHECK(strip->count() == 2); // Empty slots expose the DOS animation.
+        }
+        // Editing an empty Sharp slot copies DOS frames without changing DOS artwork.
+        auto dosBefore = CustomTiles::image(p, 40000);
+        auto paintCanvas = ui->findChild<QWidget *>("customTileCanvas");
+        QMouseEvent pixelPress(QEvent::MouseButtonPress, QPointF(50, 50), QPointF(50, 50),
+                               Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QMouseEvent pixelRelease(QEvent::MouseButtonRelease, QPointF(50, 50), QPointF(50, 50),
+                                 Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(paintCanvas, &pixelPress);
+        QApplication::sendEvent(paintCanvas, &pixelRelease);
+        CHECK(CustomTiles::image(p, 40000) == dosBefore);
+        CHECK(CustomTiles::image(p, 40000, 4) != dosBefore);
+        auto useDos = ui->findChild<QPushButton *>("customTileUseDos");
+        CHECK(useDos && useDos->isEnabled());
+        useDos->click();
+        CHECK(CustomTiles::image(p, 40000, 4) == dosBefore);
+        CHECK(!useDos->isEnabled());
+        variants->setCurrentIndex(2);
+        QApplication::sendEvent(paintCanvas, &pixelPress);
+        QApplication::sendEvent(paintCanvas, &pixelRelease);
+        CHECK(CustomTiles::image(p, 40000, 2).size() == QSize(14, 16));
+        auto appleFrames = CustomTiles::frames(CustomTiles::records(p).value(40000));
+        CHECK(appleFrames.size() == 4);
+        CHECK(appleFrames[2].image.size() == QSize(14, 16));
+        CHECK(appleFrames[3].image.size() == QSize(14, 16));
+        CHECK(CustomTiles::image(p, 40000) == dosBefore);
+        useDos->click();
+
         WorkshopWindow window;
         CHECK(window.openGame(TEST_GAME_DIR));
         window.projectForTests() = p;
+        for (const auto &sheet : sheets) {
+            window.selectResource(sheet);
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            auto palette = window.findChild<QWidget *>("artworkPalette");
+            CHECK(palette);
+            auto expected = Workshop::artworkColors(U5::readGraphics(sheet, p.data(sheet)));
+            QSet<QRgb> actual;
+            for (auto b : palette->findChildren<QToolButton *>())
+                if (b->property("rgba").isValid())
+                    actual.insert(b->property("rgba").toUInt());
+            CHECK(actual.size() == expected.size());
+            for (auto rgba : expected) {
+                if (!actual.contains(rgba))
+                    fprintf(stderr, "Palette mismatch %s color %08x\n", qPrintable(sheet), rgba);
+                CHECK(actual.contains(rgba));
+            }
+        }
+
         window.selectResource("DWELLING.DAT");
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         auto palette = window.findChild<QListWidget *>("mapPalette");

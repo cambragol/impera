@@ -1,13 +1,19 @@
 #include "custom_tiles.h"
+#include "color_palette.h"
 #include "map_editor.h"
 #include "map_entities.h"
 #include "mod/package.h"
 #include <QImageReader>
+#include <QButtonGroup>
+#include <QToolButton>
 #include <QUuid>
 #include <algorithm>
 #include <cstring>
 using U5::require;
 namespace CustomTiles {
+QSize artworkSize(unsigned variant) {
+    return variant == 2 ? QSize(14, 16) : variant == 4 ? QSize(32, 32) : QSize(16, 16);
+}
 QMap<unsigned, QByteArray> records(const Project &p) {
     QMap<unsigned, QByteArray> result;
     auto data = p.resources.value("TYPES.OVR").edited;
@@ -57,9 +63,9 @@ QVector<Frame> frames(const QByteArray &r) {
     int off = 256;
     for (unsigned i = 0; i < U5::word(r, 248); i++) {
         int side = p[off + 1];
-        QImage img(p + off + 4, side, side, side * 4, QImage::Format_RGBA8888);
+        QImage img(p + off + 4, side, TYPES_FrameHeight(side), side * 4, QImage::Format_RGBA8888);
         result.append({img.copy(), U5::word(r, off + 2), p[off]});
-        off += 4 + side * side * 4;
+        off += 4 + side * TYPES_FrameHeight(side) * 4;
     }
     return result;
 }
@@ -69,8 +75,9 @@ QByteArray record(TypeDef d, const QVector<Frame> &f) {
     TYPES_Encode(reinterpret_cast<unsigned char *>(b.data()), &d);
     for (const auto &frame : f) {
         auto img = frame.image.convertToFormat(QImage::Format_RGBA8888);
-        require((img.width() == 16 || img.width() == 32) && img.width() == img.height(),
-                "Frames must be 16 × 16 or 32 × 32 pixels");
+        require(((img.width() == 16 || img.width() == 32) && img.width() == img.height()) ||
+                    (frame.variant == 2 && img.size() == QSize(14, 16)),
+                "Frames must be 16 × 16, 32 × 32, or Apple II 14 × 16 pixels");
         b.append(char(frame.variant));
         b.append(char(img.width()));
         b.append(char(frame.duration));
@@ -102,7 +109,8 @@ QImage image(const Project &p, unsigned id, unsigned variant, quint64 ms) {
         auto rgba =
             TYPES_Frame(reinterpret_cast<const unsigned char *>(r.constData()), variant, ms, &side);
         if (rgba)
-            return QImage(rgba, side, side, side * 4, QImage::Format_RGBA8888).copy();
+            return QImage(rgba, side, TYPES_FrameHeight(side), side * 4, QImage::Format_RGBA8888)
+                .copy();
     }
     auto tiles = U5::readGraphics("TILES.16", p.data("TILES.16")).images;
     auto d = definition(p, id);
@@ -263,7 +271,7 @@ class Canvas : public QWidget {
     QImage pixels, before;
     QRgb color = qRgb(255, 255, 255);
     int tool = 0;
-    std::function<void()> changed;
+    std::function<void()> changed, colorChanged;
     Canvas() {
         setMinimumSize(384, 384);
         setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
@@ -288,6 +296,8 @@ class Canvas : public QWidget {
             return;
         if (e->buttons() & Qt::RightButton || tool == 3) {
             color = pixels.pixel(q);
+            if (colorChanged)
+                colorChanged();
             return;
         }
         if (!(e->buttons() & Qt::LeftButton))
@@ -355,19 +365,74 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     auto middle = new QVBoxLayout;
     auto variants = new QComboBox;
     variants->setObjectName("customTileVariant");
-    variants->addItems({"Default / DOS", "Amiga", "Apple II", "Grayscale", "Sharp", "Custom"});
+    variants->addItems({"DOS", "Amiga", "Apple II", "Grayscale", "Sharp", "Custom"});
     variants->setCurrentIndex(qBound(0, state->value("customTiles/variant", 0), 5));
-    middle->addWidget(variants);
+    variants->setToolTip("Choose this tile’s artwork tileset. Empty slots use DOS artwork.");
+    auto tilesetRow = new QHBoxLayout;
+    tilesetRow->addWidget(new QLabel("Tileset:"));
+    tilesetRow->addWidget(variants, 1);
+    middle->addLayout(tilesetRow);
     auto canvas = new Canvas;
+    auto toolRow = new QHBoxLayout;
+    auto tools = new QButtonGroup(w);
+    tools->setExclusive(true);
+    QStringList toolNames{"Pencil", "Eraser", "Fill", "Eyedropper"};
+    QStringList toolTips{"Pencil: paint individual pixels.", "Eraser: make pixels transparent.",
+                         "Fill: replace a connected area of the same color.",
+                         "Eyedropper: pick a color from the tile."};
+    for (int i = 0; i < 4; i++) {
+        auto button = new QToolButton;
+        button->setObjectName(QString("customTileTool%1").arg(i));
+        button->setCheckable(true);
+        button->setToolTip(toolTips[i]);
+        button->setAccessibleName(toolNames[i]);
+        button->setIcon(MapCanvas::toolIcon(i == 0   ? MapCanvas::Pencil
+                                            : i == 3 ? MapCanvas::Eyedropper
+                                                     : MapCanvas::Fill));
+        if (i == 1) {
+            QPixmap icon(24, 24);
+            icon.fill(Qt::transparent);
+            QPainter painter(&icon);
+            painter.setPen(QPen(QColor("#e0e8f0"), 2));
+            painter.drawPolygon(QPolygon{{3, 14}, {13, 4}, {22, 13}, {15, 20}, {9, 20}});
+            painter.drawLine(8, 9, 18, 18);
+            painter.end();
+            button->setIcon(QIcon(icon));
+        }
+        button->setIconSize({24, 24});
+        tools->addButton(button, i);
+        toolRow->addWidget(button);
+    }
+    canvas->tool = qBound(0, state->value("customTiles/tool", 0), 3);
+    tools->button(canvas->tool)->setChecked(true);
+    toolRow->addStretch();
+    middle->addLayout(toolRow);
     middle->addWidget(canvas, 0, Qt::AlignTop);
-    auto tools = new QComboBox;
-    tools->addItems({"Pencil", "Eraser", "Fill", "Eyedropper"});
-    tools->setCurrentIndex(qBound(0, state->value("customTiles/tool", 0), 3));
-    canvas->tool = tools->currentIndex();
     canvas->color = QRgb(state->value("customTiles/color", int(qRgb(255, 255, 255))));
-    middle->addWidget(tools);
-    auto color = new QPushButton("Brush color…");
-    middle->addWidget(color);
+    auto palette = new Workshop::ColorPalette(8);
+    palette->setObjectName("customTilePalette");
+    palette->changed = [=](QRgb rgba) {
+        canvas->color = rgba;
+        canvas->colorChanged();
+    };
+    canvas->colorChanged = [=] {
+        (*state)["customTiles/color"] = int(canvas->color);
+        palette->select(canvas->color);
+    };
+    auto reloadPalette = [=] {
+        const QStringList resources{"TILES.16",     "TILE_AMI.PNG", "TILE_APP.PNG",
+                                    "TILE_GRY.PNG", "TILE_SHW.PNG", "TILES.16"};
+        auto resource = resources[variants->currentIndex()];
+        auto colors = Workshop::artworkColors(U5::readGraphics(resource, p->data(resource)));
+        palette->setColors(colors, true, true);
+        canvas->colorChanged();
+    };
+    reloadPalette();
+    middle->addWidget(palette);
+    auto resetArtwork = new QPushButton("Use DOS artwork");
+    resetArtwork->setObjectName("customTileUseDos");
+    resetArtwork->setToolTip("Clear this tileset’s artwork slot and use DOS artwork instead.");
+    middle->addWidget(resetArtwork);
     auto frameList = new QListWidget;
     frameList->setObjectName("customTileFrames");
     frameList->setFlow(QListView::LeftToRight);
@@ -585,11 +650,18 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     auto reloadFrames = [=] {
         QSignalBlocker block(frameList);
         frameList->clear();
+        unsigned slot = variants->currentIndex();
+        bool supplied = std::any_of(draft->frames.begin(), draft->frames.end(),
+                                    [=](const Frame &f) { return f.variant == slot; });
+        resetArtwork->setEnabled(slot != 0 && supplied);
+        if (!supplied)
+            slot = 0;
         for (int i = 0; i < draft->frames.size(); i++)
-            if (draft->frames[i].variant == unsigned(variants->currentIndex())) {
+            if (draft->frames[i].variant == slot) {
                 auto item = new QListWidgetItem(QIcon(QPixmap::fromImage(draft->frames[i].image)),
                                                 QString::number(frameList->count() + 1), frameList);
                 item->setData(Qt::UserRole, i);
+                item->setToolTip(supplied ? "" : "DOS artwork");
             }
         if (frameList->count())
             frameList->setCurrentRow(
@@ -597,10 +669,17 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
                        frameList->count() - 1));
         if (frameList->currentItem()) {
             auto f = draft->frames[frameList->currentItem()->data(Qt::UserRole).toInt()];
-            canvas->pixels = f.image;
+            canvas->pixels = f.image.scaled(artworkSize(variants->currentIndex()),
+                                            Qt::IgnoreAspectRatio, Qt::FastTransformation);
             ms->setValue(f.duration);
         } else
-            canvas->pixels = image(*p, draft->id);
+            canvas->pixels = image(*p, draft->id, variants->currentIndex());
+        canvas->pixels = canvas->pixels.scaled(artworkSize(variants->currentIndex()),
+                                               Qt::IgnoreAspectRatio, Qt::FastTransformation);
+        const auto size = canvas->pixels.size();
+        int scale = 384 / qMax(size.width(), size.height());
+        canvas->setMinimumSize(0, 0);
+        canvas->setFixedSize(size * scale);
         canvas->update();
     };
     auto load = [=](unsigned id) {
@@ -775,63 +854,77 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
                 refresh();
         });
     });
-    QObject::connect(tools, &QComboBox::currentIndexChanged, w, [=](int i) {
+    QObject::connect(tools, &QButtonGroup::idClicked, w, [=](int i) {
         canvas->tool = i;
         (*state)["customTiles/tool"] = i;
     });
-    QObject::connect(color, &QPushButton::clicked, w, [=] {
-        auto c = QColorDialog::getColor(QColor(canvas->color), w, "Brush color",
-                                        QColorDialog::ShowAlphaChannel);
-        if (c.isValid())
-            canvas->color = c.rgba();
+    auto editableFrame = [=]() -> int {
+        unsigned variant = variants->currentIndex();
+        int row = qMax(0, frameList->currentRow());
+        if (draft->frames.isEmpty())
+            draft->frames.append({image(*p, draft->id), 150, 0});
+        bool supplied = std::any_of(draft->frames.begin(), draft->frames.end(),
+                                    [=](const Frame &f) { return f.variant == variant; });
+        if (!supplied && variant) {
+            auto defaults = draft->frames;
+            for (auto f : defaults)
+                if (!f.variant) {
+                    f.variant = variant;
+                    f.image = f.image.scaled(artworkSize(variant), Qt::IgnoreAspectRatio,
+                                             Qt::FastTransformation);
+                    draft->frames.append(f);
+                }
+            std::stable_sort(draft->frames.begin(), draft->frames.end(),
+                             [](const Frame &a, const Frame &b) { return a.variant < b.variant; });
+        }
+        int n = 0;
+        for (int i = 0; i < draft->frames.size(); i++)
+            if (draft->frames[i].variant == variant && n++ == row)
+                return i;
+        draft->frames.append({canvas->pixels, 150, variant});
+        return draft->frames.size() - 1;
+    };
+    QObject::connect(resetArtwork, &QPushButton::clicked, w, [=] {
+        report([&] {
+            unsigned slot = variants->currentIndex();
+            if (!slot)
+                return;
+            draft->frames.erase(std::remove_if(draft->frames.begin(), draft->frames.end(),
+                                               [=](const Frame &f) { return f.variant == slot; }),
+                                draft->frames.end());
+            save("Use DOS tile artwork");
+            reloadFrames();
+        });
     });
     QObject::connect(frameList, &QListWidget::currentItemChanged, w, [=](QListWidgetItem *item) {
         if (!item)
             return;
         (*state)[QString("customTiles/%1/frame").arg(draft->id)] = frameList->row(item);
         const auto &f = draft->frames[item->data(Qt::UserRole).toInt()];
-        canvas->pixels = f.image;
+        canvas->pixels = f.image.scaled(artworkSize(variants->currentIndex()),
+                                        Qt::IgnoreAspectRatio, Qt::FastTransformation);
         QSignalBlocker block(ms);
         ms->setValue(f.duration);
         canvas->update();
     });
     canvas->changed = [=] {
         report([&] {
-            if (!frameList->currentItem()) {
-                unsigned variant = variants->currentIndex();
-                auto defaults = draft->frames;
-                if (variant) {
-                    for (auto f : defaults)
-                        if (!f.variant) {
-                            f.variant = variant;
-                            draft->frames.append(f);
-                        }
-                    for (auto &f : draft->frames)
-                        if (f.variant == variant) {
-                            f.image = canvas->pixels;
-                            break;
-                        }
-                } else
-                    draft->frames.append({canvas->pixels, 150, 0});
-                std::stable_sort(
-                    draft->frames.begin(), draft->frames.end(),
-                    [](const Frame &a, const Frame &b) { return a.variant < b.variant; });
-            } else
-                draft->frames[frameList->currentItem()->data(Qt::UserRole).toInt()].image =
-                    canvas->pixels;
+            draft->frames[editableFrame()].image = canvas->pixels;
             save("Paint tile");
+            reloadFrames();
         });
     };
     QObject::connect(variants, &QComboBox::currentIndexChanged, w, [=](int variant) {
         (*state)["customTiles/variant"] = variant;
+        reloadPalette();
         reloadFrames();
     });
     QObject::connect(ms, &QSpinBox::editingFinished, w, [=] {
         if (!draft->loading && frameList->currentItem())
             report([&] {
-                draft->frames[frameList->currentItem()->data(Qt::UserRole).toInt()].duration =
-                    ms->value();
+                draft->frames[editableFrame()].duration = ms->value();
                 save("Change frame duration");
+                reloadFrames();
             });
     });
     QObject::connect(frameAdd, &QPushButton::clicked, w, [=] {
@@ -876,6 +969,8 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
                 int row = frameList->currentRow(), next = row + pair.second;
                 if (row < 0 || next < 0 || next >= frameList->count())
                     return;
+                editableFrame();
+                reloadFrames();
                 int a = frameList->item(row)->data(Qt::UserRole).toInt(),
                     b = frameList->item(next)->data(Qt::UserRole).toInt();
                 draft->frames.swapItemsAt(a, b);
@@ -895,25 +990,19 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
                     "PNG dimensions are too large");
             auto img = reader.read().convertToFormat(QImage::Format_RGBA8888);
             require(!img.isNull(), "Cannot decode PNG");
-            int side = qMin(img.width(), img.height()) == 16   ? 16
-                       : qMin(img.width(), img.height()) == 32 ? 32
-                                                               : 0;
-            if (!side) {
-                bool ok = false;
-                QString selected = QInputDialog::getItem(w, "Slice tile sheet", "Frame size",
-                                                         {"16 × 16", "32 × 32"}, 0, false, &ok);
-                if (!ok)
-                    return;
-                side = selected.startsWith("16") ? 16 : 32;
-            }
-            require(img.width() % side == 0 && img.height() % side == 0,
-                    "The sheet dimensions must be multiples of the frame size");
-            int columns = img.width() / side, rows = img.height() / side, count = columns * rows;
+            const QSize frameSize = artworkSize(variants->currentIndex());
+            const int width = frameSize.width(), height = frameSize.height();
+            require(img.width() % width == 0 && img.height() % height == 0,
+                    QString("This tileset needs %1 × %2 pixel frames; sheet dimensions must be "
+                            "multiples of that size.")
+                        .arg(width)
+                        .arg(height));
+            int columns = img.width() / width, rows = img.height() / height, count = columns * rows;
             require(count >= 1 && count <= 64,
                     "An animation supports 1–64 frames per artwork variant");
             QMessageBox preview(
                 QMessageBox::Question, "Import frames",
-                QString("Import %1 frame(s) of %2 × %2 pixels?").arg(count).arg(side),
+                QString("Import %1 frame(s) of %2 × %3 pixels?").arg(count).arg(width).arg(height),
                 QMessageBox::Yes | QMessageBox::Cancel, w);
             preview.setIconPixmap(QPixmap::fromImage(img).scaled(512, 256, Qt::KeepAspectRatio,
                                                                  Qt::FastTransformation));
@@ -925,8 +1014,8 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
                 if (f.variant != variant)
                     next.append(f);
             for (int i = 0; i < count; i++)
-                next.append({img.copy((i % columns) * side, (i / columns) * side, side, side), 150,
-                             variant});
+                next.append({img.copy((i % columns) * width, (i / columns) * height, width, height),
+                             150, variant});
             std::stable_sort(next.begin(), next.end(),
                              [](const Frame &a, const Frame &b) { return a.variant < b.variant; });
             bool alpha = false;
@@ -971,7 +1060,10 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         auto rgba = TYPES_Frame(reinterpret_cast<const unsigned char *>(r.constData()),
                                 variants->currentIndex(), clock->elapsed(), &side);
         if (rgba) {
-            canvas->pixels = QImage(rgba, side, side, side * 4, QImage::Format_RGBA8888).copy();
+            canvas->pixels =
+                QImage(rgba, side, TYPES_FrameHeight(side), side * 4, QImage::Format_RGBA8888)
+                    .scaled(artworkSize(variants->currentIndex()), Qt::IgnoreAspectRatio,
+                            Qt::FastTransformation);
             canvas->update();
         }
     });

@@ -256,10 +256,10 @@ int TYPES_Validate(const void *v, size_t size) {
             if (len - f < 4)
                 return 0;
             unsigned variant = p[f], side = p[f + 1], ms = word(p + f + 2);
-            if (variant > 5 || (j && variant < last) || (side != 16 && side != 32) || ms < 10 ||
+            if (variant > 5 || (j && variant < last) || (side != 16 && side != 32 && !(variant == 2 && side == 14)) || ms < 10 ||
                 ms > 60000)
                 return 0;
-            size_t bytes = 4 + (size_t)side * side * 4;
+            size_t bytes = 4 + (size_t)side * TYPES_FrameHeight(side) * 4;
             if (bytes > len - f)
                 return 0;
             if (++variants[variant] > 64)
@@ -370,7 +370,7 @@ const unsigned char *TYPES_Frame(const unsigned char *p, unsigned variant, uint6
             found = 1;
             total += word(p + off + 2);
         }
-        off += 4 + (size_t)p[off + 1] * p[off + 1] * 4;
+        off += 4 + (size_t)p[off + 1] * TYPES_FrameHeight(p[off + 1]) * 4;
     }
     if (!found && variant)
         return TYPES_Frame(p, 0, ms, side);
@@ -387,7 +387,7 @@ const unsigned char *TYPES_Frame(const unsigned char *p, unsigned variant, uint6
             }
             ms -= duration;
         }
-        off += 4 + (size_t)p[off + 1] * p[off + 1] * 4;
+        off += 4 + (size_t)p[off + 1] * TYPES_FrameHeight(p[off + 1]) * 4;
     }
     return NULL;
 }
