@@ -166,6 +166,13 @@ int main(int argc, char **argv) {
                 if (b->property("rgba").isValid())
                     actual.insert(b->property("rgba").toUInt());
             CHECK(actual.size() == expected.size() + 1);
+            CHECK(colors->findChildren<QToolButton *>().size() == actual.size());
+            if (i == 4) {
+                CHECK(expected.size() == 8);
+                for (int rgb = 0; rgb < 8; rgb++)
+                    CHECK(actual.contains(
+                        qRgb(rgb & 1 ? 255 : 0, rgb & 2 ? 255 : 0, rgb & 4 ? 255 : 0)));
+            }
             for (auto rgba : expected)
                 CHECK(actual.contains(rgba));
             auto strip = ui->findChild<QListWidget *>("customTileFrames");
@@ -182,9 +189,19 @@ int main(int argc, char **argv) {
         QApplication::sendEvent(paintCanvas, &pixelRelease);
         CHECK(CustomTiles::image(p, 40000) == dosBefore);
         CHECK(CustomTiles::image(p, 40000, 4) != dosBefore);
-        auto useDos = ui->findChild<QPushButton *>("customTileUseDos");
+        auto sharp = CustomTiles::image(p, 40000, 4);
+        auto sharpColors =
+            Workshop::artworkColors(U5::readGraphics("TILE_SHW.PNG", p.data("TILE_SHW.PNG")));
+        for (int y = 0; y < sharp.height(); y++)
+            for (int x = 0; x < sharp.width(); x++) {
+                auto rgba = sharp.pixel(x, y);
+                CHECK(!qAlpha(rgba) ||
+                      sharpColors.contains(qRgb(qRed(rgba), qGreen(rgba), qBlue(rgba))));
+            }
+        CHECK(!ui->findChild<QPushButton *>("customTileUseDos"));
+        auto useDos = ui->findChild<QAction *>("customTileUseDos");
         CHECK(useDos && useDos->isEnabled());
-        useDos->click();
+        useDos->trigger();
         CHECK(CustomTiles::image(p, 40000, 4) == dosBefore);
         CHECK(!useDos->isEnabled());
         variants->setCurrentIndex(2);
@@ -196,7 +213,7 @@ int main(int argc, char **argv) {
         CHECK(appleFrames[2].image.size() == QSize(14, 16));
         CHECK(appleFrames[3].image.size() == QSize(14, 16));
         CHECK(CustomTiles::image(p, 40000) == dosBefore);
-        useDos->click();
+        useDos->trigger();
 
         WorkshopWindow window;
         CHECK(window.openGame(TEST_GAME_DIR));

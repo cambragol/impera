@@ -620,6 +620,7 @@ See [the custom-type design and audit](../docs/workshop-custom-types-plan.md) an
 The custom tile editor has Pencil, Eraser, Fill and Eyedropper tool buttons. Its
 Tileset selector switches artwork slots, the onscreen palette, and native pixel
 dimensions: DOS/Amiga/Grayscale 16×16, Apple II 14×16, Sharp 32×32. Empty slots
-show DOS artwork; editing one copies its animation into that slot. **Use DOS
-artwork** clears an alternative slot. The regular tileset editor also shows the
-selected sheet’s full palette, including colors from modded sheets.
+show DOS artwork; editing one copies its animation into that slot. The small artwork menu beside the tileset selector offers **Remove artwork for
+this tileset** to clear an alternative slot. The regular tileset editor also shows the
+selected sheet’s full palette, strictly limited to that tileset’s original colors. PNG imports are converted
+to the selected palette; custom RGB colors cannot be painted.

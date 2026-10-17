@@ -415,7 +415,9 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         canvas->color = rgba;
         canvas->colorChanged();
     };
+    auto allowedColors = std::make_shared<QVector<QRgb>>(U5::palette());
     canvas->colorChanged = [=] {
+        canvas->color = Workshop::paletteColor(canvas->color, *allowedColors);
         (*state)["customTiles/color"] = int(canvas->color);
         palette->select(canvas->color);
     };
@@ -423,16 +425,25 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         const QStringList resources{"TILES.16",     "TILE_AMI.PNG", "TILE_APP.PNG",
                                     "TILE_GRY.PNG", "TILE_SHW.PNG", "TILES.16"};
         auto resource = resources[variants->currentIndex()];
-        auto colors = Workshop::artworkColors(U5::readGraphics(resource, p->data(resource)));
-        palette->setColors(colors, true, true);
+        auto colors = Workshop::artworkColors(
+            U5::readGraphics(resource, p->resources.value(resource).original));
+        *allowedColors = colors;
+        palette->setColors(colors, true);
         canvas->colorChanged();
     };
     reloadPalette();
     middle->addWidget(palette);
-    auto resetArtwork = new QPushButton("Use DOS artwork");
+    auto artworkMenuButton = new QToolButton;
+    artworkMenuButton->setText("⋯");
+    artworkMenuButton->setToolTip("Artwork options");
+    artworkMenuButton->setPopupMode(QToolButton::InstantPopup);
+    auto artworkMenu = new QMenu(artworkMenuButton);
+    auto resetArtwork = artworkMenu->addAction("Remove artwork for this tileset");
     resetArtwork->setObjectName("customTileUseDos");
-    resetArtwork->setToolTip("Clear this tileset’s artwork slot and use DOS artwork instead.");
-    middle->addWidget(resetArtwork);
+    resetArtwork->setToolTip(
+        "Remove this artwork; the tile will use its DOS artwork automatically.");
+    artworkMenuButton->setMenu(artworkMenu);
+    tilesetRow->addWidget(artworkMenuButton);
     auto frameList = new QListWidget;
     frameList->setObjectName("customTileFrames");
     frameList->setFlow(QListView::LeftToRight);
@@ -877,6 +888,9 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             std::stable_sort(draft->frames.begin(), draft->frames.end(),
                              [](const Frame &a, const Frame &b) { return a.variant < b.variant; });
         }
+        for (auto &f : draft->frames)
+            if (f.variant == variant)
+                f.image = Workshop::paletteImage(f.image, *allowedColors);
         int n = 0;
         for (int i = 0; i < draft->frames.size(); i++)
             if (draft->frames[i].variant == variant && n++ == row)
@@ -884,7 +898,7 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         draft->frames.append({canvas->pixels, 150, variant});
         return draft->frames.size() - 1;
     };
-    QObject::connect(resetArtwork, &QPushButton::clicked, w, [=] {
+    QObject::connect(resetArtwork, &QAction::triggered, w, [=] {
         report([&] {
             unsigned slot = variants->currentIndex();
             if (!slot)
@@ -909,7 +923,8 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     });
     canvas->changed = [=] {
         report([&] {
-            draft->frames[editableFrame()].image = canvas->pixels;
+            draft->frames[editableFrame()].image =
+                Workshop::paletteImage(canvas->pixels, *allowedColors);
             save("Paint tile");
             reloadFrames();
         });
@@ -990,6 +1005,7 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
                     "PNG dimensions are too large");
             auto img = reader.read().convertToFormat(QImage::Format_RGBA8888);
             require(!img.isNull(), "Cannot decode PNG");
+            img = Workshop::paletteImage(img, *allowedColors);
             const QSize frameSize = artworkSize(variants->currentIndex());
             const int width = frameSize.width(), height = frameSize.height();
             require(img.width() % width == 0 && img.height() % height == 0,

@@ -3,6 +3,7 @@
 #include <QtWidgets>
 #include <algorithm>
 #include <functional>
+#include <climits>
 
 namespace Workshop {
 inline QVector<QRgb> artworkColors(const U5::Graphics &graphics) {
@@ -17,11 +18,33 @@ inline QVector<QRgb> artworkColors(const U5::Graphics &graphics) {
     std::sort(colors.begin(), colors.end());
     return colors;
 }
+inline QRgb paletteColor(QRgb rgba, const QVector<QRgb> &colors) {
+    if (!qAlpha(rgba) || colors.isEmpty())
+        return 0;
+    QRgb best = colors.first();
+    int distance = INT_MAX;
+    for (auto color : colors) {
+        int r = qRed(rgba) - qRed(color), g = qGreen(rgba) - qGreen(color),
+            b = qBlue(rgba) - qBlue(color);
+        int next = r * r + g * g + b * b;
+        if (next < distance) {
+            distance = next;
+            best = color;
+        }
+    }
+    return qRgba(qRed(best), qGreen(best), qBlue(best), qAlpha(rgba));
+}
+inline QImage paletteImage(const QImage &source, const QVector<QRgb> &colors) {
+    auto result = source.convertToFormat(QImage::Format_ARGB32);
+    for (int y = 0; y < result.height(); y++)
+        for (int x = 0; x < result.width(); x++)
+            result.setPixel(x, y, paletteColor(result.pixel(x, y), colors));
+    return result;
+}
 // Both artwork workspaces use the complete palette of the selected source sheet.
 class ColorPalette : public QWidget {
     QGridLayout *grid;
     QVector<QToolButton *> swatches;
-    QToolButton *custom = nullptr;
     QRgb selected = qRgb(255, 255, 255);
     int columns;
 
@@ -47,17 +70,13 @@ class ColorPalette : public QWidget {
         selected = rgba;
         for (auto b : swatches)
             b->setChecked(b->property("rgba").toUInt() == rgba);
-        if (custom)
-            custom->setStyleSheet(QString("background:%1;border:1px solid #8290a0;")
-                                      .arg(QColor::fromRgba(rgba).name()));
     }
-    void setColors(QVector<QRgb> colors, bool transparent, bool customColors) {
+    void setColors(QVector<QRgb> colors, bool transparent) {
         while (auto item = grid->takeAt(0)) {
             delete item->widget();
             delete item;
         }
         swatches.clear();
-        custom = nullptr;
         if (transparent && !colors.contains(0))
             colors.append(0);
         int index = 0;
@@ -80,23 +99,6 @@ class ColorPalette : public QWidget {
                 select(rgba);
                 if (changed)
                     changed(rgba);
-            });
-        }
-        if (customColors) {
-            custom = new QToolButton;
-            custom->setFixedSize(30, 30);
-            custom->setText("…");
-            custom->setToolTip("Choose a custom color.");
-            grid->addWidget(custom, index / columns, index % columns);
-            connect(custom, &QToolButton::clicked, this, [this, transparent] {
-                auto c = QColorDialog::getColor(QColor::fromRgba(selected), this, "Brush color",
-                                                transparent ? QColorDialog::ShowAlphaChannel
-                                                            : QColorDialog::ColorDialogOptions{});
-                if (c.isValid()) {
-                    select(c.rgba());
-                    if (changed)
-                        changed(c.rgba());
-                }
             });
         }
         select(selected);

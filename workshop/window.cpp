@@ -116,6 +116,7 @@ class PixelCanvas : public QWidget {
   public:
     QImage image;
     QRgb brush = qRgb(255, 255, 255);
+    QVector<QRgb> allowedColors;
     int zoom = 6;
     QImage before;
     std::function<void(const QImage &)> commit;
@@ -138,7 +139,8 @@ class PixelCanvas : public QWidget {
         if (x < 0 || y < 0 || x >= image.width() || y >= image.height())
             return;
         if (e->buttons() & Qt::RightButton)
-            brush = image.pixel(x, y);
+            brush = allowedColors.isEmpty() ? image.pixel(x, y)
+                                           : Workshop::paletteColor(image.pixel(x, y), allowedColors);
         else if (e->buttons() & Qt::LeftButton) {
             image.setPixel(x, y, brush);
             update();
@@ -1522,8 +1524,10 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
     });
     auto palette = new Workshop::ColorPalette(16);
     palette->setObjectName("artworkPalette");
-    palette->setColors(Workshop::artworkColors(*graphics), !graphics->tiles,
-                       !graphics->pngResource.isEmpty());
+    auto colors = Workshop::artworkColors(U5::readGraphics(name, project.resources.value(name).original));
+    canvas->allowedColors = colors;
+    canvas->brush = Workshop::paletteColor(canvas->brush, colors);
+    palette->setColors(colors, !graphics->tiles);
     palette->select(canvas->brush);
     palette->changed = [=](QRgb color) { canvas->brush = color; };
     layout->addWidget(palette);
@@ -1540,7 +1544,8 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
     auto change = [=](const QImage &img) {
         int i = slot->currentIndex();
         QImage old = graphics->images[i];
-        graphics->images[i] = img;
+        auto constrained = Workshop::paletteImage(img, colors);
+        graphics->images[i] = constrained;
         if (!guard([&] {
                 edit({{name, U5::writeGraphics(*graphics)}}, "Edit image " + QString::number(i));
             })) {
@@ -1548,9 +1553,9 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
             canvas->image = old;
             canvas->update();
         } else {
-            canvas->image = img;
+            canvas->image = constrained;
             canvas->size();
-            gallery->item(i)->setIcon(artworkPreview(img));
+            gallery->item(i)->setIcon(artworkPreview(constrained));
         }
     };
     canvas->commit = change;
@@ -1566,8 +1571,7 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
             require(!img.isNull() && img.size() == canvas->image.size(),
                     "PNG dimensions must match the selected image");
             change(img.convertToFormat(QImage::Format_ARGB32));
-            palette->setColors(Workshop::artworkColors(*graphics), !graphics->tiles,
-                               !graphics->pngResource.isEmpty());
+            palette->setColors(colors, !graphics->tiles);
         });
     });
     button(actions, "Export slot PNG", [=] {
@@ -1618,11 +1622,12 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
                                                (i / graphics->columns) * cell.height(),
                                                cell.width(), cell.height())
                                          .convertToFormat(QImage::Format_ARGB32);
+                for (auto &image : next.images)
+                    image = Workshop::paletteImage(image, colors);
                 auto bytes = U5::writeGraphics(next);
                 edit({{name, bytes}}, "Import tilesheet");
                 *graphics = next;
-                palette->setColors(Workshop::artworkColors(*graphics), !graphics->tiles,
-                                   !graphics->pngResource.isEmpty());
+                palette->setColors(colors, !graphics->tiles);
                 canvas->image = graphics->images[slot->currentIndex()];
                 canvas->size();
                 for (int i = 0; i < graphics->images.size(); i++)
