@@ -21,13 +21,15 @@ class MapDocument {
     MapDocument(const Project *project, const QString &resource);
     QVector<U5::MapPage> pages;
     QByteArray terrain(int page, bool original = false) const;
-    QMap<QString, QByteArray> changes(int page, const QByteArray &terrain) const;
+    QMap<QString, QByteArray> changes(int page, const QByteArray &terrain,
+                                      const QByteArray &expanded = {}) const;
     static bool supported(const QString &resource);
     static QString tileName(int id);
     static QString tileCategory(int id);
     QImage terrainImage(int page, const QVector<QImage> &tiles, bool ids) const;
 
   private:
+    QByteArray rawTerrain(int index, bool original = false) const;
     const Project *project;
     QString resource;
 };
@@ -56,6 +58,12 @@ class MapCanvas : public QWidget {
     explicit MapCanvas(QWidget *parent = nullptr);
     enum Tool { Pencil, Eyedropper, Pan, InspectNpc, Select, Rectangle, Fill };
     QByteArray ids, original;
+    QByteArray extended, beforeExtended, stampExtended, libraryUuid;
+    QMap<unsigned, unsigned> legacyTiles;
+    QMap<unsigned, unsigned> spriteGround;
+    QImage tileImageAt(int offset) const;
+    unsigned tileId(int offset) const;
+    void setTileId(int offset, unsigned id);
     QRect selection;
     bool outline = false, comparison = false;
     QString operation = "Paint";
@@ -176,6 +184,7 @@ class MapWorkspace : public QWidget {
                  std::function<bool(const QMap<QString, QByteArray> &, const QString &)> commit,
                  std::function<void(const QString &)> navigate, QWidget *parent = nullptr);
     ~MapWorkspace() override { clearLocationLayer(); }
+    std::function<void(unsigned)> editTileType;
     void cancelGesture();
     void prepareNavigation() {
         cancelGesture();

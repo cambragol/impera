@@ -6,6 +6,7 @@
 #include "macros.h"
 #include "mod/contents_game.h"
 #include "mod/runtime.h"
+#include "mod/types_game.h"
 #include "tiles.h"
 #include "tileset.h"
 #include "vars.h"
@@ -193,7 +194,9 @@ bool WIDE_Visible(int dx, int dy)
          * emerge on the far side of a room it classified as unseen. */
         if(expanded && abs(x)<=5 && abs(y)<=5 && GetMapViewport(x+5,y+5)==255) return false;
         if (x == dx && y == dy) break;
-        if (!Transparent(WIDE_MapTile(x, y), x * x + y * y)) return false;
+        if (!TYPES_GAME_Sight(D_5896_map_x + x, D_5897_map_y + y, x * x + y * y,
+                              Transparent(WIDE_MapTile(x, y), x * x + y * y)))
+            return false;
     }
     return true;
 }
@@ -293,6 +296,16 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
             }
         }
     }
+    for (int row = 0; row < l.rows; row++)
+        for (int col = 0; col < l.columns; col++) {
+            int dx = col - cx, dy = row - cy;
+            if (abs(dx) <= 5 && abs(dy) <= 5 || !WIDE_Visible(dx, dy))
+                continue;
+            if (sprites[row * l.columns + col] < 0 ||
+                GRAP_BUF_SpriteIsTransparent(sprites[row * l.columns + col]))
+                TYPES_GAME_Draw(pixels, l.width, l.mapX + col * 16, l.mapY + row * 16, dx, dy, 8,
+                                l.height - 8);
+        }
     /* Keep the engine's central tiles, effects, targeting and modal overlays. */
     Copy(pixels, l.width, l.mapX + (cx - 5) * 16, l.mapY + (cy - 5) * 16,
          8, 8, 176, l.height-8-(l.mapY+(cy-5)*16)<176 ?
@@ -303,7 +316,8 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
         int actorSprite=sprites[row*l.columns+col];
         if(actorSprite>=0 && !GRAP_BUF_SpriteIsTransparent(actorSprite)) continue;
         byte tile=WIDE_MapTile(dx,dy);
-        if(WIDE_GroundTile(dx,dy)!=tile)
+        if (!TYPES_ArtSlot(TYPES_GAME_At(D_5896_map_x + dx, D_5897_map_y + dy)) &&
+            WIDE_GroundTile(dx, dy) != tile)
             GRAP_BUF_DrawSprite(pixels,l.width,l.mapX+col*16,l.mapY+row*16,
                 D_b11e[tile],l.mapX,8,l.mapX+l.columns*16,l.height-8,dx,dy);
     }
@@ -373,14 +387,18 @@ bool WIDE_DarknessMask(byte* mask,int columns,int rows)
         byte tile=WIDE_MapTile(dx,dy);
         /* Unavailable terrain is not a source of an inward fade. Town
          * backgrounds are valid tiles, just like the original viewport. */
-        solid[(row+2)*stride+col+2]=tile==255 || SolidMasonry(tile);
+        solid[(row + 2) * stride + col + 2] =
+            tile == 255 ||
+            TYPES_GAME_Property(D_5896_map_x + col - columns / 2, D_5897_map_y + row - rows / 2, 2,
+                                SolidMasonry(tile));
         lit[(row+2)*stride+col+2]=tile!=255 &&
             (abs(dx)<=5 && abs(dy)<=5 ? GetMapViewport(dx+5,dy+5)!=255 : WIDE_Visible(dx,dy));
     }
     for(int row=0;row<rows;row++) for(int col=0;col<columns;col++) {
         bool visible=lit[(row+2)*stride+col+2];
         byte tile=visible ? WIDE_MapTile(col-columns/2,row-rows/2) : 255;
-        bool masonry=SolidMasonry(tile);
+        bool masonry = TYPES_GAME_Property(D_5896_map_x + col - columns / 2,
+                                           D_5897_map_y + row - rows / 2, 2, SolidMasonry(tile));
         /* Tile visibility is constant across its pixels. Collect only nearby
          * exposed darkness once, rather than scanning 25 tiles per pixel. */
         int candidateX[25],candidateY[25],candidateCount=0;

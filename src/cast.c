@@ -2,6 +2,7 @@
 #include "funcs.h"
 #include "macros.h"
 #include "mod/contents_game.h"
+#include "mod/types_game.h"
 #include "tiles.h"
 #include "vars.h"
 
@@ -194,7 +195,7 @@ static int CAST_0230_AnYlem(void)
     case TILE_MAP_DRESSER:
     case TILE_MAP_AE:
     case TILE_MAP_TRUNK:
-        *local_4 = TILE_MAP_44;
+        TYPES_GAME_Change(D_5876, D_5878, 3, TILE_MAP_44);
         ULTIMA_1850_PrintString(_TEXT(0x459a, "POOF!\n"));
         D_24e6 |= 2;
         ULTIMA_5910_UpdateFrame();
@@ -253,7 +254,7 @@ static int CAST_02d2_AnSanct(void)
                 ULTIMA_1850_PrintString(_TEXT(0x45a1, "Disarmed!\n"));
             }
 
-            *local_4 = (*local_4 & 8) | 0x70;
+            TYPES_GAME_Write(D_5876, D_5878, (*local_4 & 8) | 0x70);
 
             ULTIMA_1850_PrintString(_TEXT(0x45ac, "Chest opened!\n"));
 
@@ -282,7 +283,7 @@ static int CAST_02d2_AnSanct(void)
 
         if (*local_4 == TILE_MAP_DOOR_B9 || *local_4 == TILE_MAP_DOOR_BB)
         {
-            --*local_4;
+            TYPES_GAME_Change(D_5876, D_5878, 1, *local_4 - 1);
 
             D_24e6 |= 2;
 
@@ -604,14 +605,14 @@ static int CAST_0846_AnExPor(void)
         {
         case TILE_MAP_DOOR_B8:
         case TILE_MAP_DOOR_B9:
-            *local_4 = TILE_MAP_97;
+            TYPES_GAME_Change(D_5876, D_5878, 2, TILE_MAP_97);
             local_6 = 1;
             D_24e6 |= 2;
             break;
 
         case TILE_MAP_DOOR_BA:
         case TILE_MAP_DOOR_BB:
-            *local_4 = TILE_MAP_98;
+            TYPES_GAME_Change(D_5876, D_5878, 2, TILE_MAP_98);
             local_6 = 1;
             D_24e6 |= 2;
             break;
@@ -1772,7 +1773,8 @@ void CAST_1792_UseCmd(void)
                         local_8 = ULTIMA_4402_GetTileAddr(local_e + D_5896_map_x, local_12 + D_5897_map_y);
                         if ((*local_8 & 0xf0) == TILE_MAP_70)
                         {
-                            *local_8 = TILE_MAP_GRASS;
+                            TYPES_GAME_Write(local_e + D_5896_map_x, local_12 + D_5897_map_y,
+                                             TILE_MAP_GRASS);
                             ULTIMA_5910_UpdateFrame();
                             ULTIMA_223c_AudioWhiteNoise(10, 3000, 2000);
                             local_4++;

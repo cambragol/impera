@@ -1,6 +1,7 @@
 #include "common/common.h"
-#include "text/text_input.h"
 #include "common/movement.h"
+#include "mod/types_game.h"
+#include "text/text_input.h"
 #if defined(TARGET_SDL)
 #include "key/mouse.h"
 #endif
@@ -40,8 +41,8 @@ int MOVEMENT_MapSlideDirection(int direction)
     int dx = direction == U5_KEY_HOME || direction == U5_KEY_END ? -1 : 1;
     int dy = direction == U5_KEY_HOME || direction == U5_KEY_PGUP ? -1 : 1;
     return MOVEMENT_SlideDirection(direction,
-        ULTIMA_2c4c_IsWalkableTile(D_587c_partyTile, GetMapViewport(5+dx,5)) != 0,
-        ULTIMA_2c4c_IsWalkableTile(D_587c_partyTile, GetMapViewport(5,5+dy)) != 0);
+                                   TYPES_GAME_WalkableView(D_587c_partyTile, 5 + dx, 5) != 0,
+                                   TYPES_GAME_WalkableView(D_587c_partyTile, 5, 5 + dy) != 0);
 }
 bool MOVEMENT_AttackAllowed(int dx, int dy) { return s_diagonalMovement || dx == 0 || dy == 0; }
 bool MOVEMENT_Adjacent(int dx, int dy)
@@ -661,7 +662,7 @@ void ULTIMA_39cc_SetTile(byte new_tile_id, byte x, byte y)
 {
     if (D_5893_map_id != 0 && D_5893_map_id < 0x21 && new_tile_id != 0)
     {
-        *ULTIMA_4402_GetTileAddr(x, y) = new_tile_id;
+        TYPES_GAME_Change(x, y, 1, new_tile_id);
     }
 }
 
@@ -1031,7 +1032,9 @@ void ULTIMA_3f54_DecreaseInt(s16* param_1, int param_2)
 bool ULTIMA_3f6e(int param_1, int param_2)
 {
     int local_4 = GetMapViewport(param_1, param_2);
-    return (0x80 >> (local_4 & 7) & D_6a14[local_4 >> 3]) != 0;
+    return TYPES_GAME_Property(D_5896_map_x + param_1 - (D_5893_map_id >= 128 ? D_5896_map_x : 5),
+                               D_5897_map_y + param_2 - (D_5893_map_id >= 128 ? D_5897_map_y : 5),
+                               1, (0x80 >> (local_4 & 7) & D_6a14[local_4 >> 3]) != 0);
 }
 
 void ULTIMA_3fb4(int param_1, int param_2)

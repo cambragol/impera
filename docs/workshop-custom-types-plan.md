@@ -1,8 +1,28 @@
 # Custom tiles, NPC types, and monster types
 
-Status: source audit and proposed implementation; these capabilities are not yet
-implemented. Branch: `feature/custom-tile-types`, based on merged `main`, without
-the unmerged dialogue keyword highlighting change.
+Status: phases 1–4 implemented for terrain/scenery on `feature/custom-tile-types`.
+NPC/monster type authoring is phase 5; the shared schema and vanilla actor catalog
+are present, but those authoring controls are not enabled yet.
+
+Implemented: a shared validated catalog, independent extended IDs, package v9,
+embedded art and animation, sparse map placements and save state, native property
+consumers and interaction transitions, Workshop drawing/import/property controls,
+and map painting/clipboard/contextual integration. Artwork is embedded in
+`TYPES.OVR`; no separate `TYPEART.OVR` resource is needed. Vanilla map codecs and
+packed save structs retain their original formats. Native interaction profiles
+bridge the existing command handlers; mutable operations use typed setters so
+custom identities are not written into byte-sized map data.
+
+Use **Graphics → Tilesets → Custom tiles**, or **New tile…** from an existing
+tileset editor. Choose **Copy tile…** to start with a vanilla or custom tile's
+resolved settings. The map inspector's **Edit tile…** opens the same definition.
+Original tile overrides support Reset; additions support Delete after references
+have been removed. World and Locations membership checkboxes are independent.
+
+Interaction profiles reuse supported native interactions and their map contexts;
+this does not introduce arbitrary executable scripts or additional quest systems.
+Coordinates, sign text, contents, locks and traps remain in their existing map
+panels. Dungeon feature codes are separate from encounter-room terrain.
 
 ## Authoring model
 
@@ -298,16 +318,14 @@ definitions and raising the number of simultaneous actors are separate changes.
 Show the actual placement capacity in the existing map UI. Type count must not
 be limited by the original 48 combat rows or by four adjacent artwork frames.
 
-Add versioned resources, provisionally:
+The implemented versioned resources are:
 
 | Resource | Purpose |
 | --- | --- |
-| `TYPES.OVR` | Library identity, typed definitions, names, properties, animation and references |
-| `TYPEART.OVR` | Bounded indexed artwork blocks, variants and frames |
-| `TYPEMAP.OVR` | Sparse custom terrain and actor-type placements keyed by existing stable map/page identity |
+| `TYPES.OVR` | Library identity, typed definitions, names, properties, embedded RGBA animation frames and references |
+| `TYPEMAP.OVR` | Sparse custom terrain placements keyed by existing stable map/page identity; actor placements follow in phase 5 |
 
-Exact wire layouts should be fixed in phase 1, with a shared C validator used by
-Impera and Workshop. Keep data-only packaging and existing size/allocation limits;
+The wire layouts use a shared C validator in Impera and Workshop. Keep data-only packaging and existing size/allocation limits;
 check decoded pixel budgets as well as encoded bytes. Do not add one package
 resource per frame: the current package entry limit is 128.
 

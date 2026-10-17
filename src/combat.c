@@ -1,5 +1,6 @@
 #include "common/common.h"
 #include "common/movement.h"
+#include "mod/types_game.h"
 #if defined(TARGET_SDL)
 #include "key/mouse.h"
 #endif
@@ -41,9 +42,8 @@ int COMBAT_0000(int param_1, int param_2, int param_3)
     }
 
     // 0026
-    if (ULTIMA_2c4c_IsWalkableTile(param_1, *ULTIMA_4402_GetTileAddr(param_2, param_3)) != 0 &&
-        *ULTIMA_4402_GetTileAddr(param_2, param_3) != 0xff)
-    {
+    if (TYPES_GAME_Walkable(param_1, param_2, param_3) != 0 &&
+        *ULTIMA_4402_GetTileAddr(param_2, param_3) != 0xff) {
         // 0043
         for (local_8 = 0; local_8 < 0x20; local_8++)
         {
@@ -1597,7 +1597,7 @@ int COMBAT_1574(int param_1, int param_2)
                 }
                 else if (local_a->entityIdx == 0x1e)
                 {
-                    *ULTIMA_4402_GetTileAddr(local_10, local_12) = TILE_MAP_4C;
+                    TYPES_GAME_Write(local_10, local_12, TILE_MAP_4C);
                     COMBAT_1236(-param_1 - 1);
                 }
                 else if (local_e == 0x87 || local_e < 4)
@@ -1833,7 +1833,10 @@ static void COMBAT_1b1e(int param_1)
 
     local_a = 0;
     local_6 = &D_ba14[param_1];
-    local_4 = GetCombatMap(local_6->x, local_6->y);
+    int customTerrain = TYPES_GAME_CombatEffects(param_1);
+    if ((local_6->flags & COMBAT_FLAGS_DEAD) != 0)
+        return;
+    local_4 = customTerrain ? 0x44 : GetCombatMap(local_6->x, local_6->y);
     if (local_4 == 0x8f || local_4 == 0xbc)
     {
         local_a = 100;

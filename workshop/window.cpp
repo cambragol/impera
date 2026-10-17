@@ -1,23 +1,24 @@
-#include "cutscene_editor.h"
-#include "inventory_names.h"
-#include "map_positions.h"
 #include "window.h"
-#include "map_entities.h"
-#include "mod/tileset_resources.h"
 #include "contents_editor.h"
+#include "custom_tiles.h"
+#include "cutscene_editor.h"
 #include "dialogue_editor.h"
 #include "dungeon_editor.h"
 #include "engine_tables.h"
 #include "font_editor.h"
+#include "inventory_names.h"
 #include "location_text.h"
+#include "map_entities.h"
+#include "map_positions.h"
 #include "mod/package.h"
+#include "mod/tileset_resources.h"
 #include "narrative_editor.h"
 #include "resource_document.h"
 #include "scene_editor.h"
 #include "text_preview.h"
 #include "world_objects.h"
-#include <QMouseEvent>
 #include <QCollator>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QtWidgets>
 #include <memory>
@@ -1246,6 +1247,19 @@ QWidget *WorkshopWindow::resourceEditor(const QString &name) {
             return true;
         };
         editor = workspace;
+    } else if (name == "TYPES.OVR") {
+        editor = CustomTiles::editor(
+            &project,
+            [this](const QMap<QString, QByteArray> &changes, const QString &title) {
+                return guard([&] {
+                    Project candidate = project;
+                    for (auto it = changes.begin(); it != changes.end(); ++it)
+                        candidate.resources[it.key()].edited = it.value();
+                    candidate.validate();
+                    edit(changes, title);
+                });
+            },
+            &editorState);
     } else if (kind == Workshop::EditorKind::Artwork)
         editor = graphicsEditor(name);
     else if (kind == Workshop::EditorKind::Conversation)
@@ -1298,6 +1312,10 @@ QWidget *WorkshopWindow::mapEditor(const QString &name) {
             });
         },
         [this](const QString &resource) { selectResource(resource); });
+    workspace->editTileType = [this](unsigned id) {
+        editorState["customTiles/id"] = id;
+        selectResource("TYPES.OVR");
+    };
     workspace->locationChanged = [this] { rebuildTree(); };
     QStringList modes{"Terrain"};
     const auto npc = name.left(name.size() - 4) + ".NPC";
@@ -1446,6 +1464,18 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
     slot->setObjectName("imageSlot");
     slot->setCurrentIndex(
         qBound(0, editorState.value(name + "/image"), int(graphics->images.size()) - 1));
+    if (graphics->tiles) {
+        auto create = new QPushButton("New tile…");
+        create->setObjectName("newTileDefinition");
+        row->addWidget(create);
+        connect(create, &QPushButton::clicked, w, [this] {
+            selectResource("TYPES.OVR");
+            QTimer::singleShot(0, this, [this] {
+                if (auto add = findChild<QPushButton *>("newCustomTile"))
+                    add->click();
+            });
+        });
+    }
     row->addWidget(slot, 1);
     auto zoom = new QComboBox;
     zoom->addItems({"1×", "2×", "4×", "6×", "8×", "12×"});

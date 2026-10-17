@@ -1,5 +1,6 @@
 #include "common/common.h"
 #include "key/key.h"
+#include "mod/types.h"
 #include "time/time.h"
 
 #include "vars.h"
@@ -475,6 +476,8 @@ bool GRAP_BUF_HasTileset(void) { return s_tileset != NULL; }
 
 byte GRAP_BUF_TilePixel(int tile, int x, int y)
 {
+    if (tile >= 0 && x >= 0 && y >= 0 && x < 16 && y < 16 && TYPES_ArtSlot(tile))
+        return (byte)TILESET_Pixel(tile, x, y);
     if (!s_tileset || tile < 0 || tile >= 512 || x < 0 || y < 0 || x >= 16 || y >= 16) {TILESET_SetSample(0);return 0;}
     int alternate=TILESET_Pixel(tile,x,y);
     if(alternate>=0) return (byte)alternate;

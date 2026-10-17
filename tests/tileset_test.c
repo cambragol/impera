@@ -477,6 +477,8 @@ static void compositionPixels(void) {
     assert(TILESET_BufferColor(g_linearEgaBuffer1+320,0,0,IMPERA_TextPalette)==0xff0000ffu);
     GRAP_BUF_SetPage(0);
 }
+#include "custom_type_game_fixture.h"
+
 int main(void)
 {
     assert(SDL_Init(SDL_INIT_VIDEO));
@@ -487,6 +489,7 @@ int main(void)
     GRAP_BUF_LoadTileset(bank);
     for (int i = 0; i < 16; i++)
         ega[i] = 0xff000000u | i * 0x111111u;
+    customTypeGame();
     const char *files[] = {NULL, "Ultima_5_Tiles_Amiga.png", "Ultima_5_Tiles_AppleII.png",
                            "Ultima_5_Tiles_Grayscale.png", "Ultima_5_Tiles_SharpX68000_World.png"};
     for (int choice = 1; choice <= TILESET_SHARP; choice++)

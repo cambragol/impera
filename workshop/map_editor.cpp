@@ -1,12 +1,13 @@
-#include "map_positions.h"
 #include "map_editor.h"
-#include "map_entities.h"
-#include "world_objects.h"
 #include "../src/tiles.h"
 #include "contents_editor.h"
+#include "custom_tiles.h"
 #include "dialogue.h"
 #include "location_text.h"
+#include "map_entities.h"
+#include "map_positions.h"
 #include "resource_document.h"
+#include "world_objects.h"
 #include <cmath>
 using U5::require;
 
@@ -16,7 +17,7 @@ bool MapDocument::supported(const QString &r) {
 MapDocument::MapDocument(const Project *p, const QString &r) : project(p), resource(r) {
     pages = U5::mapPages(resource, project->data(resource));
 }
-QByteArray MapDocument::terrain(int index, bool original) const {
+QByteArray MapDocument::rawTerrain(int index, bool original) const {
     const auto &p = pages.at(index);
     auto data = original ? project->resources[resource].original : project->data(resource);
     if (p.side == 256)
@@ -31,20 +32,54 @@ QByteArray MapDocument::terrain(int index, bool original) const {
     require(cells.size() == p.side * p.side, "Map terrain is truncated");
     return cells;
 }
-QMap<QString, QByteArray> MapDocument::changes(int index, const QByteArray &cells) const {
+QByteArray MapDocument::terrain(int index, bool original) const {
+    auto bytes = rawTerrain(index, original);
+    if (original)
+        return bytes;
+    auto definitions = CustomTiles::records(*project);
+    if (definitions.isEmpty())
+        return bytes;
+    for (const auto &placed : CustomTiles::placements(*project)) {
+        auto c = CustomTiles::cell(resource, pages[index], index, placed.x, placed.y);
+        if (TYPES_CellKey(&c) == TYPES_CellKey(&placed) && placed.x < pages[index].side &&
+            placed.y < pages[index].side)
+            bytes[placed.y * pages[index].side + placed.x] =
+                char(U5::byte(definitions[placed.type], 9));
+    }
+    return bytes;
+}
+QMap<QString, QByteArray> MapDocument::changes(int index, const QByteArray &cells,
+                                               const QByteArray &expanded) const {
     const auto &p = pages.at(index);
     require(cells.size() == p.side * p.side, "Map terrain dimensions changed");
     auto data = project->data(resource);
+    auto native = rawTerrain(index);
+    auto ext = expanded;
+    if (ext.isEmpty()) {
+        ext = CustomTiles::expanded(*project, resource, p, index, cells);
+        auto current = terrain(index);
+        for (int i = 0; i < cells.size(); i++)
+            if (cells[i] != current[i])
+                TYPES_Put32(ext.data() + i * 4, 0);
+    }
+    require(ext.size() == cells.size() * 4, "Invalid extended map dimensions");
+    QByteArray stored = cells;
+    for (int i = 0; i < cells.size(); i++)
+        if (TYPES_U32(ext.constData() + i * 4) >= 512)
+            stored[i] = native[i];
     QMap<QString, QByteArray> result;
     if (p.side == 256) {
         auto overlay = resource == "BRIT.DAT" ? project->data("DATA.OVL") : QByteArray();
-        U5::writeWorld(resource, cells, data, overlay);
+        U5::writeWorld(resource, stored, data, overlay);
         if (resource == "BRIT.DAT")
             result["DATA.OVL"] = overlay;
     } else
         for (int y = 0; y < p.side; ++y)
-            data.replace(p.offset + y * p.stride, p.side, cells.mid(y * p.side, p.side));
+            data.replace(p.offset + y * p.stride, p.side, stored.mid(y * p.side, p.side));
     result[resource] = data;
+    auto custom = CustomTiles::paint(*project, resource, p, index, cells, ext);
+    for (auto it = custom.begin(); it != custom.end(); it++)
+        result[it.key()] = it.value();
     return result;
 }
 
@@ -95,6 +130,63 @@ MapCanvas::MapCanvas(QWidget *parent) : QWidget(parent) {
     setAccessibleName("Map canvas");
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
+}
+QImage MapCanvas::tileImageAt(int offset) const {
+    unsigned id = tileId(offset);
+    auto art = tiles.value(id);
+    if (!spriteGround.contains(id))
+        return art;
+    unsigned ground = spriteGround[id];
+    if (ground == TYPES_INFER_GROUND) {
+        int x = offset % side, y = offset / side, best = 0;
+        int offsets[4][2] = {{0, 1}, {0, -1}, {1, 0}, {-1, 0}};
+        for (auto &o : offsets) {
+            int nx = x + o[0], ny = y + o[1];
+            if (nx < 0 || ny < 0 || nx >= side || ny >= rowCount())
+                continue;
+            unsigned candidate = tileId(ny * side + nx);
+            if (!(candidate == 5 || candidate == 0x40 || candidate == 0x44 || candidate == 0x45 ||
+                  (candidate >= 512 && !spriteGround.contains(candidate))))
+                continue;
+            int votes = 0;
+            for (auto &n : offsets) {
+                int px = x + n[0], py = y + n[1];
+                if (px >= 0 && py >= 0 && px < side && py < rowCount())
+                    votes += tileId(py * side + px) == candidate;
+            }
+            if (votes > best) {
+                best = votes;
+                ground = candidate;
+            }
+        }
+    }
+    int edge = qMax(16, art.width());
+    QImage result(edge, edge, QImage::Format_ARGB32);
+    result.fill(Qt::black);
+    QPainter painter(&result);
+    if (ground != TYPES_INFER_GROUND && ground < unsigned(tiles.size()))
+        painter.drawImage(result.rect(), tiles[ground]);
+    painter.drawImage(result.rect(), art);
+    return result;
+}
+unsigned MapCanvas::tileId(int offset) const {
+    if (offset < 0 || offset >= ids.size())
+        return 0;
+    unsigned custom =
+        extended.size() == ids.size() * 4 ? TYPES_U32(extended.constData() + offset * 4) : 0;
+    return custom ? custom : U5::byte(ids, offset);
+}
+void MapCanvas::setTileId(int offset, unsigned id) {
+    if (offset < 0 || offset >= ids.size())
+        return;
+    if (id >= 512 && !legacyTiles.contains(id))
+        return;
+    if (!extended.isEmpty() || id >= 512) {
+        if (extended.size() != ids.size() * 4)
+            extended = QByteArray(ids.size() * 4, 0);
+        TYPES_Put32(extended.data() + offset * 4, id >= 512 ? id : 0);
+    }
+    ids[offset] = char(id >= 512 ? legacyTiles.value(id) : id);
 }
 QIcon MapCanvas::toolIcon(int i) {
     QPixmap icon(24, 24);
@@ -160,13 +252,16 @@ void MapCanvas::paintEvent(QPaintEvent *e) {
             int offset = y * side + x;
             if (offset >= ids.size())
                 continue;
-            int id = U5::byte(ids, offset);
+            int id = tileId(offset);
             QRectF target(x * cell, y * cell, cell, cell);
             if (id < tiles.size())
-                p.drawImage(target, tiles[id]);
+                p.drawImage(target, tileImageAt(offset));
             else
                 p.fillRect(target, Qt::magenta);
-            if (comparison && original.size() == ids.size() && ids[offset] != original[offset]) {
+            if (comparison && original.size() == ids.size() &&
+                (ids[offset] != original[offset] ||
+                 (extended.size() == ids.size() * 4 &&
+                  TYPES_U32(extended.constData() + offset * 4)))) {
                 p.fillRect(target, QColor(255, 150, 30, 65));
                 p.setPen(QColor("#ffae42"));
                 p.drawRect(target.adjusted(1, 1, -1, -1));
@@ -260,7 +355,9 @@ void MapCanvas::paintEvent(QPaintEvent *e) {
              y <= qMin(stampSize.height() - 1, int(r.bottom() / cell) - hover.y()); ++y)
             for (int x = qMax(0, int(r.left() / cell) - hover.x());
                  x <= qMin(stampSize.width() - 1, int(r.right() / cell) - hover.x()); ++x) {
-                int id = U5::byte(stamp, y * stampSize.width() + x);
+                int index = y * stampSize.width() + x;
+                int id = stampExtended.isEmpty() ? U5::byte(stamp, index)
+                                                 : TYPES_U32(stampExtended.constData() + index * 4);
                 if (id < tiles.size())
                     p.drawImage(QRectF((hover.x() + x) * cell, (hover.y() + y) * cell, cell, cell),
                                 tiles[id]);
@@ -296,7 +393,7 @@ void MapCanvas::line(QPoint a, QPoint b) {
     int dy = -std::abs(b.y() - y), sy = y < b.y() ? 1 : -1, error = dx + dy;
     for (;;) {
         if (editable({x, y}))
-            ids[y * side + x] = char(brush);
+            setTileId(y * side + x, brush);
         if (x == b.x() && y == b.y())
             break;
         int e = 2 * error;
@@ -335,7 +432,7 @@ void MapCanvas::point(QPointF position, bool draw) {
     if (offset >= ids.size())
         return;
     if (inspect)
-        inspect(cell.x(), cell.y(), U5::byte(ids, offset));
+        inspect(cell.x(), cell.y(), tileId(offset));
     if (pasting())
         say(pasteFits() ? QString("Paste preview: %1 changed cells · click to place · Esc cancels")
                               .arg(pasteChangedCells())
@@ -391,7 +488,7 @@ void MapCanvas::mousePressEvent(QMouseEvent *e) {
     if (e->button() == Qt::RightButton ||
         (e->button() == Qt::LeftButton && tool == 1 && !pasting())) {
         if (pick)
-            pick(U5::byte(ids, cell.y() * side + cell.x()));
+            pick(tileId(cell.y() * side + cell.x()));
         point(e->position(), false);
         return;
     }
@@ -433,6 +530,7 @@ void MapCanvas::mousePressEvent(QMouseEvent *e) {
     if (tool != Select && !editable(cell))
         return;
     before = ids;
+    beforeExtended = extended;
     previousSelection = selection;
     start = cell;
     operation = tool == Rectangle ? "Rectangle" : tool == Fill ? "Fill" : "Paint";
@@ -485,6 +583,7 @@ void MapCanvas::cancelStroke() {
     update();
     if (stroke) {
         ids = before;
+        extended = beforeExtended;
         if (tool == Select)
             selection = previousSelection;
         before.clear();
@@ -512,16 +611,20 @@ void MapCanvas::finishEdit() {
     auto rollback = before;
     before.clear();
     stroke = false;
-    if (ids == rollback)
+    auto rollbackExtended = beforeExtended;
+    if (ids == rollback && extended == rollbackExtended)
         return;
-    if (!commit || !commit(ids))
+    if (!commit || !commit(ids)) {
         ids = rollback;
+        extended = rollbackExtended;
+    }
     update();
     if (changed)
         changed();
 }
 void MapCanvas::previewRectangle(QPoint cell) {
     ids = before;
+    extended = beforeExtended;
     auto area =
         QRect(QPoint(qMin(start.x(), cell.x()), qMin(start.y(), cell.y())),
               QSize(std::abs(start.x() - cell.x()) + 1, std::abs(start.y() - cell.y()) + 1));
@@ -529,21 +632,21 @@ void MapCanvas::previewRectangle(QPoint cell) {
         for (int x = area.left(); x <= area.right(); ++x)
             if (editable({x, y}) && (!outline || x == area.left() || x == area.right() ||
                                      y == area.top() || y == area.bottom()))
-                ids[y * side + x] = char(brush);
+                setTileId(y * side + x, brush);
     update();
 }
 void MapCanvas::flood(QPoint cell) {
-    char source = ids[cell.y() * side + cell.x()];
-    if (source == char(brush))
+    unsigned source = tileId(cell.y() * side + cell.x());
+    if (source == unsigned(brush))
         return;
     QVector<QPoint> queue{cell};
-    ids[cell.y() * side + cell.x()] = char(brush);
+    setTileId(cell.y() * side + cell.x(), brush);
     for (int i = 0; i < queue.size(); ++i) {
         auto current = queue[i];
         for (auto delta : {QPoint(-1, 0), QPoint(1, 0), QPoint(0, -1), QPoint(0, 1)}) {
             auto next = current + delta;
-            if (editable(next) && ids[next.y() * side + next.x()] == source) {
-                ids[next.y() * side + next.x()] = char(brush);
+            if (editable(next) && tileId(next.y() * side + next.x()) == source) {
+                setTileId(next.y() * side + next.x(), brush);
                 queue.append(next);
             }
         }
@@ -570,6 +673,24 @@ bool MapCanvas::copySelection() {
     }
     for (int y = area.top(); y <= area.bottom(); ++y)
         payload += ids.mid(y * side + area.left(), area.width());
+    bool custom = false;
+    for (int y = area.top(); y <= area.bottom(); y++)
+        for (int x = area.left(); x <= area.right(); x++)
+            custom |= tileId(y * side + x) >= 512;
+    if (custom) {
+        payload = QByteArray("IMPTILE2", 8);
+        for (int value : {area.width(), area.height()}) {
+            payload.append(char(value));
+            payload.append(char(value >> 8));
+        }
+        payload += libraryUuid;
+        for (int y = area.top(); y <= area.bottom(); y++)
+            for (int x = area.left(); x <= area.right(); x++) {
+                char b[4];
+                TYPES_Put32(b, tileId(y * side + x));
+                payload.append(b, 4);
+            }
+    }
     auto mime = new QMimeData;
     mime->setData(clipboardMime, payload);
     QApplication::clipboard()->setMimeData(mime);
@@ -586,19 +707,37 @@ bool MapCanvas::beginPaste() {
     }
     auto mime = QApplication::clipboard()->mimeData();
     auto payload = mime ? mime->data(clipboardMime) : QByteArray();
-    if (payload.size() < 12 || payload.left(8) != clipboardMagic.toLatin1()) {
+    if (payload.size() < 12 ||
+        (payload.left(8) != clipboardMagic.toLatin1() && payload.left(8) != "IMPTILE2")) {
         say("Clipboard does not contain Impera terrain tiles");
         return false;
     }
     int width = U5::byte(payload, 8) + 256 * U5::byte(payload, 9);
     int height = U5::byte(payload, 10) + 256 * U5::byte(payload, 11);
+    bool custom = payload.left(8) == "IMPTILE2";
     if (width < 1 || height < 1 || width > 256 || height > 256 ||
-        payload.size() != 12 + width * height) {
+        payload.size() != (custom ? 28 + width * height * 4 : 12 + width * height) ||
+        (custom && payload.mid(12, 16) != libraryUuid)) {
         say("Clipboard terrain dimensions are invalid");
         return false;
     }
     stampSize = {width, height};
-    stamp = payload.mid(12);
+    stampExtended.clear();
+    if (custom) {
+        stampExtended = payload.mid(28);
+        stamp = QByteArray(width * height, 0);
+        for (int i = 0; i < width * height; i++) {
+            unsigned id = TYPES_U32(stampExtended.constData() + i * 4);
+            if (id >= 512 && !legacyTiles.contains(id)) {
+                say("Clipboard tile definition is missing");
+                stampExtended.clear();
+                stamp.clear();
+                return false;
+            }
+            stamp[i] = char(id >= 512 ? legacyTiles.value(id) : id);
+        }
+    } else
+        stamp = payload.mid(12);
     update();
     say("Move pointer to preview terrain paste · click to place · Esc cancels");
     return true;
@@ -613,8 +752,10 @@ int MapCanvas::pasteChangedCells() const {
     int count = 0;
     for (int y = 0; y < stampSize.height(); ++y)
         for (int x = 0; x < stampSize.width(); ++x)
-            count +=
-                ids[(hover.y() + y) * side + hover.x() + x] != stamp[y * stampSize.width() + x];
+            count += tileId((hover.y() + y) * side + hover.x() + x) !=
+                     (stampExtended.isEmpty()
+                          ? U5::byte(stamp, y * stampSize.width() + x)
+                          : TYPES_U32(stampExtended.constData() + (y * stampSize.width() + x) * 4));
     return count;
 }
 void MapCanvas::pasteAt(QPoint cell) {
@@ -624,10 +765,15 @@ void MapCanvas::pasteAt(QPoint cell) {
         return;
     }
     before = ids;
+    beforeExtended = extended;
     operation = "Paste terrain";
-    for (int y = 0; y < stampSize.height(); ++y)
-        ids.replace((cell.y() + y) * side + cell.x(), stampSize.width(),
-                    stamp.mid(y * stampSize.width(), stampSize.width()));
+    for (int y = 0; y < stampSize.height(); y++)
+        for (int x = 0; x < stampSize.width(); x++) {
+            int i = y * stampSize.width() + x;
+            setTileId((cell.y() + y) * side + cell.x() + x,
+                      stampExtended.isEmpty() ? U5::byte(stamp, i)
+                                              : TYPES_U32(stampExtended.constData() + i * 4));
+        }
     stamp.clear();
     finishEdit();
 }
@@ -697,7 +843,7 @@ void MapCanvas::keyPressEvent(QKeyEvent *e) {
             }
             if (inspect)
                 inspect(keyboardCell.x(), keyboardCell.y(),
-                        U5::byte(ids, keyboardCell.y() * side + keyboardCell.x()));
+                        tileId(keyboardCell.y() * side + keyboardCell.x()));
             if (auto scroll = parentWidget()
                                   ? dynamic_cast<QScrollArea *>(parentWidget()->parentWidget())
                                   : nullptr)
@@ -900,20 +1046,18 @@ QRectF MapMinimap::imageRect() const {
     return {(width() - edge) / 2, (height() - edge) / 2, edge, edge};
 }
 void MapMinimap::refresh() {
-    QVector<QImage> thumbnails;
-    for (const auto &image : canvas->tiles)
-        thumbnails.append(image.scaled(4, 4, Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
     cache = QImage(canvas->side * 4, canvas->side * 4, QImage::Format_RGB32);
     cache.fill(Qt::black);
     QPainter painter(&cache);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform);
     for (int y = 0; y < canvas->side; ++y)
         for (int x = 0; x < canvas->side; ++x) {
             int offset = y * canvas->side + x;
             if (offset >= canvas->ids.size())
                 continue;
-            int id = U5::byte(canvas->ids, offset);
+            int id = canvas->tileId(offset);
             if (id < canvas->tiles.size())
-                painter.drawImage(QRect(x * 4, y * 4, 4, 4), thumbnails[id]);
+                painter.drawImage(QRect(x * 4, y * 4, 4, 4), canvas->tileImageAt(offset));
             if (canvas->comparison && canvas->original.size() == canvas->ids.size() &&
                 canvas->original[offset] != canvas->ids[offset])
                 painter.fillRect(QRect(x * 4, y * 4, 4, 4), QColor("#ffae42"));
@@ -1222,6 +1366,14 @@ MapWorkspace::MapWorkspace(
     brushImage->setFixedHeight(70);
     brushImage->setAlignment(Qt::AlignCenter);
     rightLayout->addWidget(brushImage);
+    auto editDefinition = new QPushButton("Edit tile…");
+    editDefinition->setObjectName("mapEditTileDefinition");
+    editDefinition->setToolTip("Edit this tile’s shared artwork and properties");
+    rightLayout->addWidget(editDefinition);
+    connect(editDefinition, &QPushButton::clicked, this, [this] {
+        if (editTileType)
+            editTileType(canvas->brush);
+    });
     brushLabel = new QLabel;
     brushLabel->setToolTip("Name and ID of the tile that painting tools will place.");
     brushLabel->setObjectName("mapBrushLabel");
@@ -1283,6 +1435,31 @@ MapWorkspace::MapWorkspace(
                              .arg(tileCategories(i).join(" · "))
                              .arg(i)
                              .arg(i, 2, 16, QChar('0')));
+    }
+    for (int i = 0; i < 256; i++)
+        palette->item(i)->setData(Qt::UserRole, i);
+
+    auto customRecords = CustomTiles::records(*project);
+    for (auto it = customRecords.begin(); it != customRecords.end(); ++it) {
+        auto d = CustomTiles::definition(*project, it.key());
+        if (d.kind)
+            continue;
+        if (canvas->tiles.size() <= int(d.id))
+            canvas->tiles.resize(d.id + 1);
+        canvas->tiles[d.id] = CustomTiles::image(*project, d.id);
+        canvas->legacyTiles[d.id] = d.base;
+        if (d.render & TYPES_SPRITE)
+            canvas->spriteGround[d.id] = d.ground;
+        if (d.id < 256) {
+            palette->item(d.id)->setIcon(QIcon(QPixmap::fromImage(canvas->tiles[d.id])));
+            palette->item(d.id)->setToolTip(QString::fromUtf8(d.name));
+        }
+        if (d.id >= 512) {
+            auto item = new QListWidgetItem(QIcon(QPixmap::fromImage(canvas->tiles[d.id])),
+                                            QString(), palette);
+            item->setData(Qt::UserRole, d.id);
+            item->setToolTip(QString::fromUtf8(d.name));
+        }
     }
     rightLayout->addWidget(palette, 1);
     npcResource = companion;
@@ -1426,13 +1603,14 @@ MapWorkspace::MapWorkspace(
     });
     connect(palette, &QListWidget::currentRowChanged, this, [=](int i) {
         if (i >= 0)
-            setBrush(i);
+            setBrush(palette->item(i)->data(Qt::UserRole).toInt());
     });
     canvas->pick = [=](int id) {
         tileSearch->clear();
         paletteFilter->setCurrentIndex(0);
         setBrush(id);
-        palette->scrollToItem(palette->item(id));
+        if (palette->currentItem())
+            palette->scrollToItem(palette->currentItem());
     };
     canvas->chooseTool = [=](int i) {
         if (auto button = tool->button(i); button && button->isEnabled())
@@ -1466,8 +1644,8 @@ MapWorkspace::MapWorkspace(
     };
     canvas->commit = [=](const QByteArray &ids) {
         try {
-            return commit(document.changes(currentPage(), ids),
-                          canvas->operation + " " + document.pages[currentPage()].name);
+            auto changes = document.changes(currentPage(), ids, canvas->extended);
+            return commit(changes, canvas->operation + " " + document.pages[currentPage()].name);
         } catch (const std::exception &e) {
             QMessageBox::warning(this, "Map edit rejected", QString::fromUtf8(e.what()));
             return false;
@@ -1664,6 +1842,9 @@ void MapWorkspace::applyLocationMode() {
     canvas->actors.clear();
     canvas->ghosts.clear();
     canvas->ids = document.terrain(currentPage());
+    canvas->extended = CustomTiles::expanded(*project, resource, document.pages[currentPage()],
+                                             currentPage(), canvas->ids);
+    canvas->libraryUuid = project->resources.value("TYPES.OVR").edited.mid(8, 16);
     canvas->selectedNpc = states->value(key).npc;
     for (auto button : tool->buttons()) {
         const int id = tool->id(button);
@@ -1737,6 +1918,9 @@ void MapWorkspace::applyLocationMode() {
 }
 bool MapWorkspace::selectMapItem(QPoint cell) {
     const auto &page = document.pages[currentPage()];
+    unsigned selectedType = canvas->tileId(cell.y() * page.side + cell.x());
+    if (selectedType >= 512)
+        setBrush(selectedType);
     int npcMode = -1, signMode = -1, contentsMode = -1, objectMode = -1, encounterMode = -1,
         positionsMode = -1;
     for (int i = 0; i < locationModes->count(); ++i) {
@@ -1971,23 +2155,36 @@ void MapWorkspace::selectPage(int index) {
 }
 void MapWorkspace::cancelGesture() { canvas->cancelStroke(); }
 void MapWorkspace::setBrush(int id) {
-    canvas->brush = qBound(0, id, 255);
+    canvas->brush = id >= 512 && canvas->legacyTiles.contains(id) ? id : qBound(0, id, 255);
     {
         QSignalBlocker block(palette);
-        palette->setCurrentRow(canvas->brush);
+        for (int i = 0; i < palette->count(); i++)
+            if (palette->item(i)->data(Qt::UserRole).toInt() == canvas->brush)
+                palette->setCurrentRow(i);
     }
     brushImage->setPixmap(QPixmap::fromImage(canvas->tiles[canvas->brush])
                               .scaled(64, 64, Qt::KeepAspectRatio, Qt::FastTransformation));
-    brushLabel->setText(QString("%1\nTile %2 · %3")
-                            .arg(MapDocument::tileName(canvas->brush))
-                            .arg(canvas->brush)
-                            .arg(tileCategories(canvas->brush).join(" · ")));
+    brushLabel->setText(
+        QString("%1\nTile %2 · %3")
+            .arg(canvas->brush >= 512
+                     ? QString::fromUtf8(CustomTiles::definition(*project, canvas->brush).name)
+                     : MapDocument::tileName(canvas->brush))
+            .arg(canvas->brush)
+            .arg(tileCategories(canvas->brush).join(" · ")));
     filterPalette();
     canvas->update();
     saveView();
 }
 QStringList MapWorkspace::tileCategories(int id) const {
     QStringList categories;
+    if (id >= 512) {
+        auto d = CustomTiles::definition(*project, id);
+        if (d.filters & 1)
+            categories << "World";
+        if (d.filters & 2)
+            categories << "Location";
+        return categories;
+    }
     if (worldTiles.contains(id))
         categories.append("World");
     if (locationTiles.contains(id))
@@ -1996,15 +2193,19 @@ QStringList MapWorkspace::tileCategories(int id) const {
 }
 void MapWorkspace::filterPalette() {
     QString query = tileSearch->text().trimmed();
-    for (int i = 0; i < 256; ++i) {
+    for (int row = 0; row < palette->count(); ++row) {
+        int i = palette->item(row)->data(Qt::UserRole).toInt();
         bool matches =
-            query.isEmpty() || MapDocument::tileName(i).contains(query, Qt::CaseInsensitive) ||
+            query.isEmpty() ||
+            (i >= 512 ? QString::fromUtf8(CustomTiles::definition(*project, i).name)
+                      : MapDocument::tileName(i))
+                .contains(query, Qt::CaseInsensitive) ||
             tileCategories(i).join(" ").contains(query, Qt::CaseInsensitive) ||
             QString::number(i).contains(query) ||
             QString("0x%1").arg(i, 2, 16, QChar('0')).contains(query, Qt::CaseInsensitive);
         bool group = paletteFilter->currentIndex() == 0 ||
                      tileCategories(i).contains(paletteFilter->currentText());
-        palette->item(i)->setHidden(!matches || !group);
+        palette->item(row)->setHidden(!matches || !group);
     }
 }
 void MapWorkspace::updateSelection() {
@@ -2082,6 +2283,9 @@ void MapWorkspace::loadPage() {
     canvas->side = mp.side;
     minimap->setVisible(resource == "BRIT.DAT" || resource == "UNDER.DAT");
     canvas->ids = document.terrain(currentPage());
+    canvas->extended = CustomTiles::expanded(*project, resource, document.pages[currentPage()],
+                                             currentPage(), canvas->ids);
+    canvas->libraryUuid = project->resources.value("TYPES.OVR").edited.mid(8, 16);
     canvas->original = document.terrain(currentPage(), true);
     canvas->keyboardCell = state.keyboardCell;
     canvas->selection = state.selection.intersected(QRect(0, 0, mp.side, mp.side));
@@ -2744,6 +2948,9 @@ void MapWorkspace::refreshCombat() {
     canvas->actors.clear();
     canvas->ghosts.clear();
     canvas->ids = document.terrain(currentPage());
+    canvas->extended = CustomTiles::expanded(*project, resource, document.pages[currentPage()],
+                                             currentPage(), canvas->ids);
+    canvas->libraryUuid = project->resources.value("TYPES.OVR").edited.mid(8, 16);
     const auto bytes = project->data(resource);
     const int base = document.pages[currentPage()].offset;
     QSignalBlocker blocked(combatEntity);
@@ -3102,19 +3309,49 @@ QString MapDocument::tileCategory(int id) {
     return tileCatalog().value(id, {"Unidentified tile", "Uncategorized"}).second;
 }
 QImage MapDocument::terrainImage(int page, const QVector<QImage> &tiles, bool ids) const {
-    const auto cells = terrain(page);
-    const int side = pages[page].side;
+    auto cells = terrain(page);
+    int side = pages[page].side;
+    auto ext = CustomTiles::expanded(*project, resource, pages[page], page, cells);
+    bool custom = false;
+    for (int i = 0; i < cells.size(); i++)
+        custom |= TYPES_U32(ext.constData() + i * 4) >= 512;
     QImage image(side * (ids ? 1 : 16), side * (ids ? 1 : 16),
-                 ids ? QImage::Format_Grayscale8 : QImage::Format_RGB32);
+                 ids ? (custom ? QImage::Format_Grayscale16 : QImage::Format_Grayscale8)
+                     : QImage::Format_RGB32);
     require(!image.isNull(), "Cannot allocate map export");
+    image.fill(Qt::black);
     if (ids) {
-        for (int y = 0; y < side; ++y)
-            memcpy(image.scanLine(y), cells.constData() + y * side, side);
+        for (int y = 0; y < side; y++)
+            for (int x = 0; x < side; x++) {
+                unsigned id = TYPES_U32(ext.constData() + (y * side + x) * 4);
+                if (!id)
+                    id = U5::byte(cells, y * side + x);
+                if (custom)
+                    reinterpret_cast<quint16 *>(image.scanLine(y))[x] = id;
+                else
+                    image.scanLine(y)[x] = id;
+            }
     } else {
+        MapCanvas canvas;
+        canvas.ids = cells;
+        canvas.extended = ext;
+        canvas.tiles = tiles;
+        canvas.side = side;
+        auto definitions = CustomTiles::records(*project);
+        for (auto it = definitions.begin(); it != definitions.end(); it++) {
+            auto d = CustomTiles::definition(*project, it.key());
+            if (d.kind)
+                continue;
+            if (canvas.tiles.size() <= int(d.id))
+                canvas.tiles.resize(d.id + 1);
+            canvas.tiles[d.id] = CustomTiles::image(*project, d.id);
+            if (d.render & TYPES_SPRITE)
+                canvas.spriteGround[d.id] = d.ground;
+        }
         QPainter painter(&image);
-        for (int y = 0; y < side; ++y)
-            for (int x = 0; x < side; ++x)
-                painter.drawImage(x * 16, y * 16, tiles[U5::byte(cells, y * side + x)]);
+        for (int y = 0; y < side; y++)
+            for (int x = 0; x < side; x++)
+                painter.drawImage(QRect(x * 16, y * 16, 16, 16), canvas.tileImageAt(y * side + x));
     }
     return image;
 }

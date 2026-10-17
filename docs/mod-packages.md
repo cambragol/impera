@@ -30,7 +30,7 @@ All integers are unsigned little-endian 32-bit values; there is no padding.
 
 | Header | Encoding |
 | --- | --- |
-| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0008` |
+| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0009` |
 | Title length | 1–256 UTF-8 bytes |
 | Resource count | 1–128 |
 | Title | Length bytes; embedded NUL forbidden |
@@ -245,3 +245,49 @@ through native framebuffer copies independently of the selected map tileset. Pla
 UI drawing clears that provenance normally. Package validation checks all counts,
 indices, byte ranges, dimensions, text and flow coordinates before mounting; malformed
 or truncated data rejects the entire package. Older engines reject version 8 explicitly.
+
+## Custom tile libraries (package version 9)
+
+`IMOD0009` adds `TYPES.OVR` and `TYPEMAP.OVR`. Both use an empty original base,
+are validated by the shared C implementation in `src/mod/types.c`, and remain
+subject to the existing package/resource memory limits. Older engines reject
+version 9 rather than reading custom tile IDs as DOS bytes.
+
+`TYPES.OVR` (`ITYPES01`) contains a 16-byte library identity, sorted definitions,
+and embedded RGBA animation frames. IDs 0–255 override original terrain;
+512–65535 identify additions. The schema also reserves actor definitions for the
+subsequent NPC/monster authoring phase. There are at most 1024 definitions,
+64 frames per artwork variant, and 8 MiB per library. Frames are 16×16 or 32×32,
+with durations of 10–60000 milliseconds. Artwork variants fall back to the tile's
+default artwork. Alpha is explicit: opaque black stays opaque, and no synthetic
+black outline is added. Physical properties belong to the definition, not to
+individual animation frames.
+
+`TYPEMAP.OVR` (`ITYMAP01`) contains sparse placements keyed by map, floor, and
+coordinates, or encounter bank and encounter index. Its UUID must match the
+library shipped in the same package. Custom terrain works on Britannia,
+Underworld, location floors, and combat rooms; dungeon feature nibbles retain
+their existing format. There are at most 65536 placement/state records. The
+exact encodings and bounds are documented in `src/mod/types.h`.
+
+Placements preserve the original terrain bytes underneath; custom IDs do not
+consume DOS terrain IDs or Britannia chunk-index capacity. Runtime reads resolve
+the authored native interaction profile and independent movement, sight,
+projectile, travel, hazard, transparency, and masonry properties. Explicit state
+transitions retain custom type identity, including a door's temporary open state
+and automatic close. Container contents and sign text remain separate placed
+instances, edited through their existing contextual map panels. Workshop moves
+custom scenery and its contents together. During gameplay, pushing scenery that
+has explicit contents is prevented, so contents cannot be orphaned at its old cell.
+
+Libraries keep their UUID and local IDs through project and package roundtrips.
+Deleting a referenced type is rejected. The existing first-resource-wins package
+conflict rule applies: two independently exported tile libraries are not silently
+combined. Combine their content in one Workshop project instead.
+
+Mutable custom terrain state is appended to modern saves using `ITYSAV01`, after
+any existing map-contents state. The original 4192-byte party layout is unchanged.
+The extension stores stable library IDs, cell identities, transitions and door
+restore state, with a checksum. Preflight validates it before installing a save
+or changing the active party. Missing libraries, unknown types, corruption and
+trailing data reject the load. Saves without the extension remain supported.

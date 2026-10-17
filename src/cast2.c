@@ -1,5 +1,6 @@
 #include "common/common.h"
 #include "mod/runtime.h"
+#include "mod/types_game.h"
 
 #include "savegame.h"
 #include "common/save_slots.h"
@@ -524,14 +525,14 @@ int CAST2_0768(void)
     {
     case TILE_MAP_97:
         // 07a0
-        *local_4 = TILE_MAP_DOOR_B8;
+        TYPES_GAME_Change(D_5876, D_5878, 1, TILE_MAP_DOOR_B8);
         D_24e6 |= 2;
         local_6 = 1;
         break;
 
     case TILE_MAP_98:
         // 07b2: not matching
-        *local_4 = TILE_MAP_DOOR_BA;
+        TYPES_GAME_Change(D_5876, D_5878, 1, TILE_MAP_DOOR_BA);
         D_24e6 |= 2;
         local_6 = 1;
         break;

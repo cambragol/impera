@@ -1,3 +1,4 @@
+#include "mod/types_game.h"
 #include "mod/contents.h"
 #include "common/common.h"
 #include "text/game_frame.h"
@@ -167,6 +168,10 @@ void ULTIMA_6150_Combat(int param_1)
         }
     }
 
+    int customMap = TYPES_GAME_Property(D_5c5a[param_1]._2_x, D_5c5a[param_1]._3_y, 4, 0);
+    if (customMap && (D_587c_partyTile & 0xf8) != TILE_ACTOR_FRIGATE_20 &&
+        local_a != TILE_ACTOR_PIRATE && local_a != TILE_ACTOR_SHADOWLORD)
+        local_4 = customMap - 1;
     ULTIMA_60ec_LoadSpecialMap(local_4);
     ULTIMA_5f86_SpecialMapHandler(0, param_1, 0);
 

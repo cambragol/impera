@@ -1,10 +1,11 @@
-#include "map_positions.h"
-#include "inventory_names.h"
 #include "map_entities.h"
 #include "actor_names.h"
 #include "contents_editor.h"
+#include "custom_tiles.h"
 #include "dialogue.h"
+#include "inventory_names.h"
 #include "location_text.h"
+#include "map_positions.h"
 #include "world_objects.h"
 #include <QRandomGenerator>
 #include <algorithm>
@@ -209,6 +210,11 @@ QMap<QString, QByteArray> moveSignTerrain(const Project &p, const QString &r, in
     MapDocument doc(&p, r);
     require(page >= 0 && page < doc.pages.size(), "Invalid sign floor");
     auto terrain = doc.terrain(page);
+    if (from != to) {
+        auto custom = CustomTiles::moveScenery(p, r, page, from, to);
+        if (!custom.isEmpty())
+            return custom;
+    }
     int side = doc.pages[page].side;
     require(from.x() >= 0 && from.y() >= 0 && from.x() < side && from.y() < side,
             "Sign source outside map");

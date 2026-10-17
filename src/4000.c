@@ -1,10 +1,12 @@
 #include "common/common.h"
+
 #include "audio/aud_mus.h"
 #include "audio/aud_sfx.h"
 #include "funcs.h"
 #include "macros.h"
-#include "vars.h"
+#include "mod/types_game.h"
 #include "tiles.h"
+#include "vars.h"
 
 #include "outsubs.h"
 #include "town.h"
@@ -242,14 +244,13 @@ void ULTIMA_43ae_AudioSweepTone(int param_1, int param_2, int param_3, int param
 }
 
 // CHECKED (NOT MATCHING: optimization)
-byte* ULTIMA_4402_GetTileAddr(int x, int y)
-{
-	byte* local_4;
-	int local_6;
+byte *ULTIMA_4402_BaseAddr(int x, int y) {
+    byte *local_4;
+    int local_6;
 
-	if (D_5893_map_id > 0x7f) // combat?
-	{
-		// 440f
+    if (D_5893_map_id > 0x7f) // combat?
+    {
+        // 440f
         // There are cases where y < 0. original bug
 #if !defined(MATCHING_BUILD)
 		ASSERT(x >= 0 && x < 0xb && y < 0xb);
@@ -258,39 +259,38 @@ byte* ULTIMA_4402_GetTileAddr(int x, int y)
 #endif
 
 		local_4 = &GetCombatMap(x, y);
-	}
-	else if (D_5893_map_id == 0) // 4420; overworld
-	{
-		x = (x - D_589b) & 0x1f;
-		y = (y - D_589c) & 0x1f;
-		local_6 = 0;
-		if (y > 0xf)
-		{
-			local_6 = 2;
-			y -= 16;
-		}
+    } else if (D_5893_map_id == 0) // 4420; overworld
+    {
+        x = (x - D_589b) & 0x1f;
+        y = (y - D_589c) & 0x1f;
+        local_6 = 0;
+        if (y > 0xf) {
+            local_6 = 2;
+            y -= 16;
+        }
 
-		if (x > 0xf)
-		{
-			local_6++;
-			x -= 16;
-		}
+        if (x > 0xf) {
+            local_6++;
+            x -= 16;
+        }
 
-		// 4467 (NOT MATCHING: optimization)
-		local_4 = &GetMapOverworld(x, y, local_6);
-	}
-	else if (x < 0 || y < 0 || x > 0x1f || y > 0x1f) // 447e
-	{
-		// 4496
-		local_4 = &D_6a07;
-	}
-	else
-	{
-		// 449e
-		local_4 = &GetMap(x, y);
-	}
+        // 4467 (NOT MATCHING: optimization)
+        local_4 = &GetMapOverworld(x, y, local_6);
+    } else if (x < 0 || y < 0 || x > 0x1f || y > 0x1f) // 447e
+    {
+        // 4496
+        local_4 = &D_6a07;
+    } else {
+        // 449e
+        local_4 = &GetMap(x, y);
+    }
 
-	return local_4;
+    return local_4;
+}
+
+byte *ULTIMA_4402_GetTileAddr(int x, int y) {
+    byte *base = ULTIMA_4402_BaseAddr(x, y);
+    return TYPES_GAME_Address(x, y, base);
 }
 
 static void ULTIMA_44b8_AnimateTiles(void)
@@ -533,14 +533,13 @@ void ULTIMA_475a(void)
 		{
 			local_4 = ULTIMA_4402_GetTileAddr(D_5830[local_6], D_5838[local_6]);
 			local_8 = *local_4 != local_a;
-			*local_4 = local_a;
-			D_24e6 |= 2;
-			if (local_8 != 0)
-			{
-				ULTIMA_5e4a();
-			}
-		}
-	}
+                        TYPES_GAME_Write(D_5830[local_6], D_5838[local_6], local_a);
+                        D_24e6 |= 2;
+                        if (local_8 != 0) {
+                            ULTIMA_5e4a();
+                        }
+                }
+        }
 }
 
 int ULTIMA_47f4(int param_1)
@@ -614,24 +613,21 @@ int ULTIMA_48a8(void)
 			ULTIMA_20fa_WaitTicks(2);
 		}
 
-		*ULTIMA_4402_GetTileAddr(D_5896_map_x, D_5897_map_y) = TILE_MAP_GRASS;
+                TYPES_GAME_Write(D_5896_map_x, D_5897_map_y, TILE_MAP_GRASS);
 
-		D_24e6 |= 2;
+                D_24e6 |= 2;
 
-		ULTIMA_10e0_GRAP_51_PutTile(5, 5, 5);
-		if (D_587f == 0 && D_5881 < 10)
-		{
-			local_8 = 1;
-		}
-		else
-		{
-			ULTIMA_47f4((D_587f < 0xc ? D_5885 : D_5886) - 0x30);
-		}
+                ULTIMA_10e0_GRAP_51_PutTile(5, 5, 5);
+                if (D_587f == 0 && D_5881 < 10) {
+                    local_8 = 1;
+                } else {
+                    ULTIMA_47f4((D_587f < 0xc ? D_5885 : D_5886) - 0x30);
+                }
 
-		D_587c_partyTile = local_4;
-	}
+                D_587c_partyTile = local_4;
+        }
 
-	return local_8;
+        return local_8;
 }
 
 int ULTIMA_4988(void)

@@ -2,9 +2,10 @@
 #include "common/movement.h"
 #include "common/signs.h"
 #include "funcs.h"
-#include "vars.h"
 #include "macros.h"
+#include "mod/types_game.h"
 #include "tiles.h"
+#include "vars.h"
 
 #include <string.h>
 
@@ -330,7 +331,8 @@ static void LOOKOBJ_0502(int param_1, int param_2, int param_3, bool allowAction
     }
     else
     {
-        LOOKOBJ_0000(param_1);
+        if (!TYPES_GAME_Look(param_2, param_3))
+            LOOKOBJ_0000(param_1);
         if ((param_1 & 0xfe) == TILE_MAP_CLOCK)
         {
             local_4 = D_587f % 0xc;

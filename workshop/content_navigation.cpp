@@ -153,6 +153,12 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
     }
     for (auto it = project.resources.begin(); it != project.resources.end(); ++it) {
         const auto name = it.key();
+        if (name == "TYPES.OVR") {
+            result.append({"custom-tiles", "Graphics", "Tilesets", "Custom tiles", name});
+            continue;
+        }
+        if (name == "TYPEMAP.OVR")
+            continue;
         if (name == "CONTENTS.OVR")
             continue; // Edited through the map inspector.
         const auto c = capability(name);

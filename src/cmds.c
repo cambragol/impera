@@ -3,6 +3,7 @@
 #include "key/mouse.h"
 #include "macros.h"
 #include "mod/runtime.h"
+#include "mod/types_game.h"
 #include "tiles.h"
 #include "vars.h"
 
@@ -812,7 +813,7 @@ void CMDS_0aea_FireCmd(void)
     if (local_4)
     {
         ULTIMA_1850_PrintString(_TEXT(0x42fa, "Door destroyed!\n"));
-        *ULTIMA_4402_GetTileAddr(local_14, local_1c) = TILE_MAP_44;
+        TYPES_GAME_Change(local_14, local_1c, 3, TILE_MAP_44);
         D_24e6 = 1;
         D_594f = 0;
     }
@@ -1166,7 +1167,7 @@ static void CMDS_1202(int param_1, int param_2, int param_3)
         D_58d8[param_1] &= 0x7f;
         ULTIMA_1850_PrintString(_TEXT(0x4482, "\n\nThe Shrine is\nrestored!\n"));
         ULTIMA_3072_ShakeScreen();
-        *ULTIMA_4402_GetTileAddr(param_2, param_3) = TILE_MAP_SHRINE;
+        TYPES_GAME_Write(param_2, param_3, TILE_MAP_SHRINE);
         D_24e6 |= 2;
     }
     else
@@ -1245,7 +1246,10 @@ static void CMDS_12c8(char* param_1)
                 local_a + D_5897_map_y ==
                     MOD_TableValue(8, (local_4 + 0x20), D_1eb2[local_4 + 0x20])) {
                 D_58d0[local_4] ^= 0x80;
-                *ULTIMA_4402_GetTileAddr(local_6 + D_5896_map_x, local_a + D_5897_map_y) ^= D_4512[local_4] ^ TILE_MAP_DF;
+                TYPES_GAME_Write(
+                    local_6 + D_5896_map_x, local_a + D_5897_map_y,
+                    *ULTIMA_4402_GetTileAddr(local_6 + D_5896_map_x, local_a + D_5897_map_y) ^
+                        (D_4512[local_4] ^ TILE_MAP_DF));
                 D_24e6 |= 2;
             }
 
@@ -1377,13 +1381,15 @@ static int CMDS_1504(int param_1, int param_2, int param_3, int param_4)
 static void CMDS_1548_Pushed(int param_1, int param_2, int param_3, int param_4, int param_5, int param_6, int param_7,
                  int param_8)
 {
+    if (TYPES_GAME_Push(param_3, param_4, param_5, param_6))
+        return;
     ULTIMA_1850_PrintString(_TEXT(0x4547, "Pushed!\n"));
-    *ULTIMA_4402_GetTileAddr(param_5, param_6) = param_1;
-    *ULTIMA_4402_GetTileAddr(param_3, param_4) = param_2;
+    TYPES_GAME_Write(param_5, param_6, param_1);
+    TYPES_GAME_Write(param_3, param_4, param_2);
     param_1 &= 0xfc;
     if (param_1 == TILE_MAP_CHAIR_90 || param_1 == TILE_MAP_CANNON_B4)
     {
-        *ULTIMA_4402_GetTileAddr(param_5, param_6) = CMDS_1504(param_7, param_8, param_1, 0);
+        TYPES_GAME_Write(param_5, param_6, CMDS_1504(param_7, param_8, param_1, 0));
     }
 }
 
@@ -1391,12 +1397,12 @@ static void CMDS_15b0_Pulled(int param_1, int param_2, int param_3, int param_4,
                  int param_8)
 {
     ULTIMA_1850_PrintString(_TEXT(0x4550, "Pulled!\n"));
-    *ULTIMA_4402_GetTileAddr(param_3, param_4) = param_2;
-    *ULTIMA_4402_GetTileAddr(param_5, param_6) = param_1;
+    TYPES_GAME_Write(param_3, param_4, param_2);
+    TYPES_GAME_Write(param_5, param_6, param_1);
     param_2 &= 0xfc;
     if (param_2 == TILE_MAP_CHAIR_90 || param_2 == TILE_MAP_CANNON_B4)
     {
-        *ULTIMA_4402_GetTileAddr(param_3, param_4) = CMDS_1504(param_7, param_8, param_2, 1);
+        TYPES_GAME_Write(param_3, param_4, CMDS_1504(param_7, param_8, param_2, 1));
     }
 }
 

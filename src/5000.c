@@ -1,5 +1,6 @@
 #include "common/common.h"
 #include "mod/contents_game.h"
+#include "mod/types_game.h"
 #if defined(TARGET_SDL)
 #include "graphics/grap_sdl.h"
 #include "graphics/grap_buf.h"
@@ -358,6 +359,15 @@ void ULTIMA_56ac_DrawMap(void)
     }
 
 #if defined(TARGET_SDL)
+    for (int ty = 0; ty < 11; ty++)
+        for (int tx = 0; tx < 11; tx++)
+            if (GetMapViewport(tx, ty) != 255 &&
+                (GetMapViewport(tx, ty) != 0 ||
+                 GRAP_BUF_SpriteIsTransparent(256 + GetActorMap(tx, ty))))
+                TYPES_GAME_Draw(D_52ba_vdp._52d8_page ? g_linearEgaBuffer1 : g_linearEgaBuffer0,
+                                320, 8 + tx * 16, 8 + ty * 16,
+                                tx - (D_5893_map_id >= 128 ? D_5896_map_x : 5),
+                                ty - (D_5893_map_id >= 128 ? D_5897_map_y : 5), 8, 184);
     for(local_8=0;local_8<11;local_8++) for(local_6=0;local_6<11;local_6++) {
         byte tile=GetMapViewport(local_6,local_8);
         int dx=local_6-(D_5893_map_id>=128?D_5896_map_x:5),dy=local_8-(D_5893_map_id>=128?D_5897_map_y:5);
@@ -365,7 +375,8 @@ void ULTIMA_56ac_DrawMap(void)
             if(!GRAP_BUF_SpriteIsTransparent(256+GetActorMap(local_6,local_8))) continue;
             tile=WIDE_MapTile(dx,dy);
         }
-        if(tile!=255 && tile==WIDE_MapTile(dx,dy) && WIDE_GroundTile(dx,dy)!=tile)
+        if (!TYPES_ArtSlot(TYPES_GAME_At(D_5896_map_x + dx, D_5897_map_y + dy)) && tile != 255 &&
+            tile == WIDE_MapTile(dx, dy) && WIDE_GroundTile(dx, dy) != tile)
             GRAP_BUF_PutMapSprite(local_6,local_8,D_b11e[tile]);
     }
     /* All terrain must be complete before outlines spill across cell edges. */
@@ -635,8 +646,12 @@ static void ULTIMA_5a28(int param_1, int param_2_y, int param_3_x, int param_4, 
                         if (local_210) // 5be1 : ??
                         {
                             // 5beb
-                            if (ULTIMA_5dfe(local_216_tile, ULTIMA_6ff0(local_212_x, local_214_y)) == 0)
-                            {
+                            if (TYPES_GAME_Sight(
+                                    param_3_x + local_212_x + (uint)D_589b,
+                                    param_2_y + local_214_y + (uint)D_589c,
+                                    ULTIMA_6ff0(local_212_x, local_214_y),
+                                    ULTIMA_5dfe(local_216_tile,
+                                                ULTIMA_6ff0(local_212_x, local_214_y))) == 0) {
                                 // 5c05
                                 if (
 #if !defined(MATCHING_BUILD)
@@ -655,9 +670,7 @@ static void ULTIMA_5a28(int param_1, int param_2_y, int param_3_x, int param_4, 
                                     // 5c93
                                     *ptr = local_216_tile;
                                 }
-                            }
-                            else
-                            {
+                            } else {
                                 // 5c52
                                 if (param_2_y + local_214_y < 0 || param_3_x + local_212_x < 0 ||
                                     param_3_x + local_212_x >= 0x20 || param_2_y + local_214_y >= 0x20)
@@ -694,8 +707,11 @@ static void ULTIMA_5a28(int param_1, int param_2_y, int param_3_x, int param_4, 
                     }
 
                     // 5ca1
-                    if (ULTIMA_5dfe(local_216_tile, ULTIMA_6ff0(local_212_x, local_214_y)) != 0)
-                    {
+                    if (TYPES_GAME_Sight(param_3_x + local_212_x + (uint)D_589b,
+                                         param_2_y + local_214_y + (uint)D_589c,
+                                         ULTIMA_6ff0(local_212_x, local_214_y),
+                                         ULTIMA_5dfe(local_216_tile,
+                                                     ULTIMA_6ff0(local_212_x, local_214_y))) != 0) {
                         local_206_queue[local_4_queueWritePos] = local_214_y;
                         local_4_queueWritePos++;
                         local_206_queue[local_4_queueWritePos] = local_212_x;

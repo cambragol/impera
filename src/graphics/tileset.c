@@ -1,11 +1,12 @@
 #include "tileset.h"
-#include "tileset_assets.h"
-#include "mod/runtime.h"
-#include "mod/package.h"
-#include "mod/tileset_resources.h"
 #include "common/file.h"
 #include "grap_buf.h"
 #include "grap_sdl.h"
+#include "mod/package.h"
+#include "mod/runtime.h"
+#include "mod/tileset_resources.h"
+#include "mod/types.h"
+#include "tileset_assets.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -199,6 +200,20 @@ static Uint32 over(Uint32 foreground, Uint32 background)
 }
 static Uint32 sampledColor(int color, int subX, int subY, const Uint32 *ega, bool transparent)
 {
+    if (sample && sample != TILE_RGB_TOKEN && (sample - 1) / 256 >= 512) {
+        unsigned token = sample - 1, side = 0;
+        const unsigned char *rgba =
+            TYPES_SampleArt(token / 256, (unsigned)selected, SDL_GetTicks(), &side);
+        if (rgba) {
+            unsigned x = token % 16, y = token % 256 / 16;
+            unsigned px = x * (side / 16) + (side == 32 ? subX : 0),
+                     py = y * (side / 16) + (side == 32 ? subY : 0);
+            const unsigned char *p = rgba + (py * side + px) * 4;
+            Uint32 value = (Uint32)p[3] << 24 | (Uint32)p[0] << 16 | (Uint32)p[1] << 8 | p[2];
+            return transparent ? value : over(value, ega[0]);
+        }
+        return ega[0]; /* Old provenance after a mod snapshot is unmounted. */
+    }
     if (color < 16 || !sample || !selected)
         return TILESET_Color(color, ega);
     unsigned p = sample - 1, t = p / 256, x = p % 16, y = p % 256 / 16;
@@ -228,8 +243,6 @@ Uint32 TILESET_BufferColor(const byte *pixel, int subX, int subY, const Uint32 *
     unsigned ref = l && l->refs ? l->refs[pixel - l->pixels] : 0;
     if(ref>>24==*pixel && (ref&TILE_TOKEN_MASK)==TILE_RGB_TOKEN && l->backs)
         return l->backs[pixel-l->pixels];
-    if (!selected)
-        return ega[*pixel & 15];
     unsigned saved = sample;
     sample = ref >> 24 == *pixel ? (ref & TILE_TOKEN_MASK) : 0;
     Uint32 color = sampledColor(*pixel, subX, subY, ega, (ref & TILE_SPRITE_FLAG) != 0);
@@ -242,7 +255,10 @@ Uint32 TILESET_BufferColor(const byte *pixel, int subX, int subY, const Uint32 *
         if (sample)
         {
             unsigned token = sample - 1;
-            index = GRAP_BUF_TilePixel(token / 256, token % 16, token % 256 / 16);
+            if (token / 256 >= 512)
+                index = 16;
+            else
+                index = GRAP_BUF_TilePixel(token / 256, token % 16, token % 256 / 16);
         }
         color = over(color, TILESET_LastColor(index, subX, subY, ega));
     }
@@ -476,6 +492,11 @@ bool TILESET_Select(int choice)
 int TILESET_Pixel(int tile, int x, int y)
 {
     sample = 0;
+    unsigned slot = TYPES_ArtSlot((uint32_t)tile);
+    if (slot && x >= 0 && y >= 0 && x < 16 && y < 16) {
+        sample = slot * 256 + y * 16 + x + 1;
+        return 16;
+    }
     if (!selected || tile < 0 || tile >= 512 || x < 0 || y < 0 || x >= 16 || y >= 16 || !available[tile])
         return -1;
     sample = (unsigned)(tile * 256 + y * 16 + x + 1);

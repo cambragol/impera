@@ -1,4 +1,5 @@
 #include "contents_editor.h"
+#include "custom_tiles.h"
 #include "inventory_names.h"
 #include "mod/discoveries.h"
 #include "world_objects.h"
@@ -534,6 +535,37 @@ bool ContentsEditor::move(int entry, QPoint dest) {
             auto contents = writeContents(defs, project->resources.value("CONTENTS.OVR").edited);
             if (commit({{WorldObjects::resource(world), bytes}, {"CONTENTS.OVR", contents}},
                        "Move container and contents")) {
+                refresh();
+                selectCell(cell);
+                return true;
+            }
+        } catch (const std::exception &e) {
+            QMessageBox::warning(this, "Container move rejected", e.what());
+        }
+        return false;
+    }
+    if (canvas->tileId(entries[entry].y * canvas->side + entries[entry].x) >= 512) {
+        try {
+            QString resource = target.kind  ? (target.kind == 1 ? "BRIT.CBT" : "DUNGEON.CBT")
+                               : target.map ? QStringList{"TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT",
+                                                          "KEEP.DAT"}[(target.map - 1) / 8]
+                               : target.floor < 0 ? "UNDER.DAT"
+                                                  : "BRIT.DAT";
+            MapDocument map(project, resource);
+            int page = target.kind ? target.map : 0;
+            if (!target.kind && target.map) {
+                page = -1;
+                for (int i = 0; i < map.pages.size(); i++)
+                    if (map.pages[i].settlement == (target.map - 1) % 8 &&
+                        map.pages[i].floor == target.floor)
+                        page = i;
+            }
+            U5::require(page >= 0, "Container floor is missing");
+            auto changes = CustomTiles::moveScenery(*project, resource, page,
+                                                    {entries[entry].x, entries[entry].y}, dest);
+            changes["CONTENTS.OVR"] =
+                writeContents(defs, project->resources.value("CONTENTS.OVR").edited);
+            if (commit(changes, "Move container and contents")) {
                 refresh();
                 selectCell(cell);
                 return true;

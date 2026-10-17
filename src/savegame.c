@@ -1,5 +1,6 @@
 #include "common/common.h"
 #include "mod/contents.h"
+#include "mod/types.h"
 #include "vars.h"
 #include <SDL3/SDL.h>
 
@@ -190,9 +191,10 @@ int FILE_ReadSavegameFile(char* fileName)
     debug("Party serializer file=%s final offset=%d expected=4192",fileName,pos);
 
     fseek(stream, 0x1060, SEEK_SET);
-    if (FILE_NameEqual(fileName, "INIT.GAM"))
+    if (FILE_NameEqual(fileName, "INIT.GAM")) {
         CONTENTS_Reset();
-    else
+        TYPES_Reset();
+    } else
         CONTENTS_ReadState(stream, 1);
     fclose(stream);
 

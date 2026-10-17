@@ -592,3 +592,27 @@ end a response, or form the entire response, including questions and their answe
 Workshop handles the quotation marks automatically. Narration packages use the
 updated Impera dialogue extension; older engine builds reject them and request an
 update. Playtest uses that same native implementation.
+
+
+### New tiles
+
+Open **Graphics → Tilesets → Custom tiles**. **New tile…** creates a tile;
+**Copy tile…** starts with an existing tile's settings and artwork. Draw pixels
+or import a PNG frame/sheet, add animation frames, and set frame durations.
+Alternative artwork can be supplied for each supported tileset; missing variants
+use the default artwork. PNG alpha preserves opaque black.
+
+The property pane defines movement, travel speed, sight, projectiles, damage,
+poison, affected movement modes, transparent sprite composition, masonry and
+interaction/state variants. **World** and **Locations** picker memberships can
+overlap. **Apply settings** commits property edits; artwork edits commit as a
+single undoable operation per gesture or import.
+
+New tiles appear in the map picker. Painting, fill, rectangle, copy/paste and
+Undo preserve their full IDs. **Edit tile…** opens the selected tile's definition.
+Place sign text and container contents through Select / Move's usual right pane.
+The package contains artwork, definitions and placements; original game files
+are unchanged. NPC/monster type authoring follows in phase 5.
+
+See [the custom-type design and audit](../docs/workshop-custom-types-plan.md) and
+[package compatibility](../docs/mod-packages.md#custom-tile-libraries-package-version-9).

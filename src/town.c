@@ -2,6 +2,7 @@
 #include "common/common.h"
 #include "common/movement.h"
 #include "mod/runtime.h"
+#include "mod/types_game.h"
 #if defined(TARGET_SDL)
 #include "key/mouse.h"
 #include "key/key.h"
@@ -89,7 +90,8 @@ void TOWN_0170(void)
         {
             if (*ULTIMA_4402_GetTileAddr(local_4, local_6) == TILE_MAP_87)
             {
-                *ULTIMA_4402_GetTileAddr(local_4, local_6 + 1) ^= TILE_MAP_DD;
+                TYPES_GAME_Write(local_4, local_6 + 1,
+                                 *ULTIMA_4402_GetTileAddr(local_4, local_6 + 1) ^ (TILE_MAP_DD));
             }
         }
     }
@@ -100,11 +102,11 @@ void TOWN_0170(void)
         {
             if (D_587f == 5)
             {
-                *ULTIMA_4402_GetTileAddr(D_58ee[local_4], D_590e[local_4]) = D_592e[local_4];
+                TYPES_GAME_Write(D_58ee[local_4], D_590e[local_4], D_592e[local_4]);
             }
             else
             {
-                *ULTIMA_4402_GetTileAddr(D_58ee[local_4], D_590e[local_4]) = TILE_MAP_WATER_3;
+                TYPES_GAME_Write(D_58ee[local_4], D_590e[local_4], TILE_MAP_WATER_3);
             }
         }
     }
@@ -125,18 +127,18 @@ static void TOWN_0212(void)
         {
             for (local_4 = 0; local_4 < 0x20; local_4++)
             {
-                switch (GetMap(local_4, local_6))
+                switch (*ULTIMA_4402_GetTileAddr(local_4, local_6))
                 {
                 case TILE_MAP_TREE:
                     if (ULTIMA_2092_RandomRange(0, 7) != 0)
                     {
-                        GetMap(local_4, local_6) = TILE_MAP_STUMP;
+                        TYPES_GAME_Change(local_4, local_6, 3, TILE_MAP_STUMP);
                     }
                     break;
                 case TILE_MAP_CROPS:
                     if (ULTIMA_2092_RandomRange(0, 7) != 0)
                     {
-                        GetMap(local_4, local_6) = TILE_MAP_CROPS_PICKED;
+                        TYPES_GAME_Change(local_4, local_6, 3, TILE_MAP_CROPS_PICKED);
                     }
                     break;
                 }
@@ -391,8 +393,8 @@ static bool TOWN_0600(int param_1)
         local_c = (param_1 == U5_KEY_HOME || param_1 == U5_KEY_END) ? -1 : 1;
         local_e = (param_1 == U5_KEY_HOME || param_1 == U5_KEY_PGUP) ? -1 : 1;
         /* Diagonal steps cannot cut through blocked corners. */
-        if (!ULTIMA_2c4c_IsWalkableTile(D_587c_partyTile, GetMapViewport(5 + local_c, 5)) ||
-            !ULTIMA_2c4c_IsWalkableTile(D_587c_partyTile, GetMapViewport(5, 5 + local_e))) {
+        if (!TYPES_GAME_WalkableView(D_587c_partyTile, 5 + local_c, 5) ||
+            !TYPES_GAME_WalkableView(D_587c_partyTile, 5, 5 + local_e)) {
             ULTIMA_1850_PrintString("Blocked!\n");
             return false;
         }
@@ -476,8 +478,7 @@ static bool TOWN_0600(int param_1)
     }
 
     // 0776
-    if (local_6 && ULTIMA_2c4c_IsWalkableTile(D_587c_partyTile, local_10) != 0)
-    {
+    if (local_6 && TYPES_GAME_WalkableView(D_587c_partyTile, 5 + local_c, 5 + local_e) != 0) {
         // 0792
         if (local_8 != 0)
         {
@@ -530,9 +531,7 @@ static bool TOWN_0600(int param_1)
 
             TOWN_052e(param_1, local_10);
         }
-    }
-    else
-    {
+    } else {
         // 083a
         ULTIMA_1850_PrintString(_TEXT(0x26d6, "Blocked!\n"));
         ULTIMA_22c0_AudioTone(0xa5, 200);
@@ -656,7 +655,7 @@ int TOWN_09e6_AttackCmd(void)
         local_c = (uint)D_5897_map_y + D_5878;
         if (*ULTIMA_4402_GetTileAddr(local_a, local_c) == TILE_MAP_MIRROR)
         {
-            *ULTIMA_4402_GetTileAddr(local_a, local_c) = TILE_MAP_MIRROR_BROKEN;
+            TYPES_GAME_Change(local_a, local_c, 3, TILE_MAP_MIRROR_BROKEN);
             ULTIMA_1850_PrintString(_TEXT(0x26f2, "Broken!\n"));
 
             for (local_e = 2000; local_e < 20000; local_e += 1000)
@@ -861,9 +860,8 @@ static void TOWN_0c78(void)
 
                 if (local_6 <= 0x1f && local_8 <= 0x1f && 0 <= local_6 && 0 <= local_8)
                 {
-                    if ((ULTIMA_2c4c_IsWalkableTile(TILE_ACTOR_HORSE, *ULTIMA_4402_GetTileAddr(local_6, local_8)) != 0) &&
-                        (ULTIMA_3702(local_6, local_8, D_5895_map_level) == 0))
-                    {
+                    if ((TYPES_GAME_Walkable(TILE_ACTOR_HORSE, local_6, local_8) != 0) &&
+                        (ULTIMA_3702(local_6, local_8, D_5895_map_level) == 0)) {
                         local_4->_0_tile = local_4->_1_animTile = local_e;
                         local_4->_2_x = (byte)local_6;
                         local_4->_3_y = (byte)local_8;
@@ -935,7 +933,7 @@ static int TOWN_0e34(int param_1)
                 D_2767 = 0;
                 if (D_5893_map_id == 0x11 && D_5895_map_level == 0x02)
                 {
-                    GetMap(0x11, 0xd) ^= 0xb; // 67b9
+                    TYPES_GAME_Write(0x11, 0xd, *ULTIMA_4402_GetTileAddr(0x11, 0xd) ^ 0xb); // 67b9
                     ULTIMA_3072_ShakeScreen();
                     D_24e6 = 1;
                 }
@@ -986,6 +984,8 @@ static void TOWN_0f02(void)
     {
         local_4 = 0;
         local_a = *ULTIMA_4402_GetTileAddr(D_5896_map_x, D_5897_map_y);
+        if (TYPES_Defined(TYPES_GAME_At(D_5896_map_x, D_5897_map_y)))
+            TYPES_GAME_Effects();
         if (local_a == TILE_MAP_TRAPDOOR && (D_587c_partyTile & 0xfe) != TILE_ACTOR_FLYING_CARPET)
         {
             ULTIMA_1850_PrintString(_TEXT(0x2768, "A TRAPDOOR!\n"));
@@ -1029,9 +1029,8 @@ static void TOWN_0f02(void)
                 TOWN_0408(1);
                 local_4 = 1;
             }
-        }
-        else if (local_a == TILE_MAP_POISON && D_587c_partyTile == TILE_ACTOR_AVATAR)
-        {
+        } else if (local_a == TILE_MAP_POISON && D_587c_partyTile == TILE_ACTOR_AVATAR &&
+                   !TYPES_Defined(TYPES_GAME_At(D_5896_map_x, D_5897_map_y))) {
             // NOT MATCHING
             // for (105d; 1067; 1064)
             for (local_6 = 0; local_6 < D_585b; local_6++)
@@ -1048,8 +1047,8 @@ static void TOWN_0f02(void)
             }
         }
         // 10ac
-        else if (local_a == TILE_MAP_FIREPLACE || local_a == TILE_MAP_LAVA)
-        {
+        else if ((local_a == TILE_MAP_FIREPLACE || local_a == TILE_MAP_LAVA) &&
+                 !TYPES_Defined(TYPES_GAME_At(D_5896_map_x, D_5897_map_y))) {
             // 10ba
             ULTIMA_5910_UpdateFrame();
             ULTIMA_1850_PrintString(_TEXT(0x2780, "Burning!\n"));

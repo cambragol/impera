@@ -1,8 +1,9 @@
 #include "common/common.h"
 #include "funcs.h"
-#include "vars.h"
 #include "macros.h"
+#include "mod/types_game.h"
 #include "tiles.h"
+#include "vars.h"
 
 #include "shoppes.h"
 #include "shoppes2.h"
@@ -100,14 +101,14 @@ static int SHOPPES2_00dc(void)
 
         if (*ULTIMA_4402_GetTileAddr(D_5896_map_x, D_5897_map_y - 1) == TILE_MAP_TABLE_95)
         {
-            *ULTIMA_4402_GetTileAddr(D_5896_map_x, D_5897_map_y - 1) = TILE_MAP_TABLE_9B;
+            TYPES_GAME_Write(D_5896_map_x, D_5897_map_y - 1, TILE_MAP_TABLE_9B);
             D_bd1e = TILE_MAP_TABLE_9B;
 
             ULTIMA_5910_UpdateFrame();
         }
         else if (*ULTIMA_4402_GetTileAddr(D_5896_map_x, D_5897_map_y + 1) == TILE_MAP_TABLE_95)
         {
-            *ULTIMA_4402_GetTileAddr(D_5896_map_x, D_5897_map_y + 1) = TILE_MAP_TABLE_9A;
+            TYPES_GAME_Write(D_5896_map_x, D_5897_map_y + 1, TILE_MAP_TABLE_9A);
             D_bd1e = TILE_MAP_TABLE_9A;
 
             ULTIMA_5910_UpdateFrame();
