@@ -1,6 +1,7 @@
 #include "custom_tiles.h"
 #include "color_palette.h"
 #include "window.h"
+#include "map_entities.h"
 #include <QApplication>
 #include <QMouseEvent>
 #include <QTemporaryDir>
@@ -243,6 +244,69 @@ int main(int argc, char **argv) {
         CHECK(CustomTiles::image(p, 40000) == dosBefore);
         useDos->trigger();
 
+        // Independent NPC/monster definitions share art but not identity or stats.
+        auto actorRecords = CustomTiles::records(p);
+        for (unsigned kind = 1; kind <= 2; kind++) {
+            TypeDef actor;
+            TYPES_Vanilla(1, kind == 1 ? 80 : 144, &actor);
+            actor.kind = kind;
+            actor.id = 40009 + kind;
+            actor.render = TYPES_SPRITE;
+            actor.stats[5] = kind == 1 ? 30 : 60;
+            actor.stats[6] = 1;
+            strcpy(actor.name, kind == 1 ? "Scholar" : "Crystal beast");
+            strcpy(actor.description, kind == 1 ? "Scholars" : "Crystal beasts");
+            actorRecords[actor.id] = CustomTiles::record(actor, {{tile, 150, 0}});
+        }
+        p.resources["TYPES.OVR"].edited = CustomTiles::library(p, actorRecords);
+        auto applyChanges = [&](const QMap<QString, QByteArray> &changes) {
+            for (auto it = changes.begin(); it != changes.end(); ++it)
+                p.resources[it.key()].edited = it.value();
+        };
+        auto placedNpc = Workshop::addMapItem(p, "DWELLING.DAT", page, {8, 8},
+                                              Workshop::MapItemKind::Npc, 40010, -1, "Mira");
+        applyChanges(placedNpc.changes);
+        CHECK(CustomTiles::actorType(p, "DWELLING.DAT", doc.pages[page], page, placedNpc.slot, 0) ==
+              40010);
+        MapNpcDocument npcDocument(&p, "DWELLING.NPC");
+        CHECK(npcDocument.sprite(doc.pages[page].settlement, placedNpc.slot) == 40010);
+        CHECK(npcDocument.dialogue(doc.pages[page].settlement, placedNpc.slot) > 0);
+        auto worldMonster =
+            Workshop::addMapItem(p, "BRIT.DAT", 0, {20, 20}, Workshop::MapItemKind::Monster, 40011);
+        applyChanges(worldMonster.changes);
+        auto worldPage = U5::mapPages("BRIT.DAT", p.data("BRIT.DAT"))[0];
+        CHECK(CustomTiles::actorType(p, "BRIT.DAT", worldPage, 0, worldMonster.slot, 0) == 40011);
+        auto roomPage = U5::mapPages("DUNGEON.CBT", p.data("DUNGEON.CBT"))[0];
+        applyChanges(CustomTiles::assignActor(p, "DUNGEON.CBT", roomPage, 0, 0, 40011));
+        CHECK(CustomTiles::actorType(p, "DUNGEON.CBT", roomPage, 0, 0, 0) == 40011);
+        p.validate();
+        CHECK(p.package().startsWith("IMOD0010"));
+        Project actorImported;
+        actorImported.openGame(TEST_GAME_DIR);
+        actorImported.importPackage(p.package());
+        CHECK(CustomTiles::actorType(actorImported, "DWELLING.DAT", doc.pages[page], page,
+                                     placedNpc.slot, 0) == 40010);
+        QMap<QString, int> actorState{{"customTiles/kind", 2}, {"customTiles/2/id", 40011}};
+        std::unique_ptr<QWidget> actorUi(CustomTiles::editor(&p, edit, &actorState));
+        auto hitPoints = actorUi->findChild<QSpinBox *>("actorStat5");
+        CHECK(hitPoints && hitPoints->value() == 60);
+        hitPoints->setValue(75);
+        QMetaObject::invokeMethod(hitPoints, "editingFinished", Qt::DirectConnection);
+        CHECK(CustomTiles::definition(p, 40011).stats[5] == 75);
+        CHECK(CustomTiles::definition(p, 40010).stats[5] == 30);
+        auto removedNpc = Workshop::deleteMapItem(p, "DWELLING.DAT", page, "NPCs / Schedules",
+                                                  placedNpc.slot, {8, 8});
+        applyChanges(removedNpc);
+        CHECK(CustomTiles::actorType(p, "DWELLING.DAT", doc.pages[page], page, placedNpc.slot, 0) ==
+              0);
+        p.validate();
+        QMap<QString, int> npcTypeState{{"customTiles/kind", 1}, {"customTiles/1/id", 40010}};
+        std::unique_ptr<QWidget> npcTypesUi(CustomTiles::editor(&p, edit, &npcTypeState));
+        for (auto button : npcTypesUi->findChildren<QPushButton *>())
+            if (button->text() == "Delete / Reset") button->click();
+        CHECK(!CustomTiles::records(p).contains(40010));
+        CHECK(npcTypeState["customTiles/1/id"] == 336);
+        CHECK(!npcTypesUi->findChild<QLineEdit *>("customTileName")->text().isEmpty());
         WorkshopWindow window;
         CHECK(window.openGame(TEST_GAME_DIR));
         window.projectForTests() = p;

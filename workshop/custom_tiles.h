@@ -16,6 +16,11 @@ QByteArray library(const Project &, const QMap<unsigned, QByteArray> &);
 QImage image(const Project &, unsigned, unsigned variant = 0, quint64 ms = 0);
 void validate(const Project &);
 TypeCell cell(const QString &, const U5::MapPage &, int page, int x, int y);
+TypeCell actorCell(const QString &, const U5::MapPage &, int page, int slot);
+unsigned actorType(const Project &, const QString &, const U5::MapPage &, int page, int slot,
+                   unsigned fallback);
+QMap<QString, QByteArray> assignActor(const Project &, const QString &, const U5::MapPage &,
+                                      int page, int slot, unsigned type);
 QMap<quint64, TypeCell> placements(const Project &);
 QByteArray mapBytes(const Project &, const QMap<quint64, TypeCell> &);
 QByteArray expanded(const Project &, const QString &, const U5::MapPage &, int page,

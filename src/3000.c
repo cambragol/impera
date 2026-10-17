@@ -701,6 +701,10 @@ int ULTIMA_39fc_GetFirstActivePartyMember(void)
 
 void ULTIMA_3a74(byte a, byte b, byte c, byte d, byte e, byte f, int g)
 {
+    if (!D_5893_map_id && g > 0 && g < 32 && (!D_5c5a[g]._0_tile || !a)) {
+        TypeCell key = {4, 0, (int8_t)D_5895_map_level, g, 0, 0, 0};
+        TYPES_Remove(key);
+    }
     D_5c5a[g]._0_tile = a;
     D_5c5a[g]._1_animTile = b;
     D_5c5a[g]._2_x = c;

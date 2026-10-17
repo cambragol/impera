@@ -256,6 +256,13 @@ MapItemEdit addMapItem(const Project &p, const QString &r, int index, QPoint cel
     const auto page = doc.pages[index];
     require(cell.x() >= 0 && cell.y() >= 0 && cell.x() < page.side && cell.y() < page.side,
             "Placement outside map");
+    unsigned customType = appearance >= 512 ? unsigned(appearance) : 0;
+    if (customType) {
+        auto type = CustomTiles::definition(p, customType);
+        require(type.kind && (kind == MapItemKind::Npc || kind == MapItemKind::Monster),
+                "Choose a creature type");
+        appearance = type.base;
+    }
     MapItemEdit out;
     auto target = contentsTarget(r, page, index);
     if (kind == MapItemKind::Moonstone) {
@@ -276,7 +283,7 @@ MapItemEdit addMapItem(const Project &p, const QString &r, int index, QPoint cel
                 break;
             }
         require(out.slot > 0, "This location has no free NPC slots");
-        require(appearance == -1 ||
+        require(customType || appearance == -1 ||
                     (kind == MapItemKind::Monster
                          ? monsterShapes().contains(appearance)
                          : (appearance >= 64 && appearance < 128 && appearance % 4 == 0)),
@@ -421,6 +428,12 @@ MapItemEdit addMapItem(const Project &p, const QString &r, int index, QPoint cel
             WorldObjects::change(p, world, out.slot, record);
         out.mode = "Starting Objects";
     }
+    if (customType) {
+        auto typeChanges = CustomTiles::assignActor(
+            p, r, page, index, r.endsWith(".CBT") ? out.slot - 6 : out.slot, customType);
+        for (auto it = typeChanges.begin(); it != typeChanges.end(); ++it)
+            out.changes[it.key()] = it.value();
+    }
     Project candidate = p;
     for (auto it = out.changes.begin(); it != out.changes.end(); ++it) {
         candidate.resources[it.key()].edited = it.value();
@@ -512,6 +525,13 @@ QMap<QString, QByteArray> deleteMapItem(const Project &p, const QString &r, int 
         out["CONTENTS.OVR"] = writeContents(defs, p.data("CONTENTS.OVR"));
     } else
         require(false, "Select a map item to delete");
+    if (mode == "NPCs / Schedules" || mode == "Starting Objects" ||
+        (mode == "Encounter" && slot >= 6 && slot < 22)) {
+        auto changes =
+            CustomTiles::assignActor(p, r, page, index, r.endsWith(".CBT") ? slot - 6 : slot, 0);
+        for (auto it = changes.begin(); it != changes.end(); ++it)
+            out[it.key()] = it.value();
+    }
     return out;
 }
 } // namespace Workshop

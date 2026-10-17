@@ -1,3 +1,4 @@
+#include "mod/actors.h"
 #include "common/common.h"
 #include "funcs.h"
 #include "macros.h"
@@ -324,9 +325,10 @@ static void CAST_043e_AnCorpXen(void)
     for (local_6 = 0; local_6 < 0x20; local_6++)
     {
         local_4 = &D_ba14[local_6];
-        if (CAST_0000(local_6) == 0 && (local_4->flags & (COMBAT_FLAGS_PLAYER | COMBAT_FLAGS_MONSTER)) == COMBAT_FLAGS_MONSTER &&
-            ((byte)D_153c_enemyFlags[local_4->entityIdx] & ENEMY_FLAG_UNDEAD) != 0)
-        {
+        if (CAST_0000(local_6) == 0 &&
+            (local_4->flags & (COMBAT_FLAGS_PLAYER | COMBAT_FLAGS_MONSTER)) ==
+                COMBAT_FLAGS_MONSTER &&
+            ((byte)ACTORS_Flags(local_4->entityIdx) & ENEMY_FLAG_UNDEAD) != 0) {
             if (COMSUBS_0000(D_589e, local_6, 0) == 0)
             {
                 local_4->hp = 1;

@@ -17,7 +17,7 @@ using U5::require;
 namespace Workshop {
 Capability capability(const QString &resource) {
     if (resource == "TYPES.OVR")
-        return {"Custom tiles", "Tilesets", "Tile artwork and properties", EditorKind::TileTypes};
+        return {"Custom types", "Types", "Tile and creature artwork and properties", EditorKind::TileTypes};
     const QString n = resource.toUpper();
     if (QStringList{"IBM.CH", "RUNES.CH", "IBM.HCS", "RUNES.HCS"}.contains(n))
         return {n.startsWith("RUNES") ? "Runic font" : "Normal font", "Fonts",

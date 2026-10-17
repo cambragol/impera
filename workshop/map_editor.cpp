@@ -107,7 +107,13 @@ int MapNpcDocument::hour(int settlement, int npc, int slot) const {
 }
 int MapNpcDocument::sprite(int settlement, int npc) const {
     offset(settlement, npc);
-    return 256 + U5::byte(project->data(resource), settlement * 576 + 512 + npc);
+    const int bank = resource == "TOWNE.NPC"      ? 0
+                     : resource == "DWELLING.NPC" ? 8
+                     : resource == "CASTLE.NPC"   ? 16
+                                                  : 24;
+    TypeCell key{3, quint8(bank + settlement + 1), 0, quint8(npc), 0, 0, 0};
+    unsigned custom = CustomTiles::placements(*project).value(TYPES_CellKey(&key), key).type;
+    return custom ? custom : 256 + U5::byte(project->data(resource), settlement * 576 + 512 + npc);
 }
 int MapNpcDocument::dialogue(int settlement, int npc) const {
     offset(settlement, npc);
@@ -1442,11 +1448,11 @@ MapWorkspace::MapWorkspace(
     auto customRecords = CustomTiles::records(*project);
     for (auto it = customRecords.begin(); it != customRecords.end(); ++it) {
         auto d = CustomTiles::definition(*project, it.key());
-        if (d.kind)
-            continue;
         if (canvas->tiles.size() <= int(d.id))
             canvas->tiles.resize(d.id + 1);
         canvas->tiles[d.id] = CustomTiles::image(*project, d.id);
+        if (d.kind)
+            continue;
         canvas->legacyTiles[d.id] = d.base;
         if (d.render & TYPES_SPRITE)
             canvas->spriteGround[d.id] = d.ground;
@@ -2080,11 +2086,13 @@ void MapWorkspace::refreshContextActors() {
         for (int i = 1; i < 32; i++)
             if (U5::byte(b, i * 8) &&
                 !(U5::byte(b, i * 8) == 1 && locationModes->tabText(activeMode) == "Contents"))
-                canvas->contextActors.append({int(U5::byte(b, i * 8 + 2)),
-                                              int(U5::byte(b, i * 8 + 3)),
-                                              256 + int(U5::byte(b, i * 8)),
-                                              i,
-                                              {}});
+                canvas->contextActors.append(
+                    {int(U5::byte(b, i * 8 + 2)),
+                     int(U5::byte(b, i * 8 + 3)),
+                     int(CustomTiles::actorType(*project, resource, page, currentPage(), i,
+                                                256 + U5::byte(b, i * 8))),
+                     i,
+                     {}});
     }
     if (locationModes->tabText(activeMode) != "Contents")
         for (auto d : Workshop::mapContents(
@@ -2363,6 +2371,9 @@ void MapWorkspace::loadPage() {
 QString MapWorkspace::npcName(int npc) const {
     MapNpcDocument npcs(project, npcResource);
     int id = npcs.dialogue(document.pages[currentPage()].settlement, npc);
+    unsigned appearance = npcs.sprite(document.pages[currentPage()].settlement, npc);
+    if (appearance >= 512 && !npcNames.contains(id))
+        return QString::fromUtf8(CustomTiles::definition(*project, appearance).name);
     return npcNames.value(
         id,
         npcs.sprite(document.pages[currentPage()].settlement, npc) >= 384
@@ -2441,8 +2452,26 @@ void MapWorkspace::createNpcInspector(QVBoxLayout *layout) {
             npcAppearance->addItem(Workshop::actorName(shape), shape);
     for (int shape : Workshop::monsterShapes())
         npcAppearance->addItem(Workshop::actorName(shape), shape);
+    for (auto record : CustomTiles::records(*project)) {
+        TypeDef d;
+        TYPES_Decode(reinterpret_cast<const unsigned char *>(record.constData()), &d);
+        if (d.kind && d.id >= 512)
+            npcAppearance->addItem(QIcon(QPixmap::fromImage(CustomTiles::image(*project, d.id))),
+                                   QString::fromUtf8(d.name), d.id);
+    }
     npcAppearance->setToolTip("Appearance of this NPC on the map.");
-    form->addRow("Appearance", npcAppearance);
+    auto typeRow = new QHBoxLayout;
+    typeRow->addWidget(npcAppearance, 1);
+    auto editType = new QToolButton;
+    editType->setText("Edit type…");
+    editType->setToolTip("Edit the shared creature type used by this NPC.");
+    typeRow->addWidget(editType);
+    form->addRow("Type", typeRow);
+    connect(editType, &QToolButton::clicked, this, [this] {
+        unsigned type = npcAppearance->currentData().toUInt();
+        if (editTileType && npcAppearance->currentIndex() >= 0)
+            editTileType(type >= 512 ? type : 256 + type);
+    });
     npcDialogue = new QComboBox;
     npcDialogue->setObjectName("mapNpcDialogue");
     npcDialogue->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
@@ -2674,7 +2703,9 @@ void MapWorkspace::refreshNpcs() {
     npcBehavior->setEnabled(true);
     npcNameField->setText(npcName(npc));
     npcNameField->setEnabled(conversationIndices.contains(npcs.dialogue(mp.settlement, npc)));
-    npcAppearance->setCurrentIndex(npcAppearance->findData(npcs.sprite(mp.settlement, npc) - 256));
+    npcAppearance->setCurrentIndex(npcAppearance->findData(
+        npcs.sprite(mp.settlement, npc) >= 512 ? npcs.sprite(mp.settlement, npc)
+                                               : npcs.sprite(mp.settlement, npc) - 256));
     npcDialogue->clear();
     for (auto it = conversationIndices.begin(); it != conversationIndices.end(); ++it)
         npcDialogue->addItem(npcNames.value(it.key(), QString("Conversation %1").arg(it.key())),
@@ -2862,17 +2893,42 @@ void MapWorkspace::createCombatInspector(QVBoxLayout *layout) {
     monsterAppearance = new QComboBox;
     monsterAppearance->setObjectName("combatMonsterAppearance");
     monsterAppearance->setToolTip("Monster species for this combat-room placement.");
-    for (int shape : Workshop::monsterShapes())
+    if (resource == "BRIT.CBT") monsterAppearance->addItem("From encounter", 0);
+    else for (int shape : Workshop::monsterShapes())
         monsterAppearance->addItem(Workshop::actorName(shape), shape);
-    layout->addWidget(monsterAppearance);
+    for (auto record : CustomTiles::records(*project)) {
+        TypeDef d;
+        TYPES_Decode(reinterpret_cast<const unsigned char *>(record.constData()), &d);
+        if (d.kind && d.id >= 512)
+            monsterAppearance->addItem(
+                QIcon(QPixmap::fromImage(CustomTiles::image(*project, d.id))),
+                QString::fromUtf8(d.name), d.id);
+    }
+    auto monsterTypeRow = new QHBoxLayout;
+    monsterTypeRow->addWidget(monsterAppearance, 1);
+    auto editMonsterType = new QToolButton;
+    editMonsterType->setText("Edit type…");
+    editMonsterType->setToolTip("Edit this shared creature type’s artwork, stats and abilities.");
+    monsterTypeRow->addWidget(editMonsterType);
+    layout->addLayout(monsterTypeRow);
+    connect(editMonsterType, &QToolButton::clicked, this, [this] {
+        unsigned type = monsterAppearance->currentData().toUInt();
+        if (editTileType && monsterAppearance->currentIndex() >= 0)
+            editTileType(type >= 512 ? type : 256 + type);
+    });
     connect(monsterAppearance, &QComboBox::activated, this, [this] {
         int entity = canvas->selectedNpc;
-        if (resource != "DUNGEON.CBT" || entity < 6 || entity >= 22)
+        if (entity < 6 || entity >= 22)
             return;
         auto bytes = project->data(resource);
-        bytes[document.pages[currentPage()].offset + 5 * 32 + 11 + entity - 6] =
-            char(monsterAppearance->currentData().toInt());
-        if (commitResources({{resource, bytes}}, "Change monster"))
+        unsigned type = monsterAppearance->currentData().toUInt();
+        if (resource == "DUNGEON.CBT")
+            bytes[document.pages[currentPage()].offset + 5 * 32 + 11 + entity - 6] =
+                char(type >= 512 ? CustomTiles::definition(*project, type).base : type);
+        auto changes = CustomTiles::assignActor(*project, resource, document.pages[currentPage()],
+                                                currentPage(), entity - 6, type);
+        changes[resource] = bytes;
+        if (commitResources(changes, "Change monster"))
             refreshCombat();
     });
     triggerProperties = new QWidget;
@@ -3002,11 +3058,12 @@ void MapWorkspace::refreshCombat() {
     }
     combatEntity->setCurrentIndex(canvas->selectedNpc);
     combatInfo->setText(info.isEmpty() ? "Select a marker or record." : info);
-    monsterAppearance->setVisible(resource == "DUNGEON.CBT" && canvas->selectedNpc >= 6 &&
-                                  canvas->selectedNpc < 22);
+    monsterAppearance->setVisible(canvas->selectedNpc >= 6 && canvas->selectedNpc < 22);
     if (monsterAppearance->isVisible())
         monsterAppearance->setCurrentIndex(monsterAppearance->findData(
-            U5::byte(bytes, base + 5 * 32 + 11 + canvas->selectedNpc - 6)));
+            CustomTiles::actorType(*project, resource, document.pages[currentPage()], currentPage(),
+                                   canvas->selectedNpc - 6,
+                                   resource == "BRIT.CBT" ? 0 : U5::byte(bytes, base + 5 * 32 + 11 + canvas->selectedNpc - 6))));
     triggerProperties->setVisible(canvas->selectedNpc >= 22);
     if (canvas->selectedNpc >= 22) {
         int i = canvas->selectedNpc - 22;
@@ -3017,6 +3074,10 @@ void MapWorkspace::refreshCombat() {
         }
     }
     combatPreview->setEnabled(canvas->selectedNpc >= 22);
+    for (auto &actor : canvas->actors)
+        if (actor.npc >= 6 && actor.npc < 22)
+            actor.tile = CustomTiles::actorType(*project, resource, document.pages[currentPage()],
+                                                currentPage(), actor.npc - 6, actor.tile);
     canvas->update();
 }
 bool MapWorkspace::moveCombat(int entity, QPoint destination) {
@@ -3374,7 +3435,7 @@ void MapWorkspace::beginAdd(int value) {
         int appearance = -1, conversation = -1;
         QString name = "New NPC";
         if (!Workshop::mapItemVariants(kind).isEmpty() || kind == Workshop::MapItemKind::Npc ||
-            (kind == Workshop::MapItemKind::Monster && resource != "BRIT.CBT")) {
+            kind == Workshop::MapItemKind::Monster) {
             QDialog dialog(this);
             dialog.setWindowTitle("Add " + Workshop::mapItemName(kind));
             auto layout = new QFormLayout(&dialog);
@@ -3407,10 +3468,21 @@ void MapWorkspace::beginAdd(int value) {
                     shapes->addItem(QIcon(QPixmap::fromImage(canvas->tiles.value(
                                         256 + Workshop::mapItemShape(kind, variant.second)))),
                                     variant.first, variant.second);
-            } else
+            } else if (resource == "BRIT.CBT")
+                shapes->addItem("From encounter", -1);
+            else
                 for (int shape : Workshop::monsterShapes())
                     shapes->addItem(QIcon(QPixmap::fromImage(canvas->tiles.value(256 + shape))),
                                     Workshop::actorName(shape), shape);
+            if (kind == Workshop::MapItemKind::Npc || kind == Workshop::MapItemKind::Monster)
+                for (auto record : CustomTiles::records(*project)) {
+                    TypeDef d;
+                    TYPES_Decode(reinterpret_cast<const unsigned char *>(record.constData()), &d);
+                    if (d.id >= 512 && d.kind == (kind == Workshop::MapItemKind::Npc ? 1 : 2))
+                        shapes->addItem(
+                            QIcon(QPixmap::fromImage(CustomTiles::image(*project, d.id))),
+                            QString::fromUtf8(d.name), d.id);
+                }
             shapes->setToolTip(Workshop::mapItemVariants(kind).isEmpty()
                                    ? "Choose the artwork and native creature type."
                                    : "Choose the item to place.");
@@ -3529,13 +3601,20 @@ void MapWorkspace::editNpcProperties() {
     int start = document.pages[currentPage()].settlement * 576;
     auto bytes = project->data(npcResource);
     if (npcAppearance->currentIndex() >= 0)
-        bytes[start + 512 + slot] = char(npcAppearance->currentData().toInt());
+        bytes[start + 512 + slot] =
+            char(npcAppearance->currentData().toUInt() >= 512
+                     ? CustomTiles::definition(*project, npcAppearance->currentData().toUInt()).base
+                     : npcAppearance->currentData().toUInt());
     if (npcDialogue->currentIndex() >= 0)
         bytes[start + 544 + slot] = char(npcDialogue->currentData().toInt());
     if (npcBehavior->currentIndex() >= 0)
         bytes[start + slot * 16 + MapNpcDocument::locationIndex(schedule->currentIndex())] =
             char(npcBehavior->currentData().toInt());
-    if (commitResources({{npcResource, bytes}}, "Edit NPC properties")) {
+    auto changes =
+        CustomTiles::assignActor(*project, resource, document.pages[currentPage()], currentPage(),
+                                 slot, npcAppearance->currentData().toUInt());
+    changes[npcResource] = bytes;
+    if (commitResources(changes, "Edit NPC properties")) {
         refreshNpcs();
         saveView();
     }

@@ -238,15 +238,20 @@ int TYPES_Validate(const void *v, size_t size) {
             return 0;
         TypeDef d;
         TYPES_Decode(p, &d);
-        if (d.id > TYPES_LAST_CUSTOM || (i && d.id <= prev) || d.kind > 1 || d.filters > 3 ||
+        if (d.id > TYPES_LAST_CUSTOM || (i && d.id <= prev) || d.kind > 2 || d.filters > 3 ||
             d.render > 3 || d.movement > 2047 || d.sight > 2 || d.projectile > 1 || d.travel > 2 ||
             d.effects > 3 || d.damageMin > d.damageMax || d.moveProfile > 10 ||
             d.projectileAppearance > 7 || !memchr(d.name, 0, 64) || !d.name[0] ||
             !memchr(d.description, 0, 128) || d.effectModes > 2047 || d.skiffDirections > 15 ||
             d.humanoidSeat > 1 || d.combatMap > 16 || !zeros(p + 253, 3))
             return 0;
-        if (d.id < 512 &&
-            ((d.kind == 0 && d.id > 255) || (d.kind == 1 && (d.id < 256 || d.id > 511))))
+        if (d.id < 512 && ((d.kind == 0 && d.id > 255) || (d.kind && (d.id < 256 || d.id > 511))))
+            return 0;
+        if (d.kind && d.id < 512 && d.base != d.id - 256)
+            return 0;
+        if (d.kind && d.id >= 512 &&
+            (d.base < 64 || (d.base & 3) || !d.stats[5] || !d.stats[6] || d.stats[6] > 16 ||
+             d.stats[1] > 30 || d.companion >= 48 || d.range > 11))
             return 0;
         if (d.frames > 384 || (d.id >= 512 && !d.frames))
             return 0;
@@ -282,12 +287,23 @@ int TYPES_Validate(const void *v, size_t size) {
         TypeDef d;
         TYPES_Decode(b + off, &d);
         uint32_t refs[5] = {d.ground, d.result[0], d.result[1], d.result[2], d.result[3]};
-        for (unsigned j = 0; j < 5; j++)
-            if (refs[j] >= 256 && !(j == 0 && refs[j] == TYPES_INFER_GROUND)) {
+        for (unsigned j = 0; j < 5; j++) {
+            if (!refs[j] || (j == 0 && refs[j] == TYPES_INFER_GROUND))
+                continue;
+            if (d.kind && j) {
+                if (refs[j] < 320 || (refs[j] < 512 && (refs[j] & 3)))
+                    return 0;
+                if (refs[j] < 512)
+                    continue;
+                const unsigned char *r = TYPES_Find(b, size, refs[j]);
+                if (!r || !r[8])
+                    return 0;
+            } else if (refs[j] >= 256) {
                 const unsigned char *r = TYPES_Find(b, size, refs[j]);
                 if (!r || r[8])
                     return 0;
             }
+        }
         /* Ground must be a ground tile, not recursively another sprite. */
         if (d.render & TYPES_SPRITE) {
             const unsigned char *r = TYPES_Find(b, size, d.ground);
@@ -322,6 +338,15 @@ uint64_t TYPES_CellKey(const TypeCell *c) {
            (uint64_t)c->y << 8 | c->x;
 }
 static int validCell(const TypeCell *c) {
+    /* Actor placements use stable instance slots, never terrain coordinates. */
+    if (c->kind == 3)
+        return c->map >= 1 && c->map <= 32 && c->floor == 0 && c->x > 0 && c->x < 32 && !c->y;
+    if (c->kind == 4)
+        return c->map == 0 && (c->floor == 0 || c->floor == -1) && c->x > 0 && c->x < 32 &&
+               (c->floor != -1 || c->x < 28) && !c->y;
+    if (c->kind == 5 || c->kind == 6)
+        return c->floor == 0 && c->x < 16 && !c->y;
+
     if (!c->kind && c->map >= 1 && c->map <= 32) {
         static const int8_t low[32] = {0,  0,  0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                                        -1, -1, 0, 0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1};
@@ -352,7 +377,7 @@ int TYPES_ValidateMap(const void *v, size_t size, const void *defs, size_t len) 
         uint64_t key = TYPES_CellKey(&c);
         const unsigned char *r = TYPES_Find(defs, len, c.type);
         if (!validCell(&c) || !zeros(p + 5, 3) || !zeros(p + 12, 4) || (i && key <= prev) ||
-            c.type < 512 || !r || r[8])
+            c.type < 512 || !r || (!!r[8] != (c.kind >= 3)))
             return 0;
         prev = key;
     }
@@ -467,11 +492,18 @@ uint32_t TYPES_At(TypeCell c, uint32_t fallback) {
     return i < cellCount && TYPES_CellKey(&cells[i]) == TYPES_CellKey(&c) ? cells[i].type
                                                                           : fallback;
 }
+void TYPES_Remove(TypeCell c) {
+    unsigned i = cellIndex(c);
+    if (i < cellCount && TYPES_CellKey(&cells[i]) == TYPES_CellKey(&c)) {
+        memmove(cells + i, cells + i + 1, (cellCount - i - 1) * sizeof(*cells));
+        cellCount--;
+    }
+}
 int TYPES_Set(TypeCell c, uint32_t id) {
     if (!mounted)
         return id < 256;
     TypeDef d;
-    if (!validCell(&c) || !TYPES_Get(id, &d) || d.kind)
+    if (!validCell(&c) || !TYPES_Get(id, &d) || (!!d.kind != (c.kind >= 3)))
         return 0;
     unsigned i = cellIndex(c);
     c.type = id;
@@ -533,7 +565,7 @@ int TYPES_ReadState(FILE *f, int apply) {
         uint64_t key = TYPES_CellKey(&c);
         ok = validCell(&c) && zeros(b + i * 16 + 5, 3) &&
              (!c.restoreType || (TYPES_Get(c.restoreType, &d) && !d.kind)) && (!i || key > prev) &&
-             TYPES_Get(c.type, &d) && !d.kind;
+             TYPES_Get(c.type, &d) && (!!d.kind == (c.kind >= 3));
         prev = key;
     }
     if (ok && apply) {
@@ -566,14 +598,14 @@ const unsigned char *TYPES_SampleArt(unsigned slot, unsigned variant, uint64_t m
 void TYPES_BeginEncounter(unsigned kind, unsigned map) {
     unsigned n = 0;
     for (unsigned i = 0; i < cellCount; i++)
-        if (!cells[i].kind)
+        if (!cells[i].kind || cells[i].kind == 3 || cells[i].kind == 4)
             cells[n++] = cells[i];
     cellCount = n;
     if (initial)
         for (unsigned i = 0; i < TYPES_U32(initial + 24); i++) {
             TypeCell c;
             TYPES_CellDecode(initial + 32 + i * 16, &c);
-            if (c.kind == kind && c.map == map)
+            if ((c.kind == kind || c.kind == kind + 4) && c.map == map)
                 TYPES_Set(c, c.type);
         }
 }

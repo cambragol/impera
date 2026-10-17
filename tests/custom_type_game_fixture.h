@@ -1,26 +1,37 @@
 #include "funcs.h"
 #include "mod/contents.h"
+#include "mod/actors.h"
+#include "comsubs.h"
+#include "combat.h"
 #include "mod/package.h"
 #include "mod/types.h"
 #include "mod/types_game.h"
 #include "savegame.h"
 #include "tiles.h"
 static void customTypeGame(void) {
-    const unsigned recordSize = 256 + 4 + 32 * 32 * 4, size = 32 + recordSize * 2;
+    const unsigned recordSize = 256 + 4 + 32 * 32 * 4, size = 32 + recordSize * 4;
     unsigned char *defs = calloc(1, size);
     assert(defs);
     memcpy(defs, "ITYPES01", 8);
     defs[8] = 17;
-    TYPES_Put32(defs + 24, 2);
-    for (unsigned i = 0; i < 2; i++) {
+    TYPES_Put32(defs + 24, 4);
+    for (unsigned i = 0; i < 4; i++) {
         TypeDef d;
-        TYPES_Vanilla(0, i ? 0x44 : 0xb8, &d);
+        TYPES_Vanilla(i < 2 ? 0 : 1, i < 2 ? (i ? 0x44 : 0xb8) : 144, &d);
         d.id = 40000 + i;
         d.frames = 1;
         d.ground = 5;
         d.render = TYPES_SPRITE | TYPES_MASONRY;
-        d.result[0] = 40001;
-        d.result[1] = 40000;
+        if (i < 2) {
+            d.result[0] = 40001;
+            d.result[1] = 40000;
+        } else {
+            d.kind = 2;
+            d.stats[5] = i == 2 ? 30 : 90;
+            d.stats[6] = 1;
+            d.actorFlags = i == 2 ? 0x410 : 0x2000;
+            d.result[1] = d.result[2] = d.result[3] = 40003;
+        }
         strcpy(d.name, i ? "Open crystal door" : "Closed crystal door");
         unsigned char *r = defs + 32 + i * recordSize;
         TYPES_Encode(r, &d);
@@ -57,6 +68,25 @@ static void customTypeGame(void) {
     memset(D_6608, 5, 1024);
     TYPES_Mount(defs, size, map, 48);
     assert(TYPES_GAME_At(10, 11) == 40000);
+    assert(ACTORS_Stats(40002).maxHp == 30 && ACTORS_Stats(40003).maxHp == 90);
+    assert(ACTORS_Def(40002).base == ACTORS_Def(40003).base);
+    assert(GRAP_BUF_SpritePixel(40002, -1, 0) == -1);
+    assert(GRAP_BUF_SpritePixel(40002, 16, 0) == -1);
+    assert((ACTORS_Flags(40002) & 0x410) == 0x410 && ACTORS_Flags(40003) == 0x2000);
+    assert(ACTORS_Target(40002, 1, 0x26) == 40003);
+    assert(ACTORS_Target(40002, 2, 0) == 40003);
+    TypeCell npcType = {3, 13, 0, 5, 0, 40002, 0};
+    assert(TYPES_Set(npcType, 40002));
+    NpcFmt oldNpc = D_5f5e[5];
+    ActorFmt oldTypedActor = D_5c5a[12];
+    D_5f5e[5]._0 = 1;
+    D_5f5e[5]._c = 12;
+    D_5c5a[12]._0_tile = D_5c5a[12]._1_animTile = 144;
+    assert(ACTORS_Instance(12) == 40002);
+    assert(ACTORS_Sprite(12, 400) == 40002);
+    D_5f5e[5] = oldNpc;
+    D_5c5a[12] = oldTypedActor;
+
     assert(*ULTIMA_4402_GetTileAddr(10, 11) == 0xb8);
     assert(!TYPES_GAME_Walkable(0x1c, 10, 11));
     assert(TYPES_GAME_Property(10, 11, 2, 0));
@@ -90,6 +120,8 @@ static void customTypeGame(void) {
     assert(TYPES_GAME_At(10, 11) == 5);
     assert(FILE_ReadSavegameFile("custom-types.gam") == 0);
     assert(TYPES_GAME_At(10, 11) == 40000);
+    TypeCell loadedNpc;
+    assert(TYPES_State(npcType, &loadedNpc) && loadedNpc.type == 40002);
     remove("custom-types.gam");
     /* Vanilla doors temporarily become floor; the original custom type must
      * survive save/load even without a separately authored open-door tile. */
@@ -108,6 +140,8 @@ static void customTypeGame(void) {
     TypeCell combat = {1, 0, 0, 2, 3, 40001, 0};
     CONTENTS_BeginEncounter(1, 0);
     assert(TYPES_Set(combat, 40001));
+    assert(TYPES_State(npcType, &loadedNpc) && loadedNpc.type == 40002);
+
     defs[32 + recordSize + 17] = TYPES_BURN;
     defs[32 + recordSize + 18] = 2;
     defs[32 + recordSize + 19] = 2;
@@ -145,6 +179,57 @@ static void customTypeGame(void) {
     D_5398_currentCharset = oldCharset;
     D_539a_currentTextWindow = oldWindow;
     memcpy(D_535e_textWindows, oldWindows, sizeof(oldWindows));
+
+    CombatEntity oldEntities[32];
+    ActorFmt oldActors[32];
+    memcpy(oldEntities, D_ba14, sizeof(oldEntities));
+    memcpy(oldActors, D_5c5a, sizeof(oldActors));
+    memset(D_ba14, 0, sizeof(oldEntities));
+    memset(D_5c5a, 0, sizeof(oldActors));
+    D_5893_map_id = 128;
+    int first = ULTIMA_6506(40002, 0, 2, 2, 0);
+    int second = ULTIMA_6506(40003, 0, 3, 2, 0);
+    assert(first >= 6 && second >= 6 && first != second);
+    assert(D_ba14[first].entityIdx == 40002 && D_ba14[first].hp == 30);
+    assert(D_ba14[second].entityIdx == 40003 && D_ba14[second].hp == 90);
+    assert(ACTORS_Instance(D_ba14[first].actorIdx) == 40002);
+    byte savedCombatMap[352]; memcpy(savedCombatMap, D_ad14, sizeof(savedCombatMap));
+    memset(D_ad14, 0x44, sizeof(savedCombatMap));
+    D_538e = 1;
+    for (int i = 0; i < 4; i++) D_535e_textWindows[i] = (TextWindow){0,0,39,24,0,0,15,0};
+    D_5398_currentCharset = charset; D_539a_currentTextWindow = &D_535e_textWindows[2];
+    D_a9ce = 0;
+    D_ba14[first].x = D_5c5a[D_ba14[first].actorIdx]._2_x = 5;
+    D_ba14[first].y = D_5c5a[D_ba14[first].actorIdx]._3_y = 5;
+    COMBAT_1574(first, 1);
+    int divided = 0;
+    for (int i = 6; i < 32; i++) if (i != second && D_ba14[i].entityIdx == 40003 && D_ba14[i].flags) divided++;
+    assert(divided > 0);
+    byte oldNegation = D_587a; D_587a = 'A';
+    ULTIMA_207e_srand(1234);
+    int summoned = 0;
+    for (int attempt = 0; attempt < 256 && !summoned; attempt++) summoned = COMSUBS_00f4(first);
+    assert(summoned);
+    int customChildren = 0;
+    for (int i = 6; i < 32; i++) if (i != second && D_ba14[i].entityIdx == 40003 && D_ba14[i].flags) customChildren++;
+    assert(customChildren > divided);
+    D_587a = oldNegation;
+    memcpy(D_ad14, savedCombatMap, sizeof(savedCombatMap));
+    D_538e = oldAdvance; D_5398_currentCharset = oldCharset; D_539a_currentTextWindow = oldWindow;
+    memcpy(D_535e_textWindows, oldWindows, sizeof(oldWindows)); D_a9ce = sound;
+
+    TYPES_Put32(defs + 32 + 2 * recordSize + 24, 40003);
+    assert(ACTORS_Transform(first));
+    assert(D_ba14[first].entityIdx == 40003 && D_ba14[first].hp == 90);
+    D_5893_map_id = 0;
+    TypeCell oldWorldSlot = {4, 0, 0, 15, 0, 40002, 0};
+    assert(TYPES_Set(oldWorldSlot, 40002));
+    D_5c5a[15]._0_tile = 0;
+    ULTIMA_3a74(144, 144, 20, 20, 0, 0, 15);
+    assert(TYPES_At(oldWorldSlot, 0) == 0);
+    memcpy(D_ba14, oldEntities, sizeof(oldEntities));
+    memcpy(D_5c5a, oldActors, sizeof(oldActors));
+    D_5893_map_id = 13;
     byte stale = 0;
     assert(TILESET_Select(TILESET_AMIGA));
     TILESET_Register(&stale, 1);

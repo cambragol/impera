@@ -1,3 +1,4 @@
+#include "mod/actors.h"
 #include "common/common.h"
 #include "common/movement.h"
 #include "common/signs.h"
@@ -657,6 +658,16 @@ void LOOKOBJ_099c_LookCmd(void)
     ULTIMA_1850_PrintString(_TEXT(0x751c, "\nThou dost see\n"));
     if (local_6 != 0)
     {
+        for (unsigned actor = 0; actor < 32; actor++) {
+            ActorFmt *a = &D_5c5a[actor];
+            unsigned type = ACTORS_Instance(actor);
+            if (type >= 512 && a->_2_x == (byte)local_8 && a->_3_y == (byte)local_a &&
+                a->_4_z == D_5895_map_level) {
+                ULTIMA_1850_PrintString(ACTORS_Name(type, 0));
+                ULTIMA_16ba_PrintChar('\n');
+                return;
+            }
+        }
         LOOKOBJ_06a4(local_6);
         return;
     }

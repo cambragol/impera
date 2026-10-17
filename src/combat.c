@@ -1,3 +1,4 @@
+#include "mod/actors.h"
 #include "common/common.h"
 #include "common/movement.h"
 #include "mod/types_game.h"
@@ -105,14 +106,11 @@ static int COMBAT_014e(int param_1, int param_2, int param_3)
     int local_4;
 
     local_a = D_ba14[param_1].entityIdx;
-    local_4 = D_15cc[local_a];
-    if (local_a != 0x1a && ULTIMA_2092_RandomRange(0, 0xff) >= 0x80 || (D_153c_enemyFlags[local_a] & ENEMY_FLAG_MAGIC) != 0 && (D_587a == 'N' ||
-        D_587a == 0x1c))
-    {
+    local_4 = ACTORS_Projectile(local_a);
+    if (ACTORS_Profile(local_a) != 0x1a && ULTIMA_2092_RandomRange(0, 0xff) >= 0x80 ||
+        (ACTORS_Flags(local_a) & ENEMY_FLAG_MAGIC) != 0 && (D_587a == 'N' || D_587a == 0x1c)) {
         return 0;
-    }
-    else
-    {
+    } else {
         ULTIMA_43ae_AudioSweepTone(0x2ee, 400, 5, 0x96);
         if (param_3 != 0)
         {
@@ -179,23 +177,19 @@ static int COMBAT_0226(int param_1)
         // 029c
         if ((D_ba14[local_4].flags & COMBAT_FLAGS_PLAYER) != 0 &&
             D_55a8_party[local_6].equips[5] == 0x2d &&
-            (D_153c_enemyFlags[local_a] & ENEMY_FLAG_MAGIC) != 0)
-        {
+            (ACTORS_Flags(local_a) & ENEMY_FLAG_MAGIC) != 0) {
             local_c = ULTIMA_2092_RandomRange(0, 0xff) < 0x80;
         }
 
         // 02df
-        if (COMSUBS_04d4(param_1, local_4) <= D_159c[local_a])
-        {
-            if (local_a == 0x1a)
-            {
+        if (COMSUBS_04d4(param_1, local_4) <= ACTORS_Range(local_a)) {
+            if (ACTORS_Profile(local_a) == 0x1a) {
                 D_5c5a[local_8]._6 = 0x20;
             }
 
             if (COMSUBS_04d4(param_1, local_4) == 1)
             {
-                if (local_a == 0x2d)
-                {
+                if (ACTORS_Profile(local_a) == 0x2d) {
                     D_5c5a[local_8]._6 = 0x20;
                 }
 
@@ -206,8 +200,8 @@ static int COMBAT_0226(int param_1)
                     return 1;
                 }
 
-                if ((D_153c_enemyFlags[local_a] & ENEMY_FLAG_STEAL) != 0 && ULTIMA_2092_RandomRange(0, 3) != 0 && D_57a8 != 0)
-                {
+                if ((ACTORS_Flags(local_a) & ENEMY_FLAG_STEAL) != 0 &&
+                    ULTIMA_2092_RandomRange(0, 3) != 0 && D_57a8 != 0) {
                     ULTIMA_1850_PrintString(_TEXT(0x6d74, "\nA "));
                     COMSUBS_0094_PrintName(param_1);
                     ULTIMA_1850_PrintString(_TEXT(0x6d78, " stole some food!\n"));
@@ -225,9 +219,7 @@ static int COMBAT_0226(int param_1)
             }
 
             return COMBAT_014e(param_1, local_4, local_c);
-        }
-        else
-        {
+        } else {
             return 0;
         }
     }
@@ -258,8 +250,7 @@ static void COMBAT_03f4(void)
         }
         else
         {
-            if ((local_4->entityIdx) == 0x2d)
-            {
+            if (ACTORS_Profile(local_4->entityIdx) == 0x2d) {
                 D_5c5a[local_6]._6 = 0;
             }
 
@@ -297,8 +288,8 @@ static void COMBAT_03f4(void)
                     ULTIMA_1850_PrintString(_TEXT(0x6d8c, " escapes!\n"));
                     COMBAT_1236(-(uint)D_589e - 1);
 
-                    if ((local_4->flags & COMBAT_FLAGS_PLAYER) == 0 && local_4->entityIdx == 0x2f)
-                    {
+                    if ((local_4->flags & COMBAT_FLAGS_PLAYER) == 0 &&
+                        ACTORS_Profile(local_4->entityIdx) == 0x2f) {
                         SJOG_21ce();
                     }
                 }
@@ -971,8 +962,9 @@ static int COMBAT_0d30(int param_1)
             local_a = ULTIMA_5646(local_14);
             if (local_8 != local_a)
             {
-                if (((D_5894 == 40 || local_6->entityIdx == 47 || (local_c->flags & COMBAT_FLAGS_INVISIBLE) == 0) && (local_c->flags & COMBAT_FLAGS_4) == 0))
-                {
+                if (((D_5894 == 40 || ACTORS_Profile(local_6->entityIdx) == 47 ||
+                      (local_c->flags & COMBAT_FLAGS_INVISIBLE) == 0) &&
+                     (local_c->flags & COMBAT_FLAGS_4) == 0)) {
                     if (local_14 < 5)
                     {
                         local_10 = local_10 + 1;
@@ -1061,18 +1053,18 @@ int COMBAT_0ee4(int param_1)
     local_6 = 0;
     local_4 = &D_ba14[param_1];
 
-    if (local_4->entityIdx != 0x1b && local_4->entityIdx != 0x1a)
-    {
+    if (ACTORS_Profile(local_4->entityIdx) != 0x1b && ACTORS_Profile(local_4->entityIdx) != 0x1a) {
         // 0f17
-        if ((local_4->flags & COMBAT_FLAGS_PLAYER) == 0 && (D_153c_enemyFlags[local_4->entityIdx] & ENEMY_FLAG_TELEPORT) != 0 && D_587a != 0x4e && D_587a != 0x1c &&
-            (SJOG_2148(param_1) != 0 || ULTIMA_3aae_Random(3) != 3) && COMBAT_120e() != 0)
-        {
-            if (COMBAT_0000(D_5c5a[local_4->actorIdx]._0_tile, D_5876, D_5878) != 0)
-            {
+        if ((local_4->flags & COMBAT_FLAGS_PLAYER) == 0 &&
+            (ACTORS_Flags(local_4->entityIdx) & ENEMY_FLAG_TELEPORT) != 0 && D_587a != 0x4e &&
+            D_587a != 0x1c && (SJOG_2148(param_1) != 0 || ULTIMA_3aae_Random(3) != 3) &&
+            COMBAT_120e() != 0) {
+            if (COMBAT_0000(ACTORS_MoveShape(local_4->actorIdx, D_5c5a[local_4->actorIdx]._0_tile),
+                            D_5876, D_5878) != 0) {
                 D_5c5a[local_4->actorIdx]._2_x = local_4->x = D_5876;
                 D_5c5a[local_4->actorIdx]._3_y = local_4->y = D_5878;
 
-                ULTIMA_1850_PrintString(D_1856[local_4->entityIdx]);
+                ULTIMA_1850_PrintString(ACTORS_Name(local_4->entityIdx, 0));
                 ULTIMA_1850_PrintString(_TEXT(0x6f0c, " teleports!\n"));
                 local_8++;
             }
@@ -1084,18 +1076,17 @@ int COMBAT_0ee4(int param_1)
             // 0fc1
             local_a = COMBAT_0d30(param_1);
             if (MOVEMENT_Diagonal() && D_5876 && D_5878 &&
-                COMBAT_0000(D_5c5a[local_4->actorIdx]._0_tile,local_4->x+D_5876,local_4->y) &&
-                COMBAT_0000(D_5c5a[local_4->actorIdx]._0_tile,local_4->x,local_4->y+D_5878) &&
-                SJOG_20d8(local_4->x+D_5876,local_4->y+D_5878,param_1)==0) {
+                COMBAT_0000(ACTORS_MoveShape(local_4->actorIdx, D_5c5a[local_4->actorIdx]._0_tile),
+                            local_4->x + D_5876, local_4->y) &&
+                COMBAT_0000(ACTORS_MoveShape(local_4->actorIdx, D_5c5a[local_4->actorIdx]._0_tile),
+                            local_4->x, local_4->y + D_5878) &&
+                SJOG_20d8(local_4->x + D_5876, local_4->y + D_5878, param_1) == 0) {
                 local_6=997;
-            }
-            else if (ULTIMA_3aae_Random(0xff) > 0x7f && SJOG_20d8(local_4->x + D_5876, local_4->y, param_1) == 0)
-            {
+            } else if (ULTIMA_3aae_Random(0xff) > 0x7f &&
+                       SJOG_20d8(local_4->x + D_5876, local_4->y, param_1) == 0) {
                 D_5878 = 0;
                 local_6 = 999;
-            }
-            else
-            {
+            } else {
                 if (SJOG_20d8(local_4->x, local_4->y + D_5878, param_1) == 0)
                 {
                     D_5876 = 0;
@@ -1279,7 +1270,7 @@ static int COMBAT_12b0(int param_1, int param_2)
 
     if ((D_ba14[param_1].flags & COMBAT_FLAGS_MONSTER) != 0)
     {
-        local_8 = D_13bc_enemyStats[D_ba14[param_1].entityIdx].atk;
+        local_8 = ACTORS_Stats(D_ba14[param_1].entityIdx).atk;
     }
     else
     {
@@ -1318,7 +1309,7 @@ static int COMBAT_12b0(int param_1, int param_2)
     {
         if ((D_ba14[param_2].flags & COMBAT_FLAGS_MONSTER) != 0)
         {
-            local_4 = D_13bc_enemyStats[D_ba14[param_2].entityIdx].def;
+            local_4 = ACTORS_Stats(D_ba14[param_2].entityIdx).def;
         }
         else
         {
@@ -1346,8 +1337,7 @@ static int COMBAT_139a(int param_1)
         return 1;
     }
 
-    if (D_ba14[param_1].entityIdx == 0x1a)
-    {
+    if (ACTORS_Profile(D_ba14[param_1].entityIdx) == 0x1a) {
         return 1;
     }
 
@@ -1369,13 +1359,10 @@ int COMBAT_13e2(int param_1, int param_2)
     {
         if (param_2 == 0)
         {
-            if ((D_153c_enemyFlags[local_4->entityIdx] & ENEMY_FLAG_80) != 0)
-            {
+            if ((ACTORS_Flags(local_4->entityIdx) & ENEMY_FLAG_80) != 0) {
                 // 1411
                 param_2 = QUERY_STAT_STR;
-            }
-            else
-            {
+            } else {
                 // -> 1428
                 param_2 = QUERY_STAT_DEX;
             }
@@ -1414,7 +1401,7 @@ int COMBAT_13e2(int param_1, int param_2)
         // 1444
         if ((local_4->flags & COMBAT_FLAGS_MONSTER) != 0)
         {
-            local_6 = D_13bc_enemyStats[local_4->entityIdx].intel;
+            local_6 = ACTORS_Stats(local_4->entityIdx).intel;
         }
         else
         {
@@ -1434,7 +1421,7 @@ int COMBAT_13e2(int param_1, int param_2)
         // 1480
         if ((local_4->flags & COMBAT_FLAGS_MONSTER) != 0)
         {
-            local_6 = D_13bc_enemyStats[local_4->entityIdx].str;
+            local_6 = ACTORS_Stats(local_4->entityIdx).str;
         }
         else
         {
@@ -1447,7 +1434,7 @@ int COMBAT_13e2(int param_1, int param_2)
         // 14aa
         if ((local_4->flags & COMBAT_FLAGS_MONSTER) != 0)
         {
-            local_6 = D_13bc_enemyStats[local_4->entityIdx].def;
+            local_6 = ACTORS_Stats(local_4->entityIdx).def;
         }
         else
         {
@@ -1556,13 +1543,11 @@ int COMBAT_1574(int param_1, int param_2)
     }
     else
     {
-        if ((((byte)D_153c_enemyFlags[local_a->entityIdx]) & ENEMY_FLAG_UNDEAD) != 0 && D_5890 == 0)
-        {
+        if ((((byte)ACTORS_Flags(local_a->entityIdx)) & ENEMY_FLAG_UNDEAD) != 0 && D_5890 == 0) {
             param_2 /= 2;
         }
 
-        if ((((byte)D_153c_enemyFlags[local_a->entityIdx]) & ENEMY_FLAG_NO_DAMAGE) != 0)
-        {
+        if ((((byte)ACTORS_Flags(local_a->entityIdx)) & ENEMY_FLAG_NO_DAMAGE) != 0) {
             param_2 = 0;
         }
 
@@ -1577,8 +1562,10 @@ int COMBAT_1574(int param_1, int param_2)
 
         if (local_a->hp == 0 || param_2 == 99)
         {
-            local_8 = (D_13bc_enemyStats[local_a->entityIdx].maxHp >> 2) + 1;
-            local_6 = D_13bc_enemyStats[local_a->entityIdx].treas;
+            if (ACTORS_Transform(param_1))
+                return local_8;
+            local_8 = (ACTORS_Stats(local_a->entityIdx).maxHp >> 2) + 1;
+            local_6 = ACTORS_Stats(local_a->entityIdx).treas;
 
             local_a->flags = COMBAT_FLAGS_DEAD;
 
@@ -1587,25 +1574,18 @@ int COMBAT_1574(int param_1, int param_2)
             local_12 = local_a->y;
             local_e = GetCombatMap(local_10, local_12);
 
-            if ((D_153c_enemyFlags[local_a->entityIdx] & (ENEMY_FLAG_VANISH | ENEMY_FLAG_NO_CORPSE)) == 0)
-            {
-                if (local_a->entityIdx == 0x1c)
-                {
+            if ((ACTORS_Flags(local_a->entityIdx) & (ENEMY_FLAG_VANISH | ENEMY_FLAG_NO_CORPSE)) ==
+                0) {
+                if (ACTORS_Profile(local_a->entityIdx) == 0x1c) {
                     D_5c5a[local_a->actorIdx]._0_tile = D_5c5a[local_a->actorIdx]._1_animTile = TILE_ACTOR_DEAD;
                     ULTIMA_6506(0x1f, 0, local_10, local_12, D_5895_map_level);
                     ULTIMA_5910_UpdateFrame();
-                }
-                else if (local_a->entityIdx == 0x1e)
-                {
+                } else if (ACTORS_Profile(local_a->entityIdx) == 0x1e) {
                     TYPES_GAME_Write(local_10, local_12, TILE_MAP_4C);
                     COMBAT_1236(-param_1 - 1);
-                }
-                else if (local_e == 0x87 || local_e < 4)
-                {
+                } else if (local_e == 0x87 || local_e < 4) {
                     COMBAT_1236(-param_1 - 1);
-                }
-                else if (local_6 >= ULTIMA_3abe())
-                {
+                } else if (local_6 >= ULTIMA_3abe()) {
                     D_5c5a[local_a->actorIdx]._0_tile = D_5c5a[local_a->actorIdx]._1_animTile = TILE_ACTOR_CHEST;
                     D_5c5a[local_a->actorIdx]._5 = local_6;
 
@@ -1613,43 +1593,37 @@ int COMBAT_1574(int param_1, int param_2)
                     {
                         D_5c5a[local_a->actorIdx]._5 |= 0x80;
                     }
-                }
-                else
-                {
+                } else {
                     D_5c5a[local_a->actorIdx]._0_tile = D_5c5a[local_a->actorIdx]._1_animTile = TILE_ACTOR_DEAD;
                 }
-            }
-            else if ((D_153c_enemyFlags[local_a->entityIdx] & ENEMY_FLAG_VANISH) != 0)
-            {
-                ULTIMA_1850_PrintString(D_1856[local_a->entityIdx]);
+            } else if ((ACTORS_Flags(local_a->entityIdx) & ENEMY_FLAG_VANISH) != 0) {
+                ULTIMA_1850_PrintString(ACTORS_Name(local_a->entityIdx, 0));
                 ULTIMA_1850_PrintString(_TEXT(0x6f36, " vanishes!"));
                 D_58a2 = 2;
                 D_5c5a[local_a->actorIdx]._0_tile = D_5c5a[local_a->actorIdx]._1_animTile = TILE_ACTOR_CIRCLE;
                 ULTIMA_1068(GetCombatMap(local_a->x, local_a->y), local_a->x, local_a->y);
                 COMBAT_1236(-(param_1 + 1));
                 SJOG_21ce();
-            }
-            else
-            {
+            } else {
                 COMBAT_1236(-(param_1 + 1));
             }
 
-        }
-        else if ((D_153c_enemyFlags[local_a->entityIdx] & ENEMY_FLAG_DIVIDE) != 0)
-        {
+        } else if ((ACTORS_Flags(local_a->entityIdx) & ENEMY_FLAG_DIVIDE) != 0) {
             for (local_c = 0; local_c < 8; local_c++)
             {
                 COMSUBS_07d4(local_a->x, local_a->y);
 
                 local_10 = D_5876;
                 local_12 = D_5878;
-                if (COMBAT_0000(D_5c5a[local_a->actorIdx]._0_tile, local_10, local_12) != 0)
-                {
-                    local_4 = ULTIMA_6506((D_5c5a[local_a->actorIdx]._0_tile - TILE_ACTOR_WIZARD) >> 2, 0, local_10, local_12, D_5895_map_level);
+                if (COMBAT_0000(
+                        ACTORS_MoveShape(local_a->actorIdx, D_5c5a[local_a->actorIdx]._0_tile),
+                        local_10, local_12) != 0) {
+                    local_4 = ULTIMA_6506(ACTORS_Target(local_a->entityIdx, 2, local_a->entityIdx),
+                                          0, local_10, local_12, D_5895_map_level);
                     if (local_4 > -1)
                     {
                         D_ba14[local_4].hp = local_a->hp;
-                        ULTIMA_1850_PrintString(D_1856[local_a->entityIdx]);
+                        ULTIMA_1850_PrintString(ACTORS_Name(local_a->entityIdx, 0));
                         ULTIMA_1850_PrintString(_TEXT(0x6f42, " divides!\n"));
                         break;
                     }
@@ -1697,16 +1671,16 @@ void COMBAT_194a(int param_1, int param_2)
     }
 
     // 1969
-    if (local_6 && (D_153c_enemyFlags[D_ba14[param_2].entityIdx] & (ENEMY_FLAG_POISON_200 | ENEMY_FLAG_POISON_4)) != 0 && ULTIMA_2092_RandomRange(0, 3) != 0)
-    {
+    if (local_6 &&
+        (ACTORS_Flags(D_ba14[param_2].entityIdx) & (ENEMY_FLAG_POISON_200 | ENEMY_FLAG_POISON_4)) !=
+            0 &&
+        ULTIMA_2092_RandomRange(0, 3) != 0) {
         COMBAT_18ba(param_1, param_2);
-    }
-    else
-    {
+    } else {
         // 19a0
         local_4 = 0;
-        if (local_6 && D_ba14[param_2].entityIdx == 0x1c && (D_ba14[param_1].flags & COMBAT_FLAGS_ASLEEP) == 0)
-        {
+        if (local_6 && ACTORS_Profile(D_ba14[param_2].entityIdx) == 0x1c &&
+            (D_ba14[param_1].flags & COMBAT_FLAGS_ASLEEP) == 0) {
             ULTIMA_68ae(param_1);
             local_4 = 1;
         }
@@ -1776,7 +1750,7 @@ int COMBAT_1a5c(int param_1)
     else
     {
         // 1a84
-        local_a = D_13bc_enemyStats[local_4->entityIdx].maxHp / 4; // max hp / 4 (25%)
+        local_a = ACTORS_Stats(local_4->entityIdx).maxHp / 4; // max hp / 4 (25%)
         if (local_4->hp < local_a)
         {
             local_6 = 1;
@@ -1914,7 +1888,7 @@ static void COMBAT_1c66(int param_1)
         }
         else
         {
-            ULTIMA_1850_PrintString(D_1856[D_ba14[param_1].entityIdx]);
+            ULTIMA_1850_PrintString(ACTORS_Name(D_ba14[param_1].entityIdx, 0));
         }
 
         ULTIMA_1850_PrintString(_TEXT(0x6f5e, " regurgitated!\n"));

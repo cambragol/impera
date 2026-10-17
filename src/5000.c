@@ -1,3 +1,4 @@
+#include "mod/actors.h"
 #include "common/common.h"
 #include "mod/contents_game.h"
 #include "mod/types_game.h"
@@ -383,7 +384,11 @@ void ULTIMA_56ac_DrawMap(void)
     for (local_8 = 0; local_8 < 11; local_8++)
         for (local_6 = 0; local_6 < 11; local_6++)
             if (GetMapViewport(local_6, local_8) == 0 && GetActorMap(local_6, local_8) != 0x16)
-                GRAP_BUF_PutMapSprite(local_6, local_8, 256 + GetActorMap(local_6, local_8));
+                GRAP_BUF_PutMapSprite(
+                    local_6, local_8,
+                    ACTORS_AtCell(D_5893_map_id >= 128 ? local_6 : D_5896_map_x + local_6 - 5,
+                                  D_5893_map_id >= 128 ? local_8 : D_5897_map_y + local_8 - 5,
+                                  256 + GetActorMap(local_6, local_8)));
 #endif
 
     if (0x7f < D_5893_map_id && (D_589f = !D_589f) != 0 && D_589e != 0xff && ULTIMA_5646(D_589e) == 0)

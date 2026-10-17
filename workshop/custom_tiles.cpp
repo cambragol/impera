@@ -145,7 +145,7 @@ QByteArray library(const Project &p, const QMap<unsigned, QByteArray> &r) {
         b += it.value();
     require(b.size() <= MOD_MAX_RESOURCE, "Tile artwork exceeds the 8 MiB library limit");
     require(TYPES_Validate(b.constData(), b.size()),
-            "Invalid tile settings, references or mismatched animation variants");
+            "Invalid type settings, references or mismatched animation variants");
     return b;
 }
 QImage image(const Project &p, unsigned id, unsigned variant, quint64 ms) {
@@ -160,8 +160,8 @@ QImage image(const Project &p, unsigned id, unsigned variant, quint64 ms) {
     }
     auto tiles = U5::readGraphics("TILES.16", p.data("TILES.16")).images;
     auto d = definition(p, id);
-    auto art = tiles.value(d.base).convertToFormat(QImage::Format_RGBA8888);
-    if (d.render & TYPES_SPRITE)
+    auto art = tiles.value(d.kind ? 256 + d.base : d.base).convertToFormat(QImage::Format_RGBA8888);
+    if ((d.render & TYPES_SPRITE) || (id >= 256 && id < 512))
         for (int y = 0; y < art.height(); y++)
             for (int x = 0; x < art.width(); x++)
                 if ((art.pixel(x, y) & 0xffffff) == 0)
@@ -188,6 +188,35 @@ TypeCell cell(const QString &resource, const U5::MapPage &mp, int page, int x, i
         c.map = bank + mp.settlement + 1;
     }
     return c;
+}
+TypeCell actorCell(const QString &resource, const U5::MapPage &page, int index, int slot) {
+    TypeCell c = cell(resource, page, index, 0, 0);
+    c.kind = resource.endsWith(".CBT") ? c.kind + 4 : c.map ? 3 : 4;
+    if (c.kind == 3 || c.kind >= 5)
+        c.floor = 0;
+    c.x = slot;
+    c.y = 0;
+    return c;
+}
+unsigned actorType(const Project &p, const QString &resource, const U5::MapPage &page, int index,
+                   int slot, unsigned fallback) {
+    auto c = actorCell(resource, page, index, slot);
+    unsigned type = placements(p).value(TYPES_CellKey(&c), c).type;
+    return type ? type : fallback;
+}
+QMap<QString, QByteArray> assignActor(const Project &p, const QString &resource,
+                                      const U5::MapPage &page, int index, int slot, unsigned type) {
+    auto cells = placements(p);
+    auto c = actorCell(resource, page, index, slot);
+    if (type >= 512) {
+        require(definition(p, type).kind != 0, "Choose an NPC or monster type");
+        c.type = type;
+        cells[TYPES_CellKey(&c)] = c;
+    } else
+        cells.remove(TYPES_CellKey(&c));
+    if (cells.isEmpty() && p.resources.value("TYPEMAP.OVR").edited.isEmpty())
+        return {};
+    return {{"TYPEMAP.OVR", mapBytes(p, cells)}};
 }
 QMap<quint64, TypeCell> placements(const Project &p) {
     QMap<quint64, TypeCell> result;
@@ -263,10 +292,10 @@ void validate(const Project &p) {
     for (const auto &c : placements(p)) {
         QString source;
         int page = -1;
-        if (c.kind) {
-            source = c.kind == 1 ? "BRIT.CBT" : "DUNGEON.CBT";
+        if (c.kind == 1 || c.kind == 2 || c.kind == 5 || c.kind == 6) {
+            source = c.kind == 1 || c.kind == 5 ? "BRIT.CBT" : "DUNGEON.CBT";
             page = c.map;
-        } else if (!c.map) {
+        } else if (!c.map || c.kind == 4) {
             source = c.floor < 0 ? "UNDER.DAT" : "BRIT.DAT";
             page = 0;
         } else
@@ -381,25 +410,30 @@ class Canvas : public QWidget {
     }
 };
 QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *state) {
+    const int actorKind = qBound(0, state->value("customTiles/kind", 0), 2);
+    const QString noun = actorKind == 1 ? "NPC type" : actorKind == 2 ? "monster type" : "tile";
+    const QString selectedIdKey =
+        actorKind ? QString("customTiles/%1/id").arg(actorKind) : "customTiles/id";
     auto w = new QWidget;
     w->setObjectName("customTileEditor");
     auto layout = new QHBoxLayout(w);
     auto left = new QVBoxLayout;
     auto search = new QLineEdit;
-    search->setPlaceholderText("Find a tile…");
+    search->setPlaceholderText("Find a " + noun + "…");
     left->addWidget(search);
     auto filter = new QComboBox;
     filter->setObjectName("customTileFilter");
     filter->addItems({"All tiles", "World", "Locations"});
+    filter->setVisible(!actorKind);
     left->addWidget(filter);
     auto list = new QListWidget;
     list->setObjectName("customTileList");
     list->setIconSize({32, 32});
     left->addWidget(list, 1);
-    auto add = new QPushButton("New tile…");
+    auto add = new QPushButton("New " + noun + "…");
     add->setObjectName("newCustomTile");
     left->addWidget(add);
-    auto copy = new QPushButton("Copy tile…");
+    auto copy = new QPushButton("Copy " + noun + "…");
     left->addWidget(copy);
     auto remove = new QPushButton("Delete / Reset");
     left->addWidget(remove);
@@ -468,8 +502,12 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         palette->select(canvas->color);
     };
     auto reloadPalette = [=] {
-        const QStringList resources{"TILES.16",     "TILE_AMI.PNG", "TILE_APP.PNG",
-                                    "TILE_GRY.PNG", "TILE_SHW.PNG", "TILES.16"};
+        const QStringList resources{"TILES.16",
+                                    "TILE_AMI.PNG",
+                                    "TILE_APP.PNG",
+                                    "TILE_GRY.PNG",
+                                    actorKind ? "TILE_SHN.PNG" : "TILE_SHW.PNG",
+                                    "TILES.16"};
         auto resource = resources[variants->currentIndex()];
         auto colors = Workshop::artworkColors(
             U5::readGraphics(resource, p->resources.value(resource).original));
@@ -624,7 +662,7 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     filters->addStretch();
     details->addRow("Tile picker", filters);
     inspector->addLayout(details);
-    auto interactions = new PropertySection("Interaction", true, props);
+    auto interactions = new PropertySection(actorKind ? "Behavior & encounters" : "Interaction", true, props);
     auto travel = new PropertySection("Movement & visibility", true, props);
     auto appearance = new PropertySection("Appearance", false, props);
     auto hazards = new PropertySection("Hazards", false, props);
@@ -669,6 +707,100 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     advanced->form->addRow(boatGroup);
     advanced->form->addRow(humanoidSeat);
     advanced->form->addRow("Combat background", combatMap);
+    QVector<QSpinBox *> actorStats;
+    auto combat = new PropertySection("Combat", true, props);
+    combat->setVisible(actorKind != 0);
+    inspector->insertWidget(2, combat);
+    const QStringList statNames{"Strength", "Dexterity",  "Intelligence",   "Defense",
+                                "Attack",   "Hit points", "Encounter size", "Treasure"};
+    for (int i = 0; i < 8; i++) {
+        auto spin = new QSpinBox;
+        spin->setObjectName(QString("actorStat%1").arg(i));
+        spin->setRange(i == 5 || i == 6 ? 1 : 0, i == 1 ? 30 : i == 6 ? 16 : 255);
+        spin->setToolTip(i == 7
+                             ? "Treasure rating used by the original loot rules; not a gold amount."
+                         : i == 6 ? "Maximum group size when this type starts an encounter."
+                                  : statNames[i] + " for this creature type.");
+        combat->form->addRow(statNames[i], spin);
+        actorStats.append(spin);
+    }
+    auto actorMovement = new QComboBox(props);
+    actorMovement->setObjectName("actorMovement");
+    actorMovement->addItems({"Walking", "Swimming", "Flying", "Horse", "Phasing", "Skiff",
+                             "Frigate", "Swamp only", "Grass only", "Deep water only",
+                             "Sand only"});
+    auto attackRange = new QSpinBox;
+    attackRange->setObjectName("actorAttackRange");
+    attackRange->setRange(0, 11);
+    auto projectileType = new QComboBox;
+    projectileType->setObjectName("actorProjectile");
+    for (int effect = 0; effect < 8; effect++) {
+        QStringList examples;
+        for (int shape = 64; shape < 256; shape += 4) {
+            TypeDef d;
+            TYPES_Vanilla(1, shape, &d);
+            if (d.projectileAppearance == effect && d.range > 1 && examples.size() < 2)
+                examples << Workshop::actorName(shape);
+        }
+        projectileType->addItem(examples.isEmpty() ? QString("Projectile style %1").arg(effect + 1)
+                                                   : "Like " + examples.join(" / "));
+    }
+    combat->form->addRow("Attack range", attackRange);
+    combat->form->addRow("Ranged attack", projectileType);
+    const QList<QPair<QString, unsigned>> abilities{{"No corpse", 1},
+                                                    {"Steals food", 2},
+                                                    {"Poisons on hit", 516},
+                                                    {"Immune to damage", 8},
+                                                    {"Divides when hit", 16},
+                                                    {"Undead", 32},
+                                                    {"Uses strength to hit", 128},
+                                                    {"Possesses party members", 64},
+                                                    {"Summons creatures", 1024},
+                                                    {"Disappears and reappears", 2048},
+                                                    {"Vanishes on death", 4096},
+                                                    {"Teleports", 8192},
+                                                    {"Magical ranged attack", 32768}};
+    QVector<QCheckBox *> actorAbilities;
+    for (auto ability : abilities) {
+        auto box = new QCheckBox(ability.first);
+        box->setToolTip(ability.first + ".");
+        actorAbilities.append(box);
+        advanced->form->addRow(box);
+        box->setVisible(actorKind != 0);
+    }
+    if (actorKind) {
+        description->setToolTip("Plural name used when introducing a group in combat.");
+        qobject_cast<QLabel *>(details->labelForField(description))->setText("Plural name");
+        world->hide();
+        location->hide();
+        if (auto label = details->labelForField(filters))
+            label->hide();
+        travel->hide();
+        hazards->hide();
+        appearance->form->setRowVisible(ground, false);
+        masonry->hide();
+        for (auto box : movement)
+            box->hide();
+        boatGroup->hide();
+        humanoidSeat->hide();
+        advanced->form->setRowVisible(specialized, false);
+        advanced->form->setRowVisible(combatMap, false);
+        combat->form->addRow("Movement", actorMovement);
+        interaction->clear();
+        for (int shape = 64; shape < 256; shape += 4)
+            interaction->addItem(Workshop::actorName(shape), shape);
+        interaction->setToolTip("Original creature behavior used for special native actions; stats "
+                                "and artwork remain independent.");
+        const QStringList targets{"On defeat, transform into", "Summons", "Divides into",
+                                  "Encounter companion"};
+        for (int i = 0; i < 4; i++)
+            qobject_cast<QLabel *>(interactions->form->labelForField(results[i]))
+                ->setText(targets[i]);
+    } else {
+        actorMovement->hide();
+        attackRange->hide();
+        projectileType->hide();
+    }
     auto error = new QLabel;
     error->setObjectName("customTileSettingsError");
     error->setWordWrap(true);
@@ -731,7 +863,7 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         try {
             f();
         } catch (const std::exception &e) {
-            QMessageBox::warning(w, "Tile edit rejected", QString::fromUtf8(e.what()));
+            QMessageBox::warning(w, "Cannot edit " + noun, QString::fromUtf8(e.what()));
         }
     };
     auto save = [=](const QString &title) {
@@ -787,24 +919,32 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         ground->addItem("Nearby ground", qulonglong(TYPES_INFER_GROUND));
         for (auto box : results) {
             box->clear();
-            box->addItem(QStringList{"Default open appearance", "Default closed appearance",
-                                     "Default locked appearance",
-                                     "Default broken appearance"}[results.indexOf(box)],
+            box->addItem((actorKind
+                              ? QStringList{"No transformation", "Daemon", "Same creature",
+                                            "Original companion"}
+                              : QStringList{"Default open appearance", "Default closed appearance",
+                                            "Default locked appearance",
+                                            "Default broken appearance"})[results.indexOf(box)],
                          0);
         }
         auto r = records(*p);
-        for (unsigned id = 0; id < 256; id++) {
-            QString label = MapDocument::tileName(id);
-            ground->addItem(referenceIcon(id), label, id);
+        if (actorKind)
+            for (unsigned id = 0; id < 256; id++)
+                ground->addItem(MapDocument::tileName(id), id);
+        for (unsigned id = actorKind ? 320 : 0; id < (actorKind ? 512u : 256u);
+             id += actorKind ? 4 : 1) {
+            QString label = actorKind ? Workshop::actorName(id - 256) : MapDocument::tileName(id);
+            if (!actorKind)
+                ground->addItem(referenceIcon(id), label, id);
             for (auto box : results)
                 box->addItem(referenceIcon(id), label, id);
         }
         for (auto it = r.begin(); it != r.end(); ++it) {
             auto d = definition(*p, it.key());
-            if (d.kind)
+            if (bool(d.kind) != bool(actorKind))
                 continue;
             QString label = QString::fromUtf8(d.name);
-            if (!(d.render & TYPES_SPRITE))
+            if (!d.kind && !(d.render & TYPES_SPRITE))
                 ground->addItem(referenceIcon(d.id), label, d.id);
             for (auto box : results)
                 box->addItem(referenceIcon(d.id), label, d.id);
@@ -846,7 +986,7 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         canvas->update();
     };
     auto updateInspector = [=] {
-        appearance->form->setRowVisible(ground, sprite->isChecked());
+        appearance->form->setRowVisible(ground, !actorKind && sprite->isChecked());
         hazards->form->setRowVisible(damageRow, burn->isChecked());
         effectGroup->setVisible(poison->isChecked() || burn->isChecked());
         boatGroup->setVisible(movement[5]->isChecked());
@@ -856,9 +996,9 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         bool container = profile == 0xa6;
         bool breakable = door || container || profile == 0x9d || profile == 0x2e || profile == 0x2d;
         for (int i = 0; i < 4; i++)
-            interactions->form->setRowVisible(results[i],
-                                              results[i]->currentData().toUInt() != 0 ||
-                                                  (i < 3 ? door || container : breakable));
+            interactions->form->setRowVisible(
+                results[i], actorKind || results[i]->currentData().toUInt() != 0 ||
+                                (i < 3 ? door || container : breakable));
         interactions->describe(interaction->currentText());
         QStringList looks;
         if (sprite->isChecked())
@@ -895,11 +1035,33 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         if (combatMap->currentData().toUInt())
             extras << combatMap->currentText();
         advanced->describe(extras.join(" · "));
+        if (actorKind) {
+            int count = 0;
+            for (auto ability : actorAbilities)
+                count += ability->isChecked();
+            advanced->describe(
+                QString("%1 abilities · %2").arg(count).arg(actorMovement->currentText()));
+            combat->describe(QString("%1 HP · %2 attack · %3 defense")
+                                 .arg(actorStats[5]->value())
+                                 .arg(actorStats[4]->value())
+                                 .arg(actorStats[3]->value()));
+            bool summons = false, divides = false;
+            for (int i = 0; i < abilities.size(); i++) {
+                if (abilities[i].second == 1024)
+                    summons = actorAbilities[i]->isChecked();
+                if (abilities[i].second == 16)
+                    divides = actorAbilities[i]->isChecked();
+            }
+            interactions->form->setRowVisible(results[1],
+                                              summons || results[1]->currentData().toUInt());
+            interactions->form->setRowVisible(results[2],
+                                              divides || results[2]->currentData().toUInt());
+        }
     };
     auto load = [=](unsigned id) {
         draft->loading = true;
         draft->id = id;
-        (*state)["customTiles/id"] = id;
+        (*state)[selectedIdKey] = id;
         draft->def = definition(*p, id);
         auto d = draft->def;
         draft->frames = frames(records(*p).value(id));
@@ -930,9 +1092,23 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         if (interaction->findData(d.base) < 0)
             interaction->addItem("Same interaction as " + MapDocument::tileName(d.base), d.base);
         interaction->setCurrentIndex(interaction->findData(d.base));
+        interaction->setEnabled(!actorKind || id >= 512);
+        if (actorKind) interaction->setToolTip(id >= 512
+            ? "Original creature behavior used by this type, independently of artwork and stats."
+            : "Copy this type to choose a different original creature behavior.");
         ground->setCurrentIndex(d.ground == TYPES_INFER_GROUND ? 0 : ground->findData(d.ground));
         for (int i = 0; i < 4; i++)
             results[i]->setCurrentIndex(results[i]->findData(d.result[i]));
+        for (int i = 0; i < 8; i++) {
+            if (i == 5 || i == 6)
+                actorStats[i]->setMinimum(id >= 512 ? 1 : 0);
+            actorStats[i]->setValue(d.stats[i]);
+        }
+        for (int i = 0; i < abilities.size(); i++)
+            actorAbilities[i]->setChecked(d.actorFlags & abilities[i].second);
+        actorMovement->setCurrentIndex(d.moveProfile);
+        attackRange->setValue(d.range);
+        projectileType->setCurrentIndex(d.projectileAppearance);
         reloadFrames();
         draft->loading = false;
         error->hide();
@@ -942,15 +1118,17 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     auto refresh = [=] {
         QSignalBlocker block(list);
         list->clear();
-        for (unsigned id = 0; id < 256; id++) {
-            auto item = new QListWidgetItem(MapDocument::tileName(id), list);
+        for (unsigned id = actorKind ? (actorKind == 1 ? 320u : 384u) : 0u;
+             id < (actorKind ? (actorKind == 1 ? 384u : 512u) : 256u); id += actorKind ? 4 : 1) {
+            auto item = new QListWidgetItem(
+                actorKind ? Workshop::actorName(id - 256) : MapDocument::tileName(id), list);
             item->setData(Qt::UserRole, id);
         }
         auto r = records(*p);
         for (auto it = r.begin(); it != r.end(); ++it)
             if (it.key() >= 512) {
                 auto d = definition(*p, it.key());
-                if (!d.kind) {
+                if (d.kind == unsigned(actorKind)) {
                     auto item = new QListWidgetItem(QIcon(QPixmap::fromImage(image(*p, d.id))),
                                                     QString::fromUtf8(d.name), list);
                     item->setData(Qt::UserRole, d.id);
@@ -969,8 +1147,9 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     auto create = [=](bool copying) {
         report([&] {
             bool ok = false;
-            auto title = QInputDialog::getText(w, "New tile", "Name", QLineEdit::Normal,
-                                               copying ? name->text() + " copy" : "New tile", &ok);
+            auto title =
+                QInputDialog::getText(w, "New " + noun, "Name", QLineEdit::Normal,
+                                      copying ? name->text() + " copy" : "New " + noun, &ok);
             if (!ok || title.trimmed().isEmpty())
                 return;
             auto r = records(*p);
@@ -982,28 +1161,36 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             if (copying)
                 d = draft->def;
             else
-                TYPES_Vanilla(0, 5, &d);
+                TYPES_Vanilla(actorKind ? 1 : 0, actorKind ? (actorKind == 1 ? 80 : 144) : 5, &d);
             if (copying && d.id < 256)
                 d.filters =
                     (worldTiles.contains(d.id) ? 1 : 0) | (locationTiles.contains(d.id) ? 2 : 0);
             if (!copying)
                 d.filters = 3;
             d.id = id;
-            d.kind = 0;
+            d.kind = actorKind;
+            if (actorKind) {
+                d.render |= TYPES_SPRITE;
+                if (!d.stats[5])
+                    d.stats[5] = 10;
+                if (!d.stats[6])
+                    d.stats[6] = 1;
+            }
             auto utf = title.trimmed().toUtf8();
             require(utf.size() < 64, "Tile name is too long");
             memset(d.name, 0, 64);
             memcpy(d.name, utf.constData(), utf.size());
             QVector<Frame> f = copying ? draft->frames : QVector<Frame>();
             if (f.isEmpty()) {
-                QImage img =
-                    copying ? image(*p, draft->id) : QImage(16, 16, QImage::Format_RGBA8888);
-                if (!copying)
+                QImage img = copying ? image(*p, draft->id)
+                                     : (actorKind ? image(*p, 256 + d.base)
+                                                  : QImage(16, 16, QImage::Format_RGBA8888));
+                if (!copying && !actorKind)
                     img.fill(Qt::black);
                 f.append({img, 150, 0});
             }
             r[id] = record(d, f);
-            if (commit({{"TYPES.OVR", library(*p, r)}}, "Add tile")) {
+            if (commit({{"TYPES.OVR", library(*p, r)}}, "Add " + noun)) {
                 draft->id = id;
                 refresh();
                 load(id);
@@ -1023,9 +1210,9 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             r.remove(draft->id);
             if (commit({{"TYPES.OVR", library(*p, r)}},
                        draft->id < 256 ? "Reset tile" : "Delete tile")) {
-                draft->id = 5;
+                draft->id = actorKind ? (actorKind == 1 ? 336 : 400) : 5;
                 refresh();
-                load(5);
+                load(draft->id);
             }
         });
     });
@@ -1069,9 +1256,25 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             d.damageMax = damageMax->value();
             d.base =
                 interaction->currentData().isValid() ? interaction->currentData().toUInt() : d.base;
-            d.ground = ground->currentData().toUInt();
+            if (!actorKind)
+                d.ground = ground->currentData().toUInt();
             for (int i = 0; i < 4; i++)
                 d.result[i] = results[i]->currentData().toUInt();
+            if (actorKind) {
+                d.kind = actorKind;
+                for (int i = 0; i < 8; i++)
+                    d.stats[i] = actorStats[i]->value();
+                for (int i = 0; i < abilities.size(); i++) {
+                    if (actorAbilities[i]->isChecked()) {
+                        if (!(d.actorFlags & abilities[i].second))
+                            d.actorFlags |= abilities[i].second;
+                    } else
+                        d.actorFlags &= ~abilities[i].second;
+                }
+                d.moveProfile = actorMovement->currentIndex();
+                d.range = attackRange->value();
+                d.projectileAppearance = projectileType->currentIndex();
+            }
             if (d.damageMin > d.damageMax)
                 throw std::runtime_error("Minimum damage must not exceed maximum damage.");
             if (memcmp(&previous, &d, sizeof(d)) == 0) {
@@ -1079,7 +1282,7 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
                 return;
             }
             draft->def = d;
-            if (save("Edit tile settings")) {
+            if (save("Edit " + noun + " settings")) {
                 error->hide();
                 refresh();
             } else
@@ -1096,7 +1299,7 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         QObject::connect(box, &QCheckBox::toggled, w, [=] { applySettings(); });
     for (auto box : props->findChildren<QComboBox *>())
         QObject::connect(box, &QComboBox::currentIndexChanged, w, [=] { applySettings(); });
-    for (auto spin : {damageMin, damageMax})
+    for (auto spin : QVector<QSpinBox *>{damageMin, damageMax, attackRange} + actorStats)
         QObject::connect(spin, &QSpinBox::editingFinished, w, applySettings);
 
     QObject::connect(tools, &QButtonGroup::idClicked, w, [=](int i) {
@@ -1317,7 +1520,7 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             canvas->update();
         }
     });
-    draft->id = state->value("customTiles/id", 5);
+    draft->id = state->value(selectedIdKey, actorKind ? (actorKind == 1 ? 336 : 400) : 5);
     refresh();
     load(draft->id);
     return w;

@@ -16,6 +16,7 @@ endif()
 
 set(SOURCES
     src/mod/contents.c
+    src/mod/actors.c
     src/mod/types_game.c
     src/mod/contents_game.c
     src/mod/package.c src/mod/types.c

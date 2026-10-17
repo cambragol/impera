@@ -630,3 +630,20 @@ Hazards, and Advanced sections. Collapsed sections summarize their settings.
 Ground, damage and skiff-heading controls appear when relevant; tile-state
 references use searchable thumbnails. Invalid settings show an inline error and
 leave the last valid tile definition unchanged.
+
+## NPC and monster types
+
+Open **NPCs → Types → NPC types / Monster types** to create or copy independent
+creature types. The shared artwork editor supports each tileset's palette,
+pixel dimensions, PNG import, alpha and animated frames. Combat properties,
+abilities, movement, death transformations, summon/division targets and encounter
+companions are edited separately from artwork. Original behavior profiles retain
+special vanilla behavior. Unknown original flag bits are preserved.
+
+Choose your type in map **Add… → NPC / Monster**, or select a placed creature
+and change **Type** in its inspector. **Edit type…** opens its shared definition.
+World-object and combat-room inspectors also support custom monster types.
+Names, conversations and schedules belong to the placed NPC, so multiple NPCs
+can share a type while having their own dialogue and destinations. Changes use
+normal project Undo and package export. Packages with actor definitions require
+an Impera build supporting package version 10.

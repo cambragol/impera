@@ -1,3 +1,4 @@
+#include "mod/actors.h"
 #include "audio/audio.h"
 #include "common/common.h"
 #include "common/movement.h"
@@ -1485,7 +1486,8 @@ static int MAINOUT_131a(int param_1)
 
 static int MAINOUT_1482(int param_1, int param_2, int param_3)
 {
-    if (TYPES_GAME_Walkable(D_5c5a[param_1]._0_tile, param_2, param_3) == 0)
+    if (TYPES_GAME_Walkable(ACTORS_MoveShape(param_1, D_5c5a[param_1]._0_tile), param_2, param_3) ==
+        0)
         return 0;
 
     if (ULTIMA_3702(param_2, param_3, D_5895_map_level) != 0)

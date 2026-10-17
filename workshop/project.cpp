@@ -121,8 +121,12 @@ QByteArray Project::package() const {
     auto list = changed();
     require(!list.isEmpty(), "There are no changes to export");
     require(list.size() <= MOD_MAX_ENTRIES, "Too many modified resources");
+    bool actorTypes = false;
+    for (const auto &record : CustomTiles::records(*this))
+        actorTypes |= record.size() > 8 && record[8] != 0;
     QByteArray out(
-        list.contains("TYPES.OVR") || list.contains("TYPEMAP.OVR") ? "IMOD0009"
+        list.contains("TYPES.OVR") || list.contains("TYPEMAP.OVR")
+            ? (actorTypes ? "IMOD0010" : "IMOD0009")
         : list.contains("CUTSCENE.OVR")
             ? (data("CUTSCENE.OVR").startsWith("ICUT0003")
                    ? "IMOD0008"
@@ -242,6 +246,13 @@ void Project::save(const QString &path) {
     if (changed().contains("CUTSCENE.OVR")) {
         requirements["cutscenePages"] = data("CUTSCENE.OVR").startsWith("ICUT0003") ? 3 : (data("CUTSCENE.OVR").startsWith("ICUT0002") ? 2 : 1);
         requirements["packageVersion"] = data("CUTSCENE.OVR").startsWith("ICUT0003") ? 8 : (data("CUTSCENE.OVR").startsWith("ICUT0002") ? 7 : 6);
+    }
+    if (changed().contains("TYPES.OVR") || changed().contains("TYPEMAP.OVR")) {
+        bool actors = false;
+        for (const auto &record : CustomTiles::records(*this))
+            actors |= record.size() > 8 && record[8] != 0;
+        requirements["customTypes"] = actors ? 2 : 1;
+        requirements["packageVersion"] = actors ? 10 : 9;
     }
     if (!requirements.isEmpty())
         root["requires"] = requirements;

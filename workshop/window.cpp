@@ -1316,7 +1316,12 @@ QWidget *WorkshopWindow::mapEditor(const QString &name) {
         },
         [this](const QString &resource) { selectResource(resource); });
     workspace->editTileType = [this](unsigned id) {
-        editorState["customTiles/id"] = id;
+        auto type = CustomTiles::definition(project, id);
+        int kind = type.kind;
+        if (id < 512 && kind && type.base >= 128)
+            kind = 2;
+        editorState["customTiles/kind"] = kind;
+        editorState[kind ? QString("customTiles/%1/id").arg(kind) : "customTiles/id"] = id;
         selectResource("TYPES.OVR");
     };
     workspace->locationChanged = [this] { rebuildTree(); };
@@ -1394,9 +1399,9 @@ QWidget *WorkshopWindow::mapEditor(const QString &name) {
                                           }});
             }
             if (mode == "Starting Objects") {
-                return Workshop::worldObjectEditor(
-                    &project, name == "BRIT.DAT" ? 0 : 1,
-                    [this](const QString &resource, const QByteArray &bytes, bool included) {
+                auto saveObjects =
+                    [this](const QString &resource, const QByteArray &bytes, bool included,
+                           int slot = -1, unsigned type = 0) {
                         return guard([&] {
                             Project candidate = project;
                             candidate.resources[resource].edited = bytes;
@@ -1422,12 +1427,37 @@ QWidget *WorkshopWindow::mapEditor(const QString &name) {
                                 changes["CONTENTS.OVR"] = contents;
                                 candidate.resources["CONTENTS.OVR"].edited = contents;
                             }
+                            if (slot < 0 && !included) {
+                                auto placements = CustomTiles::placements(project);
+                                for (auto it = placements.begin(); it != placements.end();) {
+                                    if (it->kind == 4 && it->floor == floor)
+                                        it = placements.erase(it);
+                                    else
+                                        ++it;
+                                }
+                                if (!project.data("TYPEMAP.OVR").isEmpty()) {
+                                    auto mapTypes = CustomTiles::mapBytes(project, placements);
+                                    changes["TYPEMAP.OVR"] = mapTypes;
+                                    candidate.resources["TYPEMAP.OVR"].edited = mapTypes;
+                                }
+                            }
+                            if (slot > 0 && (type >= 512 || !project.resources.value("TYPEMAP.OVR").edited.isEmpty())) {
+                                QString map = floor < 0 ? "UNDER.DAT" : "BRIT.DAT";
+                                auto pages = U5::mapPages(map, project.data(map));
+                                auto typeChanges =
+                                    CustomTiles::assignActor(project, map, pages[0], 0, slot, type);
+                                for (auto it = typeChanges.begin(); it != typeChanges.end(); ++it) {
+                                    changes[it.key()] = it.value();
+                                    candidate.resources[it.key()].edited = it.value();
+                                }
+                            }
                             candidate.validate();
                             edit(changes, "Edit starting world objects", {{resource, included}});
                         });
-                    },
-                    &editorState, flush, canvas,
-                    [workspace](QPoint cell) { workspace->centerOnCell(cell); });
+                    };
+                return Workshop::worldObjectEditor(
+                    &project, name == "BRIT.DAT" ? 0 : 1, saveObjects, &editorState, flush, canvas,
+                    [workspace](QPoint cell) { workspace->centerOnCell(cell); }, saveObjects);
             }
             *flush = [] { return true; };
             return combatEditor(name, page);
@@ -1472,6 +1502,7 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
         create->setObjectName("newTileDefinition");
         row->addWidget(create);
         connect(create, &QPushButton::clicked, w, [this] {
+            editorState["customTiles/kind"] = 0;
             selectResource("TYPES.OVR");
             QTimer::singleShot(0, this, [this] {
                 if (auto add = findChild<QPushButton *>("newCustomTile"))

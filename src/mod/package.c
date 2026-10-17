@@ -83,7 +83,7 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
         memcmp(bytes, "IMOD0003", 8) && memcmp(bytes, "IMOD0004", 8) &&
         memcmp(bytes, "IMOD0005", 8) && memcmp(bytes, "IMOD0006", 8) &&
         memcmp(bytes, "IMOD0007", 8) && memcmp(bytes, "IMOD0008", 8) &&
-        memcmp(bytes, "IMOD0009", 8)) {
+        (memcmp(bytes, "IMOD0009", 8) && memcmp(bytes, "IMOD0010", 8))) {
         reason = "Unsupported mod package version; update Impera";
         goto fail;
     }
@@ -92,7 +92,7 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
          memcmp(magic, "IMOD0003", 8) && memcmp(magic, "IMOD0004", 8) &&
          memcmp(magic, "IMOD0005", 8) && memcmp(magic, "IMOD0006", 8) &&
          memcmp(magic, "IMOD0007", 8) && memcmp(magic, "IMOD0008", 8) &&
-         memcmp(magic, "IMOD0009", 8)) ||
+         (memcmp(magic, "IMOD0009", 8) && memcmp(magic, "IMOD0010", 8))) ||
         !number(&c, &titleLength) || titleLength == 0 || titleLength > 256 || !number(&c, &count) ||
         count == 0 || count > MOD_MAX_ENTRIES || !take(&c, result->title, titleLength) ||
         memchr(result->title, 0, titleLength))
@@ -120,7 +120,8 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
                 goto fail;
             }
         if (!strcmp(entry->name, "TYPES.OVR") || !strcmp(entry->name, "TYPEMAP.OVR")) {
-            if (memcmp(magic, "IMOD0009", 8) || baseSize || baseCrc) {
+            if ((memcmp(magic, "IMOD0009", 8) && memcmp(magic, "IMOD0010", 8)) || baseSize ||
+                baseCrc) {
                 reason = "Custom types require package version 9 and an empty base";
                 goto fail;
             }
@@ -142,18 +143,20 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
             if ((memcmp(magic, "IMOD0002", 8) && memcmp(magic, "IMOD0003", 8) &&
                  memcmp(magic, "IMOD0004", 8) && memcmp(magic, "IMOD0005", 8) &&
                  memcmp(magic, "IMOD0006", 8) && memcmp(magic, "IMOD0007", 8) &&
-                 memcmp(magic, "IMOD0008", 8) && memcmp(magic, "IMOD0009", 8)) ||
+                 memcmp(magic, "IMOD0008", 8) &&
+                 (memcmp(magic, "IMOD0009", 8) && memcmp(magic, "IMOD0010", 8))) ||
                 (!strcmp(entry->name, "RULES.TBL") && memcmp(magic, "IMOD0003", 8) &&
                  memcmp(magic, "IMOD0004", 8) && memcmp(magic, "IMOD0005", 8) &&
                  memcmp(magic, "IMOD0006", 8) && memcmp(magic, "IMOD0007", 8) &&
-                 memcmp(magic, "IMOD0008", 8) && memcmp(magic, "IMOD0009", 8)) ||
+                 memcmp(magic, "IMOD0008", 8) &&
+                 (memcmp(magic, "IMOD0009", 8) && memcmp(magic, "IMOD0010", 8))) ||
                 (!strcmp(entry->name, "CONTENTS.OVR") && memcmp(magic, "IMOD0004", 8) &&
                  memcmp(magic, "IMOD0005", 8) && memcmp(magic, "IMOD0006", 8) &&
                  memcmp(magic, "IMOD0007", 8) && memcmp(magic, "IMOD0008", 8) &&
-                 memcmp(magic, "IMOD0009", 8)) ||
+                 (memcmp(magic, "IMOD0009", 8) && memcmp(magic, "IMOD0010", 8))) ||
                 (!strcmp(entry->name, "CUTSCENE.OVR") && memcmp(magic, "IMOD0006", 8) &&
                  memcmp(magic, "IMOD0007", 8) && memcmp(magic, "IMOD0008", 8) &&
-                 memcmp(magic, "IMOD0009", 8)) ||
+                 (memcmp(magic, "IMOD0009", 8) && memcmp(magic, "IMOD0010", 8))) ||
                 baseSize || baseCrc) {
                 reason =
                     "Companion overrides require a supported package version and an empty base";
@@ -214,9 +217,10 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
         if (!strcmp(entry->name, "CUTSCENE.OVR") &&
             (!U5_ValidateCutscenes(entry->data, entry->size) ||
              (!memcmp(entry->data, "ICUT0002", 8) && memcmp(magic, "IMOD0007", 8) &&
-              memcmp(magic, "IMOD0008", 8) && memcmp(magic, "IMOD0009", 8)) ||
+              memcmp(magic, "IMOD0008", 8) &&
+              (memcmp(magic, "IMOD0009", 8) && memcmp(magic, "IMOD0010", 8))) ||
              (!memcmp(entry->data, "ICUT0003", 8) && memcmp(magic, "IMOD0008", 8) &&
-              memcmp(magic, "IMOD0009", 8)))) {
+              (memcmp(magic, "IMOD0009", 8) && memcmp(magic, "IMOD0010", 8))))) {
             reason = "Unsupported or invalid cutscene pages";
             goto fail;
         }
@@ -251,6 +255,17 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
             types = &result->entries[i];
         if (!strcmp(result->entries[i].name, "TYPEMAP.OVR"))
             mapTypes = &result->entries[i];
+    }
+    if (types && memcmp(magic, "IMOD0010", 8)) {
+        size_t off = 32;
+        if (TYPES_Validate(types->data, types->size))
+            for (unsigned i = 0; i < TYPES_U32(types->data + 24); i++) {
+                if (types->data[off + 8]) {
+                    reason = "Actor types require package version 10; update Impera";
+                    goto fail;
+                }
+                off += TYPES_U32(types->data + off);
+            }
     }
     if ((types && !TYPES_Validate(types->data, types->size)) ||
         (mapTypes && (!types || !TYPES_ValidateMap(mapTypes->data, mapTypes->size, types->data,

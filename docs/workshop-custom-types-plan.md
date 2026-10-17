@@ -1,10 +1,10 @@
 # Custom tiles, NPC types, and monster types
 
-Status: phases 1–4 implemented for terrain/scenery on `feature/custom-tile-types`.
-NPC/monster type authoring is phase 5; the shared schema and vanilla actor catalog
-are present, but those authoring controls are not enabled yet.
+Status: phases 1–5 implemented on `feature/custom-tile-types`. Terrain/scenery
+and independent NPC/monster type authoring are available. Phase 6 remains the
+platform/release validation and broader parity pass.
 
-Implemented: a shared validated catalog, independent extended IDs, package v9,
+Implemented: a shared validated catalog, independent extended IDs, terrain package v9 / actor package v10,
 embedded art and animation, sparse map placements and save state, native property
 consumers and interaction transitions, Workshop drawing/import/property controls,
 and map painting/clipboard/contextual integration. Artwork is embedded in
@@ -323,7 +323,7 @@ The implemented versioned resources are:
 | Resource | Purpose |
 | --- | --- |
 | `TYPES.OVR` | Library identity, typed definitions, names, properties, embedded RGBA animation frames and references |
-| `TYPEMAP.OVR` | Sparse custom terrain placements keyed by existing stable map/page identity; actor placements follow in phase 5 |
+| `TYPEMAP.OVR` | Sparse custom terrain cells and actor instance-slot references keyed by stable map/page identity |
 
 The wire layouts use a shared C validator in Impera and Workshop. Keep data-only packaging and existing size/allocation limits;
 check decoded pixel budgets as well as encoded bytes. Do not add one package
@@ -453,3 +453,36 @@ the first frame at a fresh-game start and survive revisits.
 Gate: all authorable properties have tested runtime consumers; every required
 extension ships in the combined Impera/Workshop archives. Documentation accurately
 states type limits, per-map instance limits, compatibility and package conflicts.
+
+## Phase 4/5 implementation notes
+
+NPCs → Types contains **NPC types** and **Monster types**. Both reuse the same
+palette-limited, multi-tileset artwork editor as terrain. Type controls expose
+all eight original combat statistics, movement, attack range/projectile style,
+verified abilities, death/corpse behavior, and explicit transformation, summon,
+division and encounter companion targets. Unknown original flag bits are kept
+without invented controls. Creature descriptions in this library are plural
+combat names; individual NPC descriptions, jobs, conversations and schedules
+remain in their existing NPC/map editors.
+
+The original behavior profile preserves special native rules (for example,
+reapers, gazers, corpsers, mimics and story actors). It is separate from authored
+artwork and combat statistics; it does not create a new quest scripting language.
+Explicit transformation targets apply on defeat. Summoning and division use the
+authored type target; a divided creature keeps the source's current HP, as in
+vanilla. Encounter size and companion types configure the original group rules.
+Specific combat-room spawn slots can also be assigned custom types.
+
+Add… offers authored types; location and combat inspectors can change them or
+open **Edit type…**. Starting world objects can change creature type too. Type
+assignments are separate from movement/schedule coordinates and never occupy
+DOS terrain IDs. Moving an instance keeps its type; deleting it clears its slot
+reference. World slots reused by native spawns cannot inherit a removed custom
+type. Native combat uses an extended in-memory type ID, while DOS actor records
+and party save layouts remain unchanged.
+
+Original instance limits remain: 31 location NPC slots, 31 surface world object
+slots (27 in the Underworld), 16 room/ordinary encounter spawn positions, and 32
+runtime combat entities including party members. There are up to 1024 authored
+terrain/actor definitions across independent IDs 512–65535. Saves persist stable
+actor slot references; native combat itself remains transient as before.

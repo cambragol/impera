@@ -255,8 +255,8 @@ version 9 rather than reading custom tile IDs as DOS bytes.
 
 `TYPES.OVR` (`ITYPES01`) contains a 16-byte library identity, sorted definitions,
 and embedded RGBA animation frames. IDs 0–255 override original terrain;
-512–65535 identify additions. The schema also reserves actor definitions for the
-subsequent NPC/monster authoring phase. There are at most 1024 definitions,
+256–511 identify original actor appearances; 512–65535 identify additions.
+Kinds 0/1/2 distinguish terrain, NPC types and monster types. There are at most 1024 definitions,
 64 frames per artwork variant, and 8 MiB per library. Frames are 16×16 or 32×32, with 14×16 also supported for Apple II,
 with durations of 10–60000 milliseconds. Artwork variants fall back to the tile's
 default artwork. Alpha is explicit: opaque black stays opaque, and no synthetic
@@ -291,3 +291,23 @@ The extension stores stable library IDs, cell identities, transitions and door
 restore state, with a checksum. Preflight validates it before installing a save
 or changing the active party. Missing libraries, unknown types, corruption and
 trailing data reject the load. Saves without the extension remain supported.
+
+Version 10 (`IMOD0010`) enables independent NPC and monster definitions in
+`TYPES.OVR`. Terrain-only libraries continue to export as version 9. Older
+engines reject actor packages with the normal update diagnostic. Actor records
+use `base` for the original behavior profile, `stats[8]` for native combat stats,
+`actorFlags` for verified abilities (unknown bits are preserved), `moveProfile`,
+`range`, `projectileAppearance` and the original companion fallback. Their
+`result[4]` references mean on-defeat transformation, summoned type, division type,
+and encounter companion; zero keeps the native/default rule. Builtin actor
+references are 320–508 in increments of four; custom actor references use their
+independent IDs. Actor artwork uses the same frame encoding and tileset fallback
+as terrain. Properties, artwork and identity are independent.
+
+`TYPEMAP.OVR` kinds 3/4/5/6 reference location NPC slots, world actor slots,
+BRIT.CBT spawn slots and DUNGEON.CBT spawn slots. For these records `x` is a slot
+and `y` is zero; location slots use map 1–32 and floor zero (their schedules own
+floor changes), world slots use map zero and floor 0/-1, encounter slots use the
+room index and floor zero. Location/world actor references survive encounter
+resets and saves. Encounter references reset with the selected encounter. The
+same library UUID and shared validation protect terrain and actor references.

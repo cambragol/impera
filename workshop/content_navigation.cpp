@@ -154,7 +154,15 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
     for (auto it = project.resources.begin(); it != project.resources.end(); ++it) {
         const auto name = it.key();
         if (name == "TYPES.OVR") {
-            result.append({"custom-tiles", "Graphics", "Tilesets", "Custom tiles", name});
+            ContentDestination tiles{"custom-tiles", "Graphics", "Tilesets", "Custom tiles", name};
+            tiles.selection["customTiles/kind"] = 0;
+            result.append(tiles);
+            for (int kind = 1; kind <= 2; kind++) {
+                ContentDestination types{kind == 1 ? "npc-types" : "monster-types", "NPCs", "Types",
+                                         kind == 1 ? "NPC types" : "Monster types", name};
+                types.selection["customTiles/kind"] = kind;
+                result.append(types);
+            }
             continue;
         }
         if (name == "TYPEMAP.OVR")

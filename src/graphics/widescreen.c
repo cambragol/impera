@@ -1,3 +1,4 @@
+#include "mod/actors.h"
 #include "widescreen.h"
 #include "common/common.h"
 #include "common/file.h"
@@ -277,7 +278,9 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
                         }
                         if (sprite == -1) continue;
                         if (sprite == -2) idx = D_b11e[TILE_MAP_38];
-                        else sprites[row * l.columns + col] = s_actorTiles[actor] = 256 + sprite;
+                        else
+                            sprites[row * l.columns + col] = s_actorTiles[actor] =
+                                ACTORS_Sprite(actor, 256 + sprite);
                         if (reflection && row > 0 && WIDE_Visible(dx, dy - 1)) {
                             for (int y = 0; y < 16; y++)
                                 if(l.mapY+(row-1)*16+y>=8 && l.mapY+(row-1)*16+y<l.height-8)

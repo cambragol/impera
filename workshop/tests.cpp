@@ -914,10 +914,19 @@ int main(int argc, char **argv) {
                 const auto navigation = Workshop::contentDestinations(p);
                 int dialogueEntries = 0;
                 for (const auto &d : navigation)
-                    if (d.workspace == "NPCs") {
+                    if (d.workspace == "NPCs" && d.group != "Types") {
                         check(d.conversation >= 0, "Schedule-only NPC cluttered dialogue navigation");
                         ++dialogueEntries;
                     }
+                int typeLibraries = 0;
+                for (const auto &d : navigation)
+                    if (d.workspace == "NPCs" && d.group == "Types") {
+                        check(d.resource == "TYPES.OVR" &&
+                                  d.selection.value("customTiles/kind") > 0,
+                              "Type library lost its semantic navigation route");
+                        ++typeLibraries;
+                    }
+                check(typeLibraries == 2, "NPC and monster type libraries are missing");
                 check(dialogueEntries == 6,
                       "Dialogue navigation lost shared NPCs or unassigned conversations");
                 check(p.data("TOWNE.NPC") == p.resources["TOWNE.NPC"].original,

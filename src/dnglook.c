@@ -1,3 +1,4 @@
+#include "mod/actors.h"
 #include "common/common.h"
 #include "vars.h"
 #include "funcs.h"
@@ -983,10 +984,10 @@ void DNGLOOK_0d3e(void)
         local_32 = D_5c5a[1]._5;
     }
 
-    local_4 = ULTIMA_2092_RandomRange(1, D_13bc_enemyStats[local_32].maxEncounterCount);
-    if (D_13bc_enemyStats[local_32].maxEncounterCount == 8 || D_13bc_enemyStats[local_32].maxEncounterCount == 0x10)
-    {
-        local_4 = D_13bc_enemyStats[local_32].maxEncounterCount;
+    local_4 = ULTIMA_2092_RandomRange(1, ACTORS_Stats(local_32).maxEncounterCount);
+    if (ACTORS_Stats(local_32).maxEncounterCount == 8 ||
+        ACTORS_Stats(local_32).maxEncounterCount == 0x10) {
+        local_4 = ACTORS_Stats(local_32).maxEncounterCount;
     }
 
     // b223 NOT MATCHING
@@ -1217,8 +1218,12 @@ void DNGLOOK_117e(int param_1, int param_2)
                 }
 
                 // b58e
-                local_12 = ULTIMA_6506(local_16, local_14, GetCombatMapSpecial(COMBAT_MAP_SPECIAL_MONSTER_X, local_c),
-                                       GetCombatMapSpecial(COMBAT_MAP_SPECIAL_MONSTER_Y, local_e), D_5895_map_level);
+                local_12 = ULTIMA_6506(
+                    local_14 == 0
+                        ? ACTORS_PlacedEncounter(local_c - COMBAT_MAP_SPECIAL_BASE, local_16)
+                        : local_16,
+                    local_14, GetCombatMapSpecial(COMBAT_MAP_SPECIAL_MONSTER_X, local_c),
+                    GetCombatMapSpecial(COMBAT_MAP_SPECIAL_MONSTER_Y, local_e), D_5895_map_level);
                 if (local_14 == 2)
                 {
                     if (local_16 == 1)

@@ -1,4 +1,5 @@
 #include "types_game.h"
+#include "actors.h"
 #include "types_state.h"
 #include "contents.h"
 #include "contents_game.h"
@@ -156,7 +157,10 @@ int TYPES_GAME_CombatEffects(unsigned entity) {
     TypeDef d, move;
     if (!TYPES_Defined(id) || !TYPES_Get(id, &d))
         return 0;
-    TYPES_Vanilla(1, D_5c5a[actor->actorIdx]._0_tile, &move);
+    if (actor->flags & COMBAT_FLAGS_MONSTER)
+        move = ACTORS_Def(actor->entityIdx);
+    else
+        TYPES_Vanilla(1, D_5c5a[actor->actorIdx]._0_tile, &move);
     if (move.moveProfile > 10 || !(d.effectModes & (1u << move.moveProfile)))
         return 1;
     if (d.effects & TYPES_POISON)

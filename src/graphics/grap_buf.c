@@ -504,6 +504,9 @@ bool GRAP_BUF_SpriteIsTransparent(int tile)
 
 int GRAP_BUF_SpritePixel(int tile, int x, int y)
 {
+    /* Authored RGBA artwork supplies its own edges, including opaque black. */
+    if (TYPES_ArtSlot(tile))
+        return x < 0 || y < 0 || x >= 16 || y >= 16 ? -1 : GRAP_BUF_TilePixel(tile, x, y);
     if (!GRAP_BUF_SpriteIsTransparent(tile))
         return x < 0 || y < 0 || x >= 16 || y >= 16 ? -1 : GRAP_BUF_TilePixel(tile, x, y);
     byte color = GRAP_BUF_TilePixel(tile, x, y);

@@ -1,3 +1,4 @@
+#include "mod/actors.h"
 #include "mouse.h"
 #include "common/common.h"
 #include "common/movement.h"
@@ -283,7 +284,8 @@ static int s_attackX, s_attackY, s_attackEntity;
 void MOUSE_ClearCombatAttack(void) { s_combatAttack=false; }
 static int CombatRange(int entity)
 {
-    if (!(D_ba14[entity].flags & COMBAT_FLAGS_PLAYER)) return D_159c[D_ba14[entity].entityIdx];
+    if (!(D_ba14[entity].flags & COMBAT_FLAGS_PLAYER))
+        return ACTORS_Range(D_ba14[entity].entityIdx);
     int range=1, party=D_ba14[entity].entityIdx;
     const int slots[3]={0,2,3};
     for (int i=0;i<3;i++) {

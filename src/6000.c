@@ -1,3 +1,4 @@
+#include "mod/actors.h"
 #include "mod/types_game.h"
 #include "mod/contents.h"
 #include "common/common.h"
@@ -38,6 +39,7 @@ void ULTIMA_5f86_SpecialMapHandler(int a, int b, int c);
 
 void ULTIMA_6150_Combat(int param_1)
 {
+    ACTORS_SetEncounter(param_1);
     int local_6;
     bool local_8;
     int local_a;
@@ -53,7 +55,8 @@ void ULTIMA_6150_Combat(int param_1)
     }
     else
     {
-        ULTIMA_1850_PrintString(D_18b6[(local_a - 0x40) / 4]); // TILE_ACTOR_40
+        ULTIMA_1850_PrintString(ACTORS_Name(
+            ACTORS_Encounter() ? ACTORS_Encounter() : (local_a - 0x40) / 4, 1)); // TILE_ACTOR_40
     }
 
     ULTIMA_16ba_PrintChar(CTRL_CHAR_UNCENTER_TEXT);
@@ -178,6 +181,7 @@ void ULTIMA_6150_Combat(int param_1)
     SJOG_203e(param_1);
     ULTIMA_5e4a();
     ULTIMA_4f7c(0);
+    ACTORS_SetEncounter(32);
 }
 
 void ULTIMA_6360_Camping(int param_1, int param_2)
@@ -268,16 +272,16 @@ int ULTIMA_6506(int param_1, int param_2, int param_3, int param_4, int param_5)
                 // 65c5
                 if (param_2 == 0) // monster?
                 {
-                    local_4->hp = D_13bc_enemyStats[param_1].maxHp;
-                    local_4->dex = ULTIMA_3aae_Random(7) - 4 + D_13bc_enemyStats[param_1].dex;
+                    local_4->hp = ACTORS_Stats(param_1).maxHp;
+                    local_4->dex = ULTIMA_3aae_Random(7) - 4 + ACTORS_Stats(param_1).dex;
                     if (local_4->dex > 0x1e)
                     {
-                        local_4->dex = D_13bc_enemyStats[param_1].dex;
+                        local_4->dex = ACTORS_Stats(param_1).dex;
                     }
 
                     local_4->turnTimer = 36 - local_4->dex;
                     local_4->flags = COMBAT_FLAGS_MONSTER;
-                    if (param_1 == 8 || param_1 == 9)
+                    if (ACTORS_Profile(param_1) == 8 || ACTORS_Profile(param_1) == 9)
                     {
                         // 6609
                         local_4->flags = COMBAT_FLAGS_DEAD;
@@ -305,8 +309,9 @@ int ULTIMA_6506(int param_1, int param_2, int param_3, int param_4, int param_5)
                 if (param_2 == 0)
                 {
                     local_4->actorIdx = local_6;
-                    
-                    D_5c5a[local_6]._1_animTile = D_5c5a[local_6]._0_tile = param_1 * 4 + TILE_ACTOR_WIZARD; // local_14
+
+                    D_5c5a[local_6]._1_animTile = D_5c5a[local_6]._0_tile =
+                        ACTORS_Def(param_1).base; // local_14
                 }
 
                 // 669a
@@ -574,17 +579,17 @@ void ULTIMA_6bc2(int param_1, int param_2)
     int local_8;
     int local_6;
     int local_4;
+    unsigned char spawned[16] = {0};
 
-    if (param_2 >= 0x100)
-    {
+    if (param_2 >= 0x100 && param_2 < 512) {
         param_2 -= 0x100;
         local_8 = 0;
-    }
-    else
-    {
+    } else {
         local_8 = 1;
     }
 
+    if (ACTORS_Encounter() && ACTORS_Profile(param_2) == ACTORS_Profile(ACTORS_Encounter()))
+        param_2 = ACTORS_Encounter();
     D_58a0 = 0;
     if ((param_1 & 4) == 0)
     {
@@ -614,13 +619,13 @@ void ULTIMA_6bc2(int param_1, int param_2)
         ULTIMA_1850_PrintString(_TEXT(0xa438, "*** CONFLICT ***\n"));
     }
 
-    if (D_5894 != 0 && D_5894 < 0x21 && param_2 != 0xc && local_8 != 0)
+    if (D_5894 != 0 && D_5894 < 0x21 && ACTORS_Profile(param_2) != 0xc && local_8 != 0)
     {
         local_6 = 1;
     }
     else
     {
-        local_6 = D_13bc_enemyStats[param_2].maxEncounterCount;
+        local_6 = ACTORS_Stats(param_2).maxEncounterCount;
     }
 
     if (local_6 != 8 && local_6 != 0x10 && local_6 != 1)
@@ -639,7 +644,9 @@ void ULTIMA_6bc2(int param_1, int param_2)
 
     local_2c = D_1704[local_28[0]];
     local_30 = D_1714[local_28[0]];
-    ULTIMA_6506(param_2, 0, local_2c, local_30, D_5895_map_level);
+    spawned[local_28[0]] = 1;
+    ULTIMA_6506(ACTORS_PlacedEncounter(local_28[0], param_2), 0, local_2c, local_30,
+                D_5895_map_level);
 
     local_2e = local_6 / 4 + 1;
     for (local_2a = 1; local_2a < local_6; local_2a++)
@@ -647,11 +654,18 @@ void ULTIMA_6bc2(int param_1, int param_2)
         local_4 = param_2;
         if (local_2a < local_2e && ULTIMA_3aae_Random(8) == 0)
         {
-            local_4 = D_16d4[param_2];
+            local_4 = ACTORS_Target(param_2, 3, ACTORS_Def(param_2).companion);
         }
         local_2c = D_1704[local_28[local_2a]];
         local_30 = D_1714[local_28[local_2a]];
-        ULTIMA_6506(local_4, 0, local_2c, local_30, D_5895_map_level);
+        spawned[local_28[local_2a]] = 1;
+        ULTIMA_6506(ACTORS_PlacedEncounter(local_28[local_2a], local_4), 0, local_2c, local_30,
+                    D_5895_map_level);
+    }
+    for (unsigned slot = 0; slot < 16; slot++) {
+        unsigned type = ACTORS_PlacedEncounter(slot, 0);
+        if (!spawned[slot] && type >= 512 && D_1704[slot] < 11 && D_1714[slot] < 11)
+            ULTIMA_6506(type, 0, D_1704[slot], D_1714[slot], D_5895_map_level);
     }
 }
 

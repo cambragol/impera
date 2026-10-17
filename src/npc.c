@@ -1,3 +1,5 @@
+#include "mod/actors.h"
+#include "mod/types_game.h"
 #include "common/common.h"
 #include "funcs.h"
 #include "vars.h"
@@ -788,6 +790,21 @@ static int NPC_0adc(int param_1, int param_2, int param_3, int param_4, int para
         else
         {
             local_6 = ((uint)D_367e[local_8 >> 3] & 0x80 >> (local_8 & 7)) == 0;
+            if (param_1 >= 0 && param_2 >= 0 && param_1 < 32 && param_2 < 32) {
+                TypeCell key = {3, D_5893_map_id, 0, param_4, 0, 0, 0};
+                unsigned actorType = TYPES_At(key, 0), tileType = TYPES_GAME_At(param_1, param_2);
+                unsigned originalType = 256 + D_659e[param_4];
+                if (!actorType && TYPES_Defined(originalType)) actorType = originalType;
+                if (actorType || TYPES_Defined(tileType)) {
+                    TypeDef terrain, actor;
+                    if (actorType)
+                        TYPES_Get(actorType, &actor);
+                    else
+                        TYPES_Vanilla(1, D_659e[param_4], &actor);
+                    if (TYPES_Get(tileType, &terrain))
+                        local_6 = !!(terrain.movement & (1u << actor.moveProfile));
+                }
+            }
         }
     }
 

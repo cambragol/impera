@@ -20,17 +20,18 @@ extern "C" {
 #define TYPES_BURN 2u
 /* Portable wire format; fields are explicitly encoded, never memcpy a struct.
  * ITYPES01 header: UUID[16] at 8, count:u32 at 24, reserved[4].
- * Each record: length:u32, id:u32, kind:u8 (0 tile,1 actor), base:u8,
+ * Each record: length:u32, id:u32, kind:u8 (0 tile,1 NPC,2 monster), base:u8,
  * filters:u8, render:u8, movement:u16, sight:u8, projectile:u8, travel:u8,
  * effects:u8, damageMin:u8, damageMax:u8, ground:u32,
  * result[4]:u32 (open,closed,locked,broken), stats[8], actorFlags:u16,
  * moveProfile:u8,range:u8,projectileAppearance:u8,companion:u8, effectModes:u16,
  * name[64],description[128],frames:u16,skiffDirections:u8,humanoidSeat:u8,combatMap:u8,reserved[3].
- * Frames: variant:u8 (0 default,1..5),side:u8 (16/32),duration:u16 (10..60000 ms),
+ * Frames: variant:u8 (0 default,1..5),side:u8 (14/16/32),duration:u16 (10..60000 ms),
  * followed by width*height RGBA bytes. Width 14 means Apple II 14x16;
  * widths 16 and 32 are square. Each variant has the same frame count.
  * ITYMAP01 header: UUID[16], count:u32,reserved[4]. Sorted cells:
  * kind:u8 (0 map,1 BRIT.CBT,2 DUNGEON.CBT), map:u8,floor:i8,x:u8,y:u8,
+ * kinds 3 NPC slots, 4 world actor slots, 5/6 encounter actor slots; x=slot,y=0.
  * reserved[3],type:u32,reserved[4]. Save records reuse the final word
  * for a temporary door’s restore type. */
 typedef struct TypeDef {
@@ -72,6 +73,7 @@ uint32_t TYPES_At(TypeCell, uint32_t fallback);
 int TYPES_State(TypeCell, TypeCell *);
 int TYPES_Defined(uint32_t);
 int TYPES_Set(TypeCell, uint32_t);
+void TYPES_Remove(TypeCell);
 int TYPES_WriteState(FILE *);
 int TYPES_ReadState(FILE *, int apply);
 unsigned TYPES_ArtSlot(uint32_t);
