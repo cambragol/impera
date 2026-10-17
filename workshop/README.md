@@ -605,7 +605,7 @@ use the default artwork. PNG alpha preserves opaque black.
 The property pane defines movement, travel speed, sight, projectiles, damage,
 poison, affected movement modes, transparent sprite composition, masonry and
 interaction/state variants. **World** and **Locations** picker memberships can
-overlap. **Apply settings** commits property edits; artwork edits commit as a
+overlap. Valid property edits save automatically with Undo support; artwork edits commit as a
 single undoable operation per gesture or import.
 
 New tiles appear in the map picker. Painting, fill, rectangle, copy/paste and
@@ -624,3 +624,9 @@ show DOS artwork; editing one copies its animation into that slot. The small art
 this tileset** to clear an alternative slot. The regular tileset editor also shows the
 selected sheet’s full palette, strictly limited to that tileset’s original colors. PNG imports are converted
 to the selected palette; custom RGB colors cannot be painted.
+
+Tile properties are grouped into Interaction, Movement & visibility, Appearance,
+Hazards, and Advanced sections. Collapsed sections summarize their settings.
+Ground, damage and skiff-heading controls appear when relevant; tile-state
+references use searchable thumbnails. Invalid settings show an inline error and
+leave the last valid tile definition unchanged.

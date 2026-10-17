@@ -11,6 +11,52 @@
 #include <cstring>
 using U5::require;
 namespace CustomTiles {
+class PropertySection : public QWidget {
+    QString title;
+    QToolButton *header;
+    QLabel *summary;
+
+  public:
+    QWidget *body;
+    QFormLayout *form;
+    PropertySection(const QString &name, bool expanded, QWidget *parent)
+        : QWidget(parent), title(name) {
+        setObjectName("tileSection" + name.section(' ', 0, 0));
+        auto layout = new QVBoxLayout(this);
+        layout->setContentsMargins(0, 4, 0, 4);
+        header = new QToolButton;
+        header->setText(name);
+        header->setToolTip("Expand or collapse " + name.toLower() + ".");
+        header->setCheckable(true);
+        header->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        header->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        summary = new QLabel;
+        summary->setWordWrap(true);
+        summary->setStyleSheet("color:#abb6c7;");
+        body = new QWidget;
+        form = new QFormLayout(body);
+        form->setContentsMargins(8, 4, 0, 0);
+        form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+        form->setRowWrapPolicy(QFormLayout::WrapLongRows);
+        layout->addWidget(header);
+        layout->addWidget(summary);
+        layout->addWidget(body);
+        connect(header, &QToolButton::toggled, this, [=](bool open) {
+            header->setArrowType(open ? Qt::DownArrow : Qt::RightArrow);
+            body->setVisible(open);
+            summary->setVisible(!open && !summary->text().isEmpty());
+        });
+        header->setChecked(expanded);
+        body->setVisible(expanded);
+        header->setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
+        summary->hide();
+    }
+    void describe(const QString &text) {
+        summary->setText(text);
+        summary->setVisible(!header->isChecked() && !text.isEmpty());
+    }
+    void expand(bool open) { header->setChecked(open); }
+};
 QSize artworkSize(unsigned variant) {
     return variant == 2 ? QSize(14, 16) : variant == 4 ? QSize(32, 32) : QSize(16, 16);
 }
@@ -474,43 +520,37 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     auto scroll = new QScrollArea;
     scroll->setWidgetResizable(true);
     auto props = new QWidget;
-    auto form = new QFormLayout(props);
     auto name = new QLineEdit, description = new QLineEdit;
     name->setObjectName("customTileName");
     name->setToolTip("Name shown in the tile picker and map inspector.");
     description->setToolTip("Text shown by Impera’s Look command.");
     description->setObjectName("customTileDescription");
-    form->addRow("Name", name);
-    form->addRow("Look description", description);
     auto world = new QCheckBox("World"), location = new QCheckBox("Locations");
     world->setToolTip("Include this tile in the map picker’s World filter.");
     location->setToolTip(
         "Include this tile in the Locations filter. Both filters can include the same tile.");
-    form->addRow(world);
-    form->addRow(location);
-    auto sprite = new QCheckBox("Transparent sprite"), masonry = new QCheckBox("Masonry");
+    auto sprite = new QCheckBox("Transparent sprite"), masonry = new QCheckBox("Wall lighting");
     sprite->setToolTip(
         "Composite PNG alpha over the ground underneath. Opaque black remains visible.");
     masonry->setToolTip("Keep structural edges crisp when darkness fades around walls.");
-    form->addRow(sprite);
-    form->addRow(masonry);
     auto ground = new QComboBox;
-    form->addRow("Ground underneath", ground);
+    ground->setObjectName("customTileGround");
+    ground->setToolTip(
+        "Floor shown beneath transparent pixels; Nearby ground chooses surrounding terrain.");
     auto sight = new QComboBox;
+    sight->setToolTip("Whether the tile permits sight, blocks it, or behaves like a window.");
     sight->addItems({"Clear", "Blocks sight", "Window"});
-    form->addRow("Sight", sight);
     auto projectile = new QCheckBox("Projectiles pass through");
-    form->addRow(projectile);
+    projectile->setToolTip("Allow arrows and other projectiles to cross this tile.");
     auto speed = new QComboBox;
+    speed->setToolTip("How much this terrain slows travel.");
     speed->addItems({"Normal", "Slow", "Very slow"});
-    form->addRow("Travel speed", speed);
     QVector<QCheckBox *> movement;
     for (auto label :
          {"Walking", "Sea creatures", "Flying", "Horse", "Phasing", "Skiff", "Frigate",
           "Swamp creatures", "Grass creatures", "Deep-water creatures", "Sand creatures"}) {
         auto box = new QCheckBox(label);
         movement.append(box);
-        form->addRow(box);
     }
     QVector<QCheckBox *> skiffDirections;
     auto boatGroup = new QGroupBox("Skiff headings");
@@ -527,19 +567,14 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             for (auto b : skiffDirections)
                 b->setChecked(true);
     });
-    form->addRow(boatGroup);
     auto humanoidSeat = new QCheckBox("Humanoid seating only");
-    form->addRow(humanoidSeat);
     auto combatMap = new QComboBox;
     combatMap->addItem("From terrain", 0);
     for (int i = 0; i < 16; i++)
         combatMap->addItem(QString("Combat map %1").arg(i + 1), i + 1);
-    form->addRow("Combat terrain", combatMap);
     auto poison = new QCheckBox("Poisonous"), burn = new QCheckBox("Damaging");
-    form->addRow(poison);
-    form->addRow(burn);
     QVector<QCheckBox *> effectModes;
-    auto effectGroup = new QGroupBox("Affected movement modes");
+    auto effectGroup = new QGroupBox("Who is affected");
     auto effectLayout = new QVBoxLayout(effectGroup);
     for (auto label :
          {"Walking", "Sea creatures", "Flying", "Horse", "Phasing", "Skiff", "Frigate",
@@ -548,12 +583,13 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         effectModes.append(box);
         effectLayout->addWidget(box);
     }
-    form->addRow(effectGroup);
     auto damageMin = new QSpinBox, damageMax = new QSpinBox;
+    damageMin->setObjectName("customTileDamageMin");
+    damageMax->setObjectName("customTileDamageMax");
+    damageMin->setToolTip("Lowest damage dealt when this terrain causes damage.");
+    damageMax->setToolTip("Highest damage dealt when this terrain causes damage.");
     damageMin->setRange(0, 255);
     damageMax->setRange(0, 255);
-    form->addRow("Minimum damage", damageMin);
-    form->addRow("Maximum damage", damageMax);
     auto interaction = new QComboBox;
     interaction->setObjectName("customTileInteraction");
     for (auto pair :
@@ -570,17 +606,89 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         interaction->addItem(pair.first, pair.second);
     interaction->setToolTip(
         "Choose the game interaction independently of the tile’s artwork and movement settings.");
-    form->addRow("Interaction", interaction);
     QVector<QComboBox *> results;
-    for (auto label : {"When opened", "When closed", "When locked", "When broken"}) {
+    for (auto label :
+         {"Open appearance", "Closed appearance", "Locked appearance", "Broken appearance"}) {
         auto box = new QComboBox;
         results.append(box);
-        form->addRow(label, box);
     }
-    auto apply = new QPushButton("Apply settings");
-    apply->setObjectName("applyCustomTile");
-    form->addRow(apply);
+    auto inspector = new QVBoxLayout(props);
+    inspector->setAlignment(Qt::AlignTop);
+    auto details = new QFormLayout;
+    details->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    details->addRow("Name", name);
+    details->addRow("Look description", description);
+    auto filters = new QHBoxLayout;
+    filters->addWidget(world);
+    filters->addWidget(location);
+    filters->addStretch();
+    details->addRow("Tile picker", filters);
+    inspector->addLayout(details);
+    auto interactions = new PropertySection("Interaction", true, props);
+    auto travel = new PropertySection("Movement & visibility", true, props);
+    auto appearance = new PropertySection("Appearance", false, props);
+    auto hazards = new PropertySection("Hazards", false, props);
+    auto advanced = new PropertySection("Advanced", false, props);
+    for (auto section : {interactions, travel, appearance, hazards, advanced})
+        inspector->addWidget(section);
+    interactions->form->addRow("Behavior", interaction);
+    for (int i = 0; i < results.size(); i++) {
+        results[i]->setObjectName(QString("tileStateAppearance%1").arg(i));
+        interactions->form->addRow(QStringList{"Open appearance", "Closed appearance",
+                                               "Locked appearance", "Broken appearance"}[i],
+                                   results[i]);
+    }
+    auto commonMovement = new QHBoxLayout;
+    commonMovement->addWidget(movement[0]);
+    commonMovement->addWidget(movement[3]);
+    travel->form->addRow("Can enter", commonMovement);
+    travel->form->addRow("Travel speed", speed);
+    travel->form->addRow("Sight", sight);
+    travel->form->addRow(projectile);
+    appearance->form->addRow(sprite);
+    appearance->form->addRow("Ground underneath", ground);
+    appearance->form->addRow(masonry);
+    hazards->form->addRow(poison);
+    hazards->form->addRow(burn);
+    auto damageRow = new QHBoxLayout;
+    damageRow->addWidget(damageMin);
+    damageRow->addWidget(new QLabel("to"));
+    damageRow->addWidget(damageMax);
+    hazards->form->addRow("Damage", damageRow);
+    hazards->form->addRow(effectGroup);
+    auto specialized = new QWidget;
+    auto movementGrid = new QGridLayout(specialized);
+    movementGrid->setContentsMargins(0, 0, 0, 0);
+    int movementRow = 0;
+    for (int i = 0; i < movement.size(); i++)
+        if (i != 0 && i != 3) {
+            movementGrid->addWidget(movement[i], movementRow / 2, movementRow % 2);
+            movementRow++;
+        }
+    advanced->form->addRow("Other movement", specialized);
+    advanced->form->addRow(boatGroup);
+    advanced->form->addRow(humanoidSeat);
+    advanced->form->addRow("Combat background", combatMap);
+    auto error = new QLabel;
+    error->setObjectName("customTileSettingsError");
+    error->setWordWrap(true);
+    error->setStyleSheet("color:#ff9898;");
+    error->hide();
+    inspector->addWidget(error);
+    for (auto box : movement)
+        box->setToolTip("Allow " + box->text().toLower() + " to enter this tile.");
+    for (auto box : effectModes)
+        box->setToolTip("Apply this tile’s hazards to " + box->text().toLower() + ".");
+    humanoidSeat->setToolTip("Restrict seating on this tile to humanoid characters.");
+    poison->setToolTip("This terrain can poison the selected movement types.");
+    burn->setToolTip("This terrain can damage the selected movement types.");
+    combatMap->setToolTip("Battlefield used when combat begins on this terrain.");
+    for (auto box : results)
+        box->setToolTip(
+            "Choose the tile’s appearance after this action, or keep the behavior’s default.");
     scroll->setWidget(props);
+    scroll->setMinimumWidth(340);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     layout->addWidget(scroll);
     struct Draft {
         unsigned id = 512;
@@ -633,19 +741,63 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         r[draft->id] = record(draft->def, draft->frames);
         return commit({{"TYPES.OVR", library(*p, r)}}, title);
     };
+    const auto referenceArt = U5::readGraphics("TILES.16", p->data("TILES.16")).images;
+    if (p->resources.contains("BRIT.CBT")) {
+        MapDocument combatDocument(p, "BRIT.CBT");
+        combatMap->setIconSize({48, 48});
+        for (int page = 0; page < qMin(16, combatDocument.pages.size()); page++) {
+            auto cells = combatDocument.terrain(page);
+            QMap<unsigned, int> counts;
+            QImage preview(176, 176, QImage::Format_ARGB32);
+            preview.fill(Qt::black);
+            QPainter painter(&preview);
+            for (int i = 0; i < cells.size(); i++) {
+                unsigned tile = U5::byte(cells, i);
+                counts[tile]++;
+                painter.drawImage((i % 11) * 16, (i / 11) * 16, referenceArt.value(tile));
+            }
+            painter.end();
+            unsigned dominant = 0;
+            int count = -1;
+            for (auto it = counts.begin(); it != counts.end(); ++it)
+                if (it.value() > count) {
+                    dominant = it.key();
+                    count = it.value();
+                }
+            combatMap->setItemText(page + 1, MapDocument::tileName(dominant) +
+                                                 QString(" · Layout %1").arg(page + 1));
+            combatMap->setItemIcon(page + 1, QIcon(QPixmap::fromImage(preview)));
+        }
+    }
+    auto referenceIcon = [=](unsigned id) {
+        return QIcon(
+            QPixmap::fromImage(records(*p).contains(id) ? image(*p, id) : referenceArt.value(id)));
+    };
+    for (auto box : results + QVector<QComboBox *>{ground}) {
+        box->setEditable(true);
+        box->setInsertPolicy(QComboBox::NoInsert);
+        box->setIconSize({24, 24});
+        box->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        box->setMinimumContentsLength(14);
+        box->completer()->setCaseSensitivity(Qt::CaseInsensitive);
+        box->completer()->setFilterMode(Qt::MatchContains);
+    }
     auto fillRefs = [=] {
         ground->clear();
         ground->addItem("Nearby ground", qulonglong(TYPES_INFER_GROUND));
         for (auto box : results) {
             box->clear();
-            box->addItem("None / original result", 0);
+            box->addItem(QStringList{"Default open appearance", "Default closed appearance",
+                                     "Default locked appearance",
+                                     "Default broken appearance"}[results.indexOf(box)],
+                         0);
         }
         auto r = records(*p);
         for (unsigned id = 0; id < 256; id++) {
             QString label = MapDocument::tileName(id);
-            ground->addItem(label, id);
+            ground->addItem(referenceIcon(id), label, id);
             for (auto box : results)
-                box->addItem(label, id);
+                box->addItem(referenceIcon(id), label, id);
         }
         for (auto it = r.begin(); it != r.end(); ++it) {
             auto d = definition(*p, it.key());
@@ -653,9 +805,9 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
                 continue;
             QString label = QString::fromUtf8(d.name);
             if (!(d.render & TYPES_SPRITE))
-                ground->addItem(label, d.id);
+                ground->addItem(referenceIcon(d.id), label, d.id);
             for (auto box : results)
-                box->addItem(label, d.id);
+                box->addItem(referenceIcon(d.id), label, d.id);
         }
     };
     auto reloadFrames = [=] {
@@ -692,6 +844,57 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         canvas->setMinimumSize(0, 0);
         canvas->setFixedSize(size * scale);
         canvas->update();
+    };
+    auto updateInspector = [=] {
+        appearance->form->setRowVisible(ground, sprite->isChecked());
+        hazards->form->setRowVisible(damageRow, burn->isChecked());
+        effectGroup->setVisible(poison->isChecked() || burn->isChecked());
+        boatGroup->setVisible(movement[5]->isChecked());
+        unsigned profile = interaction->currentData().toUInt();
+        bool door = profile == 0xb8 || profile == 0xb9 || profile == 0xba || profile == 0x97 ||
+                    profile == 0x98;
+        bool container = profile == 0xa6;
+        bool breakable = door || container || profile == 0x9d || profile == 0x2e || profile == 0x2d;
+        for (int i = 0; i < 4; i++)
+            interactions->form->setRowVisible(results[i],
+                                              results[i]->currentData().toUInt() != 0 ||
+                                                  (i < 3 ? door || container : breakable));
+        interactions->describe(interaction->currentText());
+        QStringList looks;
+        if (sprite->isChecked())
+            looks << "Transparent";
+        if (masonry->isChecked())
+            looks << "Wall lighting";
+        appearance->describe(looks.isEmpty() ? "Opaque" : looks.join(" · "));
+        QStringList dangers;
+        if (poison->isChecked())
+            dangers << "Poison";
+        if (burn->isChecked())
+            dangers << QString("%1–%2 damage").arg(damageMin->value()).arg(damageMax->value());
+        if (!dangers.isEmpty()) {
+            QStringList affected;
+            for (auto box : effectModes)
+                if (box->isChecked())
+                    affected << box->text();
+            dangers << (affected.isEmpty()
+                            ? "Affects nobody"
+                            : affected.mid(0, 2).join(", ") +
+                                  (affected.size() > 2 ? QString(" +%1").arg(affected.size() - 2)
+                                                       : ""));
+        }
+        hazards->describe(dangers.isEmpty() ? "None" : dangers.join(" · "));
+        travel->describe(QString("%1 · %2").arg(
+            movement[0]->isChecked() ? "Walkable" : "Blocks walking", sight->currentText()));
+        int count = 0;
+        for (int i = 0; i < movement.size(); i++)
+            if (i != 0 && i != 3 && movement[i]->isChecked())
+                count++;
+        QStringList extras{QString("%1 other movement types").arg(count)};
+        if (humanoidSeat->isChecked())
+            extras << "Humanoid seating";
+        if (combatMap->currentData().toUInt())
+            extras << combatMap->currentText();
+        advanced->describe(extras.join(" · "));
     };
     auto load = [=](unsigned id) {
         draft->loading = true;
@@ -732,6 +935,9 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             results[i]->setCurrentIndex(results[i]->findData(d.result[i]));
         reloadFrames();
         draft->loading = false;
+        error->hide();
+        updateInspector();
+        hazards->expand(d.effects != 0);
     };
     auto refresh = [=] {
         QSignalBlocker block(list);
@@ -823,12 +1029,17 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             }
         });
     });
-    QObject::connect(apply, &QPushButton::clicked, w, [=] {
-        report([&] {
-            auto &d = draft->def;
+    auto applySettings = [=] {
+        if (draft->loading)
+            return;
+        updateInspector();
+        auto previous = draft->def;
+        try {
+            auto d = draft->def;
             auto n = name->text().trimmed().toUtf8(), desc = description->text().toUtf8();
-            require(!n.isEmpty() && n.size() < 64 && desc.size() < 128,
-                    "Name or description exceeds its limit");
+            require(!n.isEmpty(), "Enter a name for this tile.");
+            require(n.size() < 64, "Tile names must fit within 63 UTF-8 bytes.");
+            require(desc.size() < 128, "Look descriptions must fit within 127 UTF-8 bytes.");
             memset(d.name, 0, 64);
             memcpy(d.name, n.constData(), n.size());
             memset(d.description, 0, 128);
@@ -861,10 +1072,33 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             d.ground = ground->currentData().toUInt();
             for (int i = 0; i < 4; i++)
                 d.result[i] = results[i]->currentData().toUInt();
-            if (save("Edit tile settings"))
+            if (d.damageMin > d.damageMax)
+                throw std::runtime_error("Minimum damage must not exceed maximum damage.");
+            if (memcmp(&previous, &d, sizeof(d)) == 0) {
+                error->hide();
+                return;
+            }
+            draft->def = d;
+            if (save("Edit tile settings")) {
+                error->hide();
                 refresh();
-        });
-    });
+            } else
+                draft->def = previous;
+        } catch (const std::exception &e) {
+            draft->def = previous;
+            error->setText(QString::fromUtf8(e.what()));
+            error->show();
+        }
+    };
+    QObject::connect(name, &QLineEdit::editingFinished, w, applySettings);
+    QObject::connect(description, &QLineEdit::editingFinished, w, applySettings);
+    for (auto box : props->findChildren<QCheckBox *>())
+        QObject::connect(box, &QCheckBox::toggled, w, [=] { applySettings(); });
+    for (auto box : props->findChildren<QComboBox *>())
+        QObject::connect(box, &QComboBox::currentIndexChanged, w, [=] { applySettings(); });
+    for (auto spin : {damageMin, damageMax})
+        QObject::connect(spin, &QSpinBox::editingFinished, w, applySettings);
+
     QObject::connect(tools, &QButtonGroup::idClicked, w, [=](int i) {
         canvas->tool = i;
         (*state)["customTiles/tool"] = i;
