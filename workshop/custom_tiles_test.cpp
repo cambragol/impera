@@ -3,6 +3,8 @@
 #include "window.h"
 #include "map_entities.h"
 #include <QApplication>
+#include <QClipboard>
+#include <QToolButton>
 #include <QMouseEvent>
 #include <QTemporaryDir>
 #include <QSettings>
@@ -530,6 +532,55 @@ int main(int argc, char **argv) {
                 }
             }
             tileset->setCurrentIndex(0);
+            // A single PNG replaces one frame, including when copied artwork has all tilesets.
+            auto sourceFrames = CustomTiles::frames(CustomTiles::records(large).value(61000));
+            QVector<CustomTiles::Frame> copied;
+            for (auto frame : sourceFrames)
+                for (int i = 0; i < 4; ++i)
+                    copied.append(frame);
+            QImage imported(32, 32, QImage::Format_RGBA8888);
+            imported.fill(Qt::transparent);
+            imported.setPixelColor(15, 15, QColor(170, 0, 0));
+            auto replaced = CustomTiles::importedFrames(copied, {{imported, 150, 0}}, 0, 2);
+            CHECK(replaced.size() == copied.size());
+            CHECK(replaced[2].image == imported);
+            CHECK(replaced[0].image == copied[0].image);
+            auto importedRecords = CustomTiles::records(large);
+            importedRecords[61000] =
+                CustomTiles::record(CustomTiles::definition(large, 61000), replaced);
+            CustomTiles::library(large, importedRecords);
+            QVector<CustomTiles::Frame> sheet{{imported, 150, 0}, {imported, 150, 0}};
+            auto resizedFrames = CustomTiles::importedFrames(copied, sheet, 0, 0);
+            importedRecords[61000] =
+                CustomTiles::record(CustomTiles::definition(large, 61000), resizedFrames);
+            CustomTiles::library(large, importedRecords);
+            CHECK(std::count_if(resizedFrames.begin(), resizedFrames.end(),
+                                [](const CustomTiles::Frame &f) { return f.variant == 0; }) == 2);
+            CHECK(std::count_if(resizedFrames.begin(), resizedFrames.end(),
+                                [](const CustomTiles::Frame &f) { return f.variant == 6; }) == 4);
+            auto frameList = editor->findChild<QListWidget *>("customTileFrames");
+            auto copyFrame = editor->findChild<QToolButton *>("customTileCopyFrame");
+            auto pasteFrame = editor->findChild<QToolButton *>("customTilePasteFrame");
+            auto addFrame = editor->findChild<QPushButton *>("customTileAddFrame");
+            CHECK(frameList && copyFrame && pasteFrame && addFrame);
+            auto originalFrame = CustomTiles::image(large, 61000);
+            addFrame->click();
+            CHECK(frameList->count() == 2);
+            frameList->setCurrentRow(1);
+            QApplication::clipboard()->setImage(imported);
+            pasteFrame->click();
+            auto pastedFrames = CustomTiles::frames(CustomTiles::records(large).value(61000));
+            CHECK(pastedFrames[0].image == originalFrame);
+            CHECK(pastedFrames[1].image.pixelColor(15, 15) == QColor(170, 0, 0));
+            CHECK(pastedFrames[1].image.pixelColor(0, 0).alpha() == 0);
+            auto duration = pastedFrames[1].duration;
+            frameList->setCurrentRow(0);
+            copyFrame->click();
+            frameList->setCurrentRow(1);
+            pasteFrame->click();
+            pastedFrames = CustomTiles::frames(CustomTiles::records(large).value(61000));
+            CHECK(pastedFrames[1].image == originalFrame);
+            CHECK(pastedFrames[1].duration == duration);
             auto saved = large.data("TYPES.OVR");
             appearance->setCurrentIndex(1);
             CHECK(large.data("TYPES.OVR") == saved);

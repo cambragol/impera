@@ -644,6 +644,14 @@ Selecting an original NPC or monster type shows all four native artwork frames f
 each tileset. Painting or importing preserves opaque black and PNG alpha while
 retaining the engine’s original animation sequences and timing. Original creatures keep four fixed slots;
 copy a type to create an independent animation with a different frame count.
+For custom animations, importing a single-frame PNG replaces the selected frame;
+a PNG grid replaces the animation. When a DOS grid changes the frame count,
+other supplied tilesets trim or repeat their last frames to match. Local and
+world animations remain independent. The **Copy frame** and **Paste frame** icon
+buttons copy artwork between frame slots while preserving the destination timing.
+Pasted images must match the selected frame’s pixel dimensions and are converted
+to the selected tileset’s palette.
+
 For custom animations, **Advanced → Frame duration** controls the selected frame’s
 duration. It is hidden for native animations.
 

@@ -4,6 +4,8 @@
 #include "map_entities.h"
 #include "mod/package.h"
 #include <QImageReader>
+#include <QClipboard>
+#include <QStyle>
 #include <QButtonGroup>
 #include <QToolButton>
 #include <QUuid>
@@ -129,6 +131,56 @@ QVector<Frame> frames(const QByteArray &r) {
         QImage img(p + off + 4, width, height, width * 4, QImage::Format_RGBA8888);
         result.append({img.copy(), U5::word(r, off + 2), p[off]});
         off += TYPES_FrameBytes(p, off);
+    }
+    return result;
+}
+QVector<Frame> importedFrames(const QVector<Frame> &existing, const QVector<Frame> &incoming,
+                              unsigned variant, int selected) {
+    require(!incoming.isEmpty() && incoming.size() <= 64, "Import needs 1–64 frames");
+    const unsigned base = variant < 6 ? 0 : 6;
+    QVector<Frame> current;
+    for (const auto &frame : existing)
+        if (frame.variant == variant)
+            current.append(frame);
+    if (current.isEmpty())
+        for (auto frame : existing)
+            if (frame.variant == base) {
+                frame.variant = variant;
+                frame.image = frame.image.scaled(incoming.first().image.size(),
+                                                 Qt::IgnoreAspectRatio, Qt::FastTransformation);
+                current.append(frame);
+            }
+    if (incoming.size() == 1 && !current.isEmpty()) {
+        current[qBound(0, selected, int(current.size()) - 1)].image = incoming.first().image;
+    } else {
+        current = incoming;
+        for (auto &frame : current)
+            frame.variant = variant;
+    }
+    int defaultCount = 0;
+    for (const auto &frame : existing)
+        if (frame.variant == base)
+            ++defaultCount;
+    require(variant == base || current.size() == defaultCount,
+            QString("This animation has %1 frames. Import one frame to replace the selected frame, "
+                    "or a sheet containing exactly %1 frames.")
+                .arg(defaultCount));
+    QVector<Frame> result;
+    for (unsigned v = 0; v < 12; ++v) {
+        QVector<Frame> group;
+        if (v == variant)
+            group = current;
+        else
+            for (const auto &frame : existing)
+                if (frame.variant == v)
+                    group.append(frame);
+        if (variant == base && v > base && v < base + 6 && !group.isEmpty()) {
+            while (group.size() > current.size())
+                group.removeLast();
+            while (group.size() < current.size())
+                group.append(group.last());
+        }
+        result += group;
     }
     return result;
 }
@@ -627,11 +679,27 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
          play = new QPushButton("Play");
     for (auto b : {frameAdd, frameDelete, frameLeft, frameRight, play})
         row->addWidget(b);
+    frameAdd->setObjectName("customTileAddFrame");
     frameAdd->setToolTip("Add a frame to every supplied artwork variant.");
     frameDelete->setToolTip("Delete the selected frame from every artwork variant.");
     frameLeft->setToolTip("Move this frame earlier.");
     frameRight->setToolTip("Move this frame later.");
     play->setToolTip("Preview this tile’s animation.");
+    auto frameCopy = new QToolButton;
+    auto framePaste = new QToolButton;
+    frameCopy->setObjectName("customTileCopyFrame");
+    framePaste->setObjectName("customTilePasteFrame");
+    frameCopy->setIcon(
+        QIcon::fromTheme("edit-copy", w->style()->standardIcon(QStyle::SP_FileIcon)));
+    framePaste->setIcon(
+        QIcon::fromTheme("edit-paste", w->style()->standardIcon(QStyle::SP_DialogOpenButton)));
+    frameCopy->setToolTip("Copy frame: copy the selected frame’s artwork, including transparency.");
+    framePaste->setToolTip(
+        "Paste frame: replace the selected frame’s artwork, keeping its duration. "
+        "The image must match this frame’s pixel dimensions; colors are converted "
+        "to the selected tileset’s palette.");
+    row->insertWidget(4, frameCopy);
+    row->insertWidget(5, framePaste);
     middle->addLayout(row);
     auto ms = new QSpinBox;
     ms->setRange(10, 60000);
@@ -958,7 +1026,7 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     ms->setToolTip("How long the selected frame stays visible, in milliseconds. 1000 ms is one "
                    "second. This sets animation timing, not movement speed.");
     import->setToolTip(
-        "Replace this tileset’s artwork with a PNG containing one frame or a grid of frames, read "
+        "Import one frame to replace the selected frame, or a grid to replace the animation, read "
         "left to right then top to bottom. Frame sizes must match this tileset. Colors are "
         "converted to its palette; PNG transparency is preserved.");
     name->setToolTip(actorKind
@@ -1789,6 +1857,32 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         draft->frames.append({canvas->pixels, 150, variant});
         return draft->frames.size() - 1;
     };
+    QObject::connect(frameCopy, &QToolButton::clicked, w, [=] {
+        if (frameList->currentItem())
+            QApplication::clipboard()->setImage(canvas->pixels);
+    });
+    QObject::connect(framePaste, &QToolButton::clicked, w, [=] {
+        if (!frameList->currentItem())
+            return;
+        report([&] {
+            auto pasted = QApplication::clipboard()->image();
+            require(!pasted.isNull(), "Copy a frame or image before pasting");
+            require(pasted.size() == selectedSize(),
+                    QString("This frame needs a %1 × %2 pixel image.")
+                        .arg(selectedSize().width())
+                        .arg(selectedSize().height()));
+            auto old = draft->frames;
+            try {
+                draft->frames[editableFrame()].image =
+                    Workshop::paletteImage(pasted, *allowedColors);
+                saveArtwork("Paste animation frame");
+            } catch (...) {
+                draft->frames = old;
+                throw;
+            }
+            reloadFrames();
+        });
+    });
     QObject::connect(resetArtwork, &QAction::triggered, w, [=] {
         report([&] {
             unsigned slot = selectedVariant();
@@ -1975,7 +2069,16 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
                     "An animation supports 1–64 frames per artwork variant");
             QMessageBox preview(
                 QMessageBox::Question, "Import frames",
-                QString("Import %1 frame(s) of %2 × %3 pixels?").arg(count).arg(width).arg(height),
+                (count == 1
+                     ? QString("Replace the selected frame with this %1 × %2 pixel image?")
+                           .arg(width)
+                           .arg(height)
+                     : QString("Replace the animation with %1 frames of %2 × %3 pixels? "
+                               "Other supplied tilesets will repeat or trim their last frames "
+                               "to match.")
+                           .arg(count)
+                           .arg(width)
+                           .arg(height)),
                 QMessageBox::Yes | QMessageBox::Cancel, w);
             preview.setIconPixmap(QPixmap::fromImage(img).scaled(512, 256, Qt::KeepAspectRatio,
                                                                  Qt::FastTransformation));
@@ -1985,15 +2088,12 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             if (selectedVariant() >= 6)
                 editableFrame();
             unsigned variant = selectedVariant();
-            QVector<Frame> next;
-            for (const auto &f : draft->frames)
-                if (f.variant != variant)
-                    next.append(f);
+            QVector<Frame> incoming;
             for (int i = 0; i < count; i++)
-                next.append({img.copy((i % columns) * width, (i / columns) * height, width, height),
-                             150, variant});
-            std::stable_sort(next.begin(), next.end(),
-                             [](const Frame &a, const Frame &b) { return a.variant < b.variant; });
+                incoming.append(
+                    {img.copy((i % columns) * width, (i / columns) * height, width, height), 150,
+                     variant});
+            auto next = importedFrames(draft->frames, incoming, variant, frameList->currentRow());
             bool alpha = false;
             for (int y = 0; y < img.height() && !alpha; y++)
                 for (int x = 0; x < img.width(); x++)
