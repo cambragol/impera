@@ -475,6 +475,152 @@ int main(int argc, char **argv) {
             }
             p.validate();
         }
+        {
+            Project large;
+            large.openGame(TEST_GAME_DIR);
+            TypeDef giant;
+            TYPES_Vanilla(1, 80, &giant);
+            giant.id = 61000;
+            giant.kind = 1;
+            giant.stats[5] = 50;
+            giant.stats[6] = 1;
+            strcpy(giant.name, "Large test NPC");
+            QImage art(16, 16, QImage::Format_RGBA8888);
+            art.fill(QColor(170, 0, 0));
+            large.resources["TYPES.OVR"].edited = CustomTiles::library(
+                large, {{giant.id, CustomTiles::record(giant, {{art, 150, 0}})}});
+            auto commitLarge = [&](const QMap<QString, QByteArray> &changes, const QString &) {
+                Project candidate = large;
+                for (auto it = changes.begin(); it != changes.end(); ++it)
+                    candidate.resources[it.key()].edited = it.value();
+                candidate.validate();
+                large = candidate;
+                return true;
+            };
+            QMap<QString, int> largeState{{"customTiles/kind", 1}, {"customTiles/1/id", 61000}};
+            std::unique_ptr<QWidget> editor(CustomTiles::editor(&large, commitLarge, &largeState));
+            auto footprint = editor->findChild<QComboBox *>("actorFootprint");
+            auto appearance = editor->findChild<QComboBox *>("actorArtworkContext");
+            auto tileset = editor->findChild<QComboBox *>("customTileVariant");
+            CHECK(footprint && footprint->isEnabled() && appearance);
+            for (int size = 1; size <= 3; ++size) {
+                footprint->setCurrentIndex(size);
+                auto type = CustomTiles::definition(large, 61000);
+                CHECK(TYPES_Width(&type) == unsigned(1 + size / 2) &&
+                      TYPES_Height(&type) == unsigned(1 + size % 2));
+                CHECK(CustomTiles::image(large, 61000).size() ==
+                      QSize(16 * (1 + size / 2), 16 * (1 + size % 2)));
+                CHECK(CustomTiles::image(large, 61000, 6).size() == QSize(16, 16));
+                for (int variant : {0, 2, 4}) {
+                    tileset->setCurrentIndex(variant);
+                    auto canvas = editor->findChild<QWidget *>("customTileCanvas");
+                    auto cell = CustomTiles::artworkSize(variant);
+                    CHECK(canvas->width() * cell.height() * (1 + size % 2) ==
+                          canvas->height() * cell.width() * (1 + size / 2));
+                    if (variant != 0) {
+                        QMouseEvent paint(QEvent::MouseButtonPress, QPointF(1, 1), QPointF(1, 1),
+                                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                        QMouseEvent finish(QEvent::MouseButtonRelease, QPointF(1, 1), QPointF(1, 1),
+                                           Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                        QApplication::sendEvent(canvas, &paint);
+                        QApplication::sendEvent(canvas, &finish);
+                        CHECK(CustomTiles::image(large, 61000, variant).size() ==
+                              QSize(cell.width() * (1 + size / 2), cell.height() * (1 + size % 2)));
+                    }
+                }
+            }
+            tileset->setCurrentIndex(0);
+            auto saved = large.data("TYPES.OVR");
+            appearance->setCurrentIndex(1);
+            CHECK(large.data("TYPES.OVR") == saved);
+            auto canvas = editor->findChild<QWidget *>("customTileCanvas");
+            CHECK(canvas->width() == canvas->height());
+            auto swatches = editor->findChild<QWidget *>("customTilePalette");
+            for (auto button : swatches->findChildren<QToolButton *>())
+                if (button->property("rgba").isValid() &&
+                    button->property("rgba").toUInt() == qRgb(0, 0, 170))
+                    button->click();
+            QMouseEvent worldDown(QEvent::MouseButtonPress, QPointF(1, 1), QPointF(1, 1),
+                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QMouseEvent worldUp(QEvent::MouseButtonRelease, QPointF(1, 1), QPointF(1, 1),
+                                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(canvas, &worldDown);
+            QApplication::sendEvent(canvas, &worldUp);
+            CHECK(CustomTiles::image(large, 61000, 6).pixelColor(0, 0) == QColor(0, 0, 170));
+            CHECK(CustomTiles::image(large, 61000, 0).pixelColor(0, 0) == QColor(170, 0, 0));
+            QMap<QString, MapViewState> mapStates;
+            QMap<QString, int> nav;
+            MapWorkspace worldMap(&large, "BRIT.DAT", &mapStates, &nav, commitLarge, {});
+            auto worldCanvas =
+                dynamic_cast<MapCanvas *>(worldMap.findChild<QWidget *>("mapCanvas"));
+            CHECK(worldCanvas && worldCanvas->actorSize(61000) == QSize(1, 1));
+            CHECK(worldCanvas->tiles[61000].size() == QSize(16, 16));
+            CHECK(worldCanvas->tiles[61000].pixelColor(0, 0) == QColor(0, 0, 170));
+            CHECK(large.package().startsWith("IMOD0011"));
+            Project roundtrip;
+            roundtrip.openGame(TEST_GAME_DIR);
+            roundtrip.importPackage(large.package());
+            CHECK(CustomTiles::image(roundtrip, 61000).size() == QSize(32, 32));
+            CHECK(CustomTiles::image(roundtrip, 61000, 6).size() == QSize(16, 16));
+            // Prepare clear terrain and NPC slots for deterministic placement checks.
+            MapDocument location(&large, "DWELLING.DAT");
+            auto clean = location.changes(page, QByteArray(1024, 5));
+            for (auto it = clean.begin(); it != clean.end(); ++it)
+                large.resources[it.key()].edited = it.value();
+            auto npcBytes = large.data("DWELLING.NPC");
+            npcBytes.replace(location.pages[page].settlement * 576, 576, QByteArray(576, 0));
+            large.resources["DWELLING.NPC"].edited = npcBytes;
+            auto added = Workshop::addMapItem(large, "DWELLING.DAT", page, {8, 8},
+                                              Workshop::MapItemKind::Npc, 61000, -1, "Giant");
+            for (auto it = added.changes.begin(); it != added.changes.end(); ++it)
+                large.resources[it.key()].edited = it.value();
+            large.validate();
+            bool rejected = false;
+            try {
+                Workshop::addMapItem(large, "DWELLING.DAT", page, {31, 31},
+                                     Workshop::MapItemKind::Npc, 61000);
+            } catch (const std::exception &) {
+                rejected = true;
+            }
+            CHECK(rejected);
+            rejected = false;
+            try {
+                Workshop::addMapItem(large, "DWELLING.DAT", page, {9, 9},
+                                     Workshop::MapItemKind::Npc, 61000);
+            } catch (const std::exception &) {
+                rejected = true;
+            }
+            CHECK(rejected);
+            MapCanvas map;
+            map.tiles.resize(61001);
+            map.tiles[61000] = CustomTiles::image(large, 61000);
+            map.actorFootprints[61000] = QSize(2, 2);
+            map.actors = {{8, 8, 61000, 1, {}}};
+            map.tool = MapCanvas::InspectNpc;
+            map.ids = QByteArray(1024, 5);
+            map.side = 32;
+            map.resizeMap();
+            int selected = -1;
+            map.chooseNpc = [&](int npc) { selected = npc; };
+            QMouseEvent click(QEvent::MouseButtonPress, QPointF(9 * 32 + 1, 9 * 32 + 1),
+                              QPointF(9 * 32 + 1, 9 * 32 + 1), Qt::LeftButton, Qt::LeftButton,
+                              Qt::NoModifier);
+            QApplication::sendEvent(&map, &click);
+            CHECK(selected == 1);
+            auto expandedBytes = CustomTiles::records(large).value(61000);
+            expandedBytes[253] = 2;
+            auto invalid = CustomTiles::records(large);
+            invalid[61000] = expandedBytes;
+            rejected = false;
+            try {
+                CustomTiles::library(large, invalid);
+            } catch (const std::exception &) {
+                rejected = true;
+            }
+            CHECK(rejected);
+            puts("PASS multi-tile editor sizes, independent world art, package v11, placement "
+                 "bounds/overlap and selection across the footprint");
+        }
         WorkshopWindow window;
         CHECK(window.openGame(TEST_GAME_DIR));
         window.projectForTests() = p;

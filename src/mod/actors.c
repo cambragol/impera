@@ -2,6 +2,9 @@
 #include "vars.h"
 #include "contents.h"
 #include "macros.h"
+#include "types_game.h"
+#include "funcs.h"
+#include "tiles.h"
 #include <string.h>
 static unsigned encounter;
 TypeDef ACTORS_Def(unsigned type) {
@@ -78,6 +81,116 @@ unsigned ACTORS_Instance(unsigned actor) {
         return 0;
     return type;
 }
+void ACTORS_Size(unsigned actor, unsigned *width, unsigned *height) {
+    *width = *height = 1;
+    unsigned type = ACTORS_Instance(actor);
+    if (type)
+        TYPES_ArtSize(type, D_5893_map_id == 0, width, height);
+}
+int ACTORS_Contains(unsigned actor, int x, int y) {
+    if (actor >= 32)
+        return 0;
+    unsigned w, h;
+    ACTORS_Size(actor, &w, &h);
+    int dx = x - D_5c5a[actor]._2_x, dy = y - D_5c5a[actor]._3_y;
+    if (!D_5893_map_id) {
+        dx = (dx + 256) & 255;
+        dy = (dy + 256) & 255;
+    }
+    return dx >= 0 && dy >= 0 && dx < (int)w && dy < (int)h;
+}
+int ACTORS_CombatContains(unsigned entity, int x, int y) {
+    if (entity >= 32 || D_ba14[entity].actorIdx >= 32)
+        return 0;
+    unsigned w, h;
+    ACTORS_Size(D_ba14[entity].actorIdx, &w, &h);
+    return x >= D_ba14[entity].x && y >= D_ba14[entity].y && x < D_ba14[entity].x + (int)w &&
+           y < D_ba14[entity].y + (int)h;
+}
+int ACTORS_CanPlace(unsigned type, int x, int y, unsigned ignoreActor) {
+    TypeDef d = ACTORS_Def(type);
+    unsigned w = D_5893_map_id ? TYPES_Width(&d) : 1;
+    unsigned h = D_5893_map_id ? TYPES_Height(&d) : 1;
+    int limit = D_5893_map_id >= 128 ? 11 : D_5893_map_id ? 32 : 256;
+    if (x < 0 || y < 0 || x + (int)w > limit || y + (int)h > limit)
+        return 0;
+    unsigned shape = d.base;
+    if (ignoreActor < 32)
+        shape = ACTORS_MoveShape(ignoreActor, shape);
+    else {
+        TypeDef native;
+        TYPES_Vanilla(1, shape, &native);
+        if (native.moveProfile != d.moveProfile)
+            for (unsigned candidate = 0; candidate < 256; candidate += 4) {
+                TYPES_Vanilla(1, candidate, &native);
+                if (native.moveProfile == d.moveProfile) {
+                    shape = candidate;
+                    break;
+                }
+            }
+    }
+    for (unsigned oy = 0; oy < h; ++oy)
+        for (unsigned ox = 0; ox < w; ++ox) {
+            int tx = x + ox, ty = y + oy;
+            if (!TYPES_GAME_Walkable(shape, tx, ty))
+                return 0;
+            if (D_5893_map_id >= 128 && *ULTIMA_4402_GetTileAddr(tx, ty) == 255)
+                return 0;
+            for (unsigned other = 0; other < 32; ++other) {
+                ActorFmt *a = &D_5c5a[other];
+                if (other == ignoreActor || !a->_0_tile || !a->_1_animTile)
+                    continue;
+                if (D_5893_map_id < 128 && a->_4_z != D_5895_map_level)
+                    continue;
+                if ((a->_0_tile & 252) == TILE_ACTOR_E8 || a->_0_tile == TILE_ACTOR_DEAD ||
+                    a->_0_tile == TILE_ACTOR_SLEEP)
+                    continue;
+                if (ACTORS_Contains(other, tx, ty))
+                    return 0;
+            }
+            if (D_5893_map_id > 0 && D_5893_map_id < 128 && ignoreActor != 0 &&
+                tx == D_5896_map_x && ty == D_5897_map_y)
+                return 0;
+        }
+    return 1;
+}
+int ACTORS_CanMove(unsigned actor, int x, int y) {
+    if (actor >= 32)
+        return 0;
+    unsigned type = ACTORS_Instance(actor);
+    if (!type) {
+        unsigned shape = D_5c5a[actor]._0_tile & 252;
+        type = shape >= 64 ? (shape - 64) / 4 : 0;
+    }
+    unsigned w, h;
+    ACTORS_Size(actor, &w, &h);
+    int dx = x - D_5c5a[actor]._2_x, dy = y - D_5c5a[actor]._3_y;
+    if ((w > 1 || h > 1) && (dx == 1 || dx == -1) && (dy == 1 || dy == -1) &&
+        (!ACTORS_CanPlace(type, x, D_5c5a[actor]._3_y, actor) ||
+         !ACTORS_CanPlace(type, D_5c5a[actor]._2_x, y, actor)))
+        return 0;
+    return ACTORS_CanPlace(type, x, y, actor);
+}
+static int clampCell(int value, int start, unsigned size) {
+    return value < start ? start : value >= start + (int)size ? start + (int)size - 1 : value;
+}
+void ACTORS_AttackCells(unsigned first, unsigned second, int *ax, int *ay, int *bx, int *by) {
+    unsigned aw, ah, bw, bh;
+    ACTORS_Size(D_ba14[first].actorIdx, &aw, &ah);
+    ACTORS_Size(D_ba14[second].actorIdx, &bw, &bh);
+    *bx = clampCell(D_ba14[first].x, D_ba14[second].x, bw);
+    *by = clampCell(D_ba14[first].y, D_ba14[second].y, bh);
+    *ax = clampCell(*bx, D_ba14[first].x, aw);
+    *ay = clampCell(*by, D_ba14[first].y, ah);
+}
+int ACTORS_Distance(unsigned first, unsigned second) {
+    int ax, ay, bx, by;
+    ACTORS_AttackCells(first, second, &ax, &ay, &bx, &by);
+    int dx = bx - ax, dy = by - ay, squared = dx * dx + dy * dy, distance = 0;
+    while (squared >= (distance + 1) * (distance + 1))
+        ++distance;
+    return distance;
+}
 unsigned ACTORS_Sprite(unsigned actor, unsigned fallback) {
     unsigned type = ACTORS_Instance(actor);
     return type && D_5c5a[actor]._1_animTile ? TYPES_ActorArt(type, fallback) : fallback;
@@ -85,7 +198,7 @@ unsigned ACTORS_Sprite(unsigned actor, unsigned fallback) {
 unsigned ACTORS_AtCell(int x, int y, unsigned fallback) {
     for (unsigned actor = 0; actor < 32; actor++) {
         ActorFmt *a = &D_5c5a[actor];
-        if (a->_0_tile && a->_1_animTile && a->_2_x == x && a->_3_y == y &&
+        if (a->_0_tile && a->_1_animTile && ACTORS_Contains(actor, x, y) &&
             a->_4_z == D_5895_map_level)
             return ACTORS_Sprite(actor, fallback);
     }
@@ -128,6 +241,8 @@ int ACTORS_Transform(unsigned entity) {
         return 0;
     unsigned target = ACTORS_Target(e->entityIdx, 0, e->entityIdx);
     TypeDef next = ACTORS_Def(target);
+    if (!ACTORS_CanPlace(target, e->x, e->y, e->actorIdx))
+        return 0;
     e->entityIdx = target;
     e->hp = next.stats[5];
     e->dex = next.stats[1];

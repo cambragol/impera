@@ -662,3 +662,26 @@ Imported palettes supply drawing swatches without recoloring artwork or limiting
 which colors you may paint. Custom palette swatches are remembered between sessions.
 The standard DOS, Amiga, Apple II, Grayscale and Sharp palettes remain fixed.
 Use the transparent palette swatch with Pencil or Fill to erase pixels.
+
+## Multi-tile NPCs and monsters
+
+In **Graphics → Custom tiles → NPC types / Monster types**, create or copy a type
+and choose **Size**: 1×1, 1×2, 2×1 or 2×2. Copy an original type before changing
+its size. The size is width × height, with its position at the top-left cell.
+
+Use **Locations & combat** to draw or import the full-sized animation, then choose
+**World maps** to edit its independent single-tile appearance. Both appearances
+support all tilesets and their own animation frames. Resizing keeps existing
+pixels at the top left and preserves the world artwork. A DOS 2×2 actor uses
+32×32-pixel local frames and 16×16-pixel world frames; Sharp uses 64×64 and 32×32.
+
+Britannia and Underworld always display and move these actors as one tile.
+Locations and combat use their full footprint for movement, collision, selection
+and targeting. The actor still has one conversation, health pool and combat turn.
+Click any occupied cell to select it; dragging keeps the point where you grabbed
+it. The whole body must fit clear terrain without overlapping other actors.
+Combat spawns use the nearest fitting position when an original one-tile spawn
+point cannot accommodate the larger body.
+
+These packages use version 11 and require a compatible Impera build. Existing
+single-tile packages retain their original versions and behavior.

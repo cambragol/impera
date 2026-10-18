@@ -249,3 +249,133 @@ static void customTypeGame(void) {
     puts("PASS custom terrain native rules, door transitions, 32px art, opaque black/alpha and "
          "native save/load");
 }
+
+static void multiTileActors(void) {
+    const unsigned localBytes = 32 * 32 * 4, worldBytes = 16 * 16 * 4;
+    const unsigned recordSize = 256 + 4 + localBytes + 4 + worldBytes, size = 32 + recordSize;
+    unsigned char *defs = calloc(1, size);
+    assert(defs);
+    memcpy(defs, "ITYPES01", 8);
+    defs[8] = 23;
+    TYPES_Put32(defs + 24, 1);
+    TypeDef d;
+    TYPES_Vanilla(1, 144, &d);
+    d.id = 60000;
+    d.kind = 2;
+    d.width = 2;
+    d.height = 2;
+    d.frames = 2;
+    d.render = TYPES_SPRITE;
+    d.stats[5] = 100;
+    d.stats[6] = 1;
+    unsigned char *r = defs + 32;
+    TYPES_Encode(r, &d);
+    TYPES_Put32(r, recordSize);
+    r[256] = 0;
+    r[257] = 16;
+    r[258] = 100;
+    for (unsigned pixel = 0; pixel < 32 * 32; ++pixel) {
+        r[260 + pixel * 4] = 255;
+        r[263 + pixel * 4] = 255;
+    }
+    unsigned off = 260 + localBytes;
+    r[off] = 6;
+    r[off + 1] = 16;
+    r[off + 2] = 100;
+    for (unsigned pixel = 0; pixel < 256; ++pixel) {
+        r[off + 6 + pixel * 4] = 255;
+        r[off + 7 + pixel * 4] = 255;
+    }
+    assert(TYPES_Validate(defs, size));
+    byte oldMap = D_5893_map_id, oldFloor = D_5895_map_level, oldX = D_5896_map_x,
+         oldY = D_5897_map_y;
+    ActorFmt oldActors[32];
+    CombatEntity oldEntities[32];
+    NpcFmt oldNpcs[32];
+    byte oldTerrain[1024], oldCombat[352], oldViewport[352];
+    byte oldLight = D_58a5;
+    D_58a5 = 99;
+    memcpy(oldViewport, D_ab02, sizeof(oldViewport));
+    memset(D_ab02, 0, sizeof(oldViewport));
+    memcpy(oldActors, D_5c5a, sizeof(oldActors));
+    memcpy(oldEntities, D_ba14, sizeof(oldEntities));
+    memcpy(oldNpcs, D_5f5e, sizeof(oldNpcs));
+    memcpy(oldTerrain, D_6608, sizeof(oldTerrain));
+    memcpy(oldCombat, D_ad14, sizeof(oldCombat));
+    memset(D_5c5a, 0, sizeof(oldActors));
+    memset(D_ba14, 0, sizeof(oldEntities));
+    memset(D_5f5e, 0, sizeof(oldNpcs));
+    memset(D_6608, 5, sizeof(oldTerrain));
+    memset(D_ad14, 5, sizeof(oldCombat));
+    D_5893_map_id = 13;
+    D_5895_map_level = 0;
+    D_5896_map_x = D_5897_map_y = 20;
+    TYPES_Mount(defs, size, NULL, 0);
+    TypeCell npc = {3, 13, 0, 1, 0, 60000, 0};
+    assert(TYPES_Set(npc, 60000));
+    D_5f5e[1]._0 = 1;
+    D_5f5e[1]._c = 12;
+    D_5c5a[12] = (ActorFmt){0};
+    D_5c5a[12]._0_tile = D_5c5a[12]._1_animTile = 144;
+    D_5c5a[12]._2_x = D_5c5a[12]._3_y = 3;
+    unsigned w, h;
+    ACTORS_Size(12, &w, &h);
+    assert(w == 2 && h == 2);
+    assert(ACTORS_Contains(12, 4, 4) && !ACTORS_Contains(12, 5, 4));
+    assert(ULTIMA_3702(4, 4, 0) == 144);
+    assert(ACTORS_CanMove(12, 4, 3)); /* Own overlapping cells do not block movement. */
+    assert(!ACTORS_CanMove(12, 31, 3));
+    GetMap(5, 4) = 0x4f;
+    assert(!ACTORS_CanMove(12, 4, 3));
+    GetMap(5, 4) = 5;
+    assert(TILESET_Select(TILESET_DOS));
+    int color = GRAP_BUF_SpritePixel(60000, 31, 31);
+    assert(color >= 0 && TILESET_LastSpriteColor(color, 0, 0, ega, true) == 0xffff0000u);
+    assert(GRAP_BUF_SpritePixel(60000, 32, 31) == -1);
+    GRAP_BUF_DrawSprite(g_linearEgaBuffer0, 320, 16, 16, 60000, 8, 8, 184, 184, 0, 0);
+    assert(TILESET_BufferColor(g_linearEgaBuffer0 + 47 * 320 + 47, 0, 0, ega) == 0xffff0000u);
+    D_5893_map_id = 0;
+    TypeCell world = {4, 0, 0, 12, 0, 60000, 0};
+    assert(TYPES_Set(world, 60000));
+    ACTORS_Size(12, &w, &h);
+    assert(w == 1 && h == 1);
+    assert(!ACTORS_Contains(12, 4, 4));
+    color = GRAP_BUF_SpritePixel(60000, 15, 15);
+    assert(color >= 0 && TILESET_LastSpriteColor(color, 0, 0, ega, true) == 0xff0000ffu);
+    assert(GRAP_BUF_SpritePixel(60000, 16, 15) == -1);
+    D_5893_map_id = 128;
+    D_ba14[6].flags = COMBAT_FLAGS_MONSTER;
+    D_ba14[6].entityIdx = 60000;
+    D_ba14[6].actorIdx = 12;
+    D_ba14[6].x = D_ba14[6].y = 3;
+    D_ba14[7].flags = COMBAT_FLAGS_PLAYER;
+    D_ba14[7].actorIdx = 13;
+    D_ba14[7].x = 5;
+    D_ba14[7].y = 4;
+    D_5c5a[13]._0_tile = D_5c5a[13]._1_animTile = 0x1c;
+    D_5c5a[13]._2_x = 5;
+    D_5c5a[13]._3_y = 4;
+    assert(COMSUBS_0748(4, 4) == 6 && COMSUBS_04d4(6, 7) == 1);
+    assert(!ACTORS_CanMove(12, 4, 3) && ACTORS_CanMove(12, 2, 3));
+    int ax, ay, bx, by;
+    ACTORS_AttackCells(6, 7, &ax, &ay, &bx, &by);
+    assert(ax == 4 && ay == 4 && bx == 5 && by == 4);
+    assert(!ACTORS_CanPlace(60000, 10, 10, 32));
+    int spawned = ULTIMA_6506(60000, 0, 10, 10, 0);
+    assert(spawned >= 6 && D_ba14[spawned].x <= 9 && D_ba14[spawned].y <= 9);
+    TYPES_Mount(NULL, 0, NULL, 0);
+    free(defs);
+    memcpy(D_5c5a, oldActors, sizeof(oldActors));
+    memcpy(D_ba14, oldEntities, sizeof(oldEntities));
+    memcpy(D_5f5e, oldNpcs, sizeof(oldNpcs));
+    memcpy(D_6608, oldTerrain, sizeof(oldTerrain));
+    memcpy(D_ad14, oldCombat, sizeof(oldCombat));
+    memcpy(D_ab02, oldViewport, sizeof(oldViewport));
+    D_58a5 = oldLight;
+    D_5893_map_id = oldMap;
+    D_5895_map_level = oldFloor;
+    D_5896_map_x = oldX;
+    D_5897_map_y = oldY;
+    puts("PASS multi-tile occupancy, own-overlap movement, obstacles, targeting, range, large "
+         "rendering and single-tile world art");
+}

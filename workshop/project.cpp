@@ -121,12 +121,17 @@ QByteArray Project::package() const {
     auto list = changed();
     require(!list.isEmpty(), "There are no changes to export");
     require(list.size() <= MOD_MAX_ENTRIES, "Too many modified resources");
-    bool actorTypes = false;
-    for (const auto &record : CustomTiles::records(*this))
+    bool actorTypes = false, largeActors = false;
+    for (const auto &record : CustomTiles::records(*this)) {
         actorTypes |= record.size() > 8 && record[8] != 0;
+        largeActors |= record.size() >= 256 && (record[253] || record[254]);
+        for (const auto &frame : CustomTiles::frames(record))
+            largeActors |= frame.variant >= 6;
+    }
     QByteArray out(
-        list.contains("TYPES.OVR") || list.contains("TYPEMAP.OVR")
-            ? (actorTypes ? "IMOD0010" : "IMOD0009")
+        list.contains("TYPES.OVR") || list.contains("TYPEMAP.OVR") ? (largeActors  ? "IMOD0011"
+                                                                      : actorTypes ? "IMOD0010"
+                                                                                   : "IMOD0009")
         : list.contains("CUTSCENE.OVR")
             ? (data("CUTSCENE.OVR").startsWith("ICUT0003")
                    ? "IMOD0008"

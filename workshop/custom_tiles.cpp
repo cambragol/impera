@@ -74,7 +74,7 @@ class PropertySection : public QWidget {
     void expand(bool open) { header->setChecked(open); }
 };
 QSize artworkSize(unsigned variant) {
-    return variant == 2 ? QSize(14, 16) : variant == 4 ? QSize(32, 32) : QSize(16, 16);
+    return variant % 6 == 2 ? QSize(14, 16) : variant % 6 == 4 ? QSize(32, 32) : QSize(16, 16);
 }
 QMap<unsigned, QByteArray> records(const Project &p) {
     QMap<unsigned, QByteArray> result;
@@ -125,9 +125,10 @@ QVector<Frame> frames(const QByteArray &r) {
     int off = 256;
     for (unsigned i = 0; i < U5::word(r, 248); i++) {
         int side = p[off + 1];
-        QImage img(p + off + 4, side, TYPES_FrameHeight(side), side * 4, QImage::Format_RGBA8888);
+        int width = TYPES_FrameWidth(p, p[off], side), height = TYPES_FrameRows(p, p[off], side);
+        QImage img(p + off + 4, width, height, width * 4, QImage::Format_RGBA8888);
         result.append({img.copy(), U5::word(r, off + 2), p[off]});
-        off += 4 + side * TYPES_FrameHeight(side) * 4;
+        off += TYPES_FrameBytes(p, off);
     }
     return result;
 }
@@ -137,11 +138,15 @@ QByteArray record(TypeDef d, const QVector<Frame> &f) {
     TYPES_Encode(reinterpret_cast<unsigned char *>(b.data()), &d);
     for (const auto &frame : f) {
         auto img = frame.image.convertToFormat(QImage::Format_RGBA8888);
-        require(((img.width() == 16 || img.width() == 32) && img.width() == img.height()) ||
-                    (frame.variant == 2 && img.size() == QSize(14, 16)),
-                "Frames must be 16 × 16, 32 × 32, or Apple II 14 × 16 pixels");
+        unsigned fw = frame.variant < 6 ? TYPES_Width(&d) : 1;
+        unsigned fh = frame.variant < 6 ? TYPES_Height(&d) : 1;
+        unsigned cell = img.width() / fw;
+        require(img.width() == int(cell * fw) &&
+                    (cell == 16 || cell == 32 || (frame.variant % 6 == 2 && cell == 14)) &&
+                    img.height() == int(TYPES_FrameHeight(cell) * fh),
+                "Artwork dimensions do not match actor size");
         b.append(char(frame.variant));
-        b.append(char(img.width()));
+        b.append(char(cell));
         b.append(char(frame.duration));
         b.append(char(frame.duration >> 8));
         for (int y = 0; y < img.height(); y++)
@@ -167,12 +172,11 @@ QByteArray library(const Project &p, const QMap<unsigned, QByteArray> &r) {
 QImage image(const Project &p, unsigned id, unsigned variant, quint64 ms) {
     auto r = records(p).value(id);
     if (!r.isEmpty()) {
-        unsigned side = 0;
-        auto rgba =
-            TYPES_Frame(reinterpret_cast<const unsigned char *>(r.constData()), variant, ms, &side);
+        unsigned side = 0, height = 0;
+        auto rgba = TYPES_FrameImage(reinterpret_cast<const unsigned char *>(r.constData()),
+                                     variant, ms, &side, &height);
         if (rgba)
-            return QImage(rgba, side, TYPES_FrameHeight(side), side * 4, QImage::Format_RGBA8888)
-                .copy();
+            return QImage(rgba, side, height, side * 4, QImage::Format_RGBA8888).copy();
     }
     auto tiles = U5::readGraphics("TILES.16", p.data("TILES.16")).images;
     auto d = definition(p, id);
@@ -320,6 +324,33 @@ void validate(const Project &p) {
                     page = i;
         require(page >= 0 && page < pages.size(),
                 "Custom tile references a missing floor or encounter");
+        auto actor = definition(p, c.type);
+        if (actor.kind && (TYPES_Width(&actor) > 1 || TYPES_Height(&actor) > 1)) {
+            if (c.kind == 3) {
+                auto npcResource = source.left(source.size() - 4) + ".NPC";
+                Project view = p;
+                MapNpcDocument npcs(&view, npcResource);
+                for (int schedule = 0; schedule < 4; ++schedule) {
+                    auto pos = npcs.location((c.map - 1) % 8, c.x, schedule);
+                    if (pos.x >= 32 || pos.y >= 32)
+                        continue; // Preserve scheduled off-map absence.
+                    int destPage = -1;
+                    for (int i = 0; i < pages.size(); ++i)
+                        if (pages[i].settlement == (c.map - 1) % 8 && pages[i].floor == pos.floor)
+                            destPage = i;
+                    require(destPage >= 0, "Creature schedule references a missing floor");
+                    Workshop::validateActorPlacement(p, source, destPage, {pos.x, pos.y}, c.type,
+                                                     c.x, schedule);
+                }
+            } else if (c.kind == 5 || c.kind == 6) {
+                auto data = p.data(source);
+                int offset = pages[page].offset;
+                int x = U5::byte(data, offset + 6 * 32 + 11 + c.x),
+                    y = U5::byte(data, offset + 7 * 32 + 11 + c.x);
+                if (x < 11 && y < 11)
+                    Workshop::validateActorPlacement(p, source, page, {x, y}, c.type, c.x);
+            }
+        }
     }
 }
 QMap<QString, QByteArray> moveScenery(const Project &p, const QString &resource, int page,
@@ -494,6 +525,19 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     tilesetRow->addWidget(new QLabel("Tileset:"));
     tilesetRow->addWidget(variants, 1);
     middle->addLayout(tilesetRow);
+    auto context = new QComboBox;
+    context->setObjectName("actorArtworkContext");
+    context->addItems({"Locations & combat", "World maps"});
+    context->setToolTip("Edit the larger appearance used inside locations and combat, or the "
+                        "single-tile appearance used on Britannia and Underworld. Both have "
+                        "independent animation frames and tileset artwork.");
+    context->setCurrentIndex(actorKind ? qBound(0, state->value("customTiles/artworkContext", 0), 1)
+                                       : 0);
+    context->setVisible(actorKind != 0);
+    middle->addWidget(context);
+    auto selectedVariant = [=] {
+        return variants->currentIndex() + (actorKind && context->currentIndex() ? 6 : 0);
+    };
     auto canvas = new Canvas;
     auto toolRow = new QHBoxLayout;
     auto tools = new QButtonGroup(w);
@@ -697,6 +741,16 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     inspector->setAlignment(Qt::AlignTop);
     auto details = new QFormLayout;
     details->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    auto actorSize = new QComboBox;
+    actorSize->setObjectName("actorFootprint");
+    actorSize->addItems({"1 × 1", "1 × 2", "2 × 1", "2 × 2"});
+    actorSize->setToolTip(
+        "Width × height occupied in locations and combat. Britannia and Underworld always use a "
+        "single tile. Resizing keeps existing pixels at the top left; shrinking crops them. Copy "
+        "an original type to make a larger creature.");
+    actorSize->setVisible(actorKind != 0);
+    if (actorKind)
+        details->addRow("Size", actorSize);
     details->addRow("Name", name);
     details->addRow("Look description", description);
     auto filters = new QHBoxLayout;
@@ -1243,6 +1297,12 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             for (int i = 0; i < box->count(); ++i)
                 box->setItemData(i, box->itemText(i) + ": " + box->toolTip(), Qt::ToolTipRole);
     };
+    auto selectedSize = [=] {
+        auto size = artworkSize(variants->currentIndex());
+        return selectedVariant() < 6 ? QSize(size.width() * TYPES_Width(&draft->def),
+                                             size.height() * TYPES_Height(&draft->def))
+                                     : size;
+    };
     auto reloadFrames = [=] {
         QSignalBlocker block(frameList);
         frameList->clear();
@@ -1257,12 +1317,15 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
                 : "Choose a drawing color from the selected tileset’s palette. The crossed swatch "
                   "paints transparent pixels; black is a visible color.");
         advanced->form->setRowVisible(ms, !draft->originalAnimation);
-        unsigned slot = variants->currentIndex();
+        unsigned slot = selectedVariant();
         bool supplied = std::any_of(draft->frames.begin(), draft->frames.end(),
                                     [=](const Frame &f) { return f.variant == slot; });
-        resetArtwork->setEnabled(!draft->originalAnimation && slot != 0 && supplied);
-        if (!supplied)
-            slot = 0;
+        resetArtwork->setEnabled(!draft->originalAnimation && slot % 6 != 0 && supplied);
+        if (!supplied) {
+            bool hasWorld = std::any_of(draft->frames.begin(), draft->frames.end(),
+                                        [](const Frame &f) { return f.variant == 6; });
+            slot = selectedVariant() < 6 || !hasWorld ? 0 : 6;
+        }
         for (int i = 0; i < draft->frames.size(); i++)
             if (draft->frames[i].variant == slot) {
                 auto item = new QListWidgetItem(QIcon(QPixmap::fromImage(draft->frames[i].image)),
@@ -1288,13 +1351,13 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
                        frameList->count() - 1));
         if (frameList->currentItem()) {
             auto f = draft->frames[frameList->currentItem()->data(Qt::UserRole).toInt()];
-            canvas->pixels = f.image.scaled(artworkSize(variants->currentIndex()),
-                                            Qt::IgnoreAspectRatio, Qt::FastTransformation);
+            canvas->pixels =
+                f.image.scaled(selectedSize(), Qt::IgnoreAspectRatio, Qt::FastTransformation);
             ms->setValue(f.duration);
         } else
-            canvas->pixels = image(*p, draft->id, variants->currentIndex());
-        canvas->pixels = canvas->pixels.scaled(artworkSize(variants->currentIndex()),
-                                               Qt::IgnoreAspectRatio, Qt::FastTransformation);
+            canvas->pixels = image(*p, draft->id, selectedVariant());
+        canvas->pixels =
+            canvas->pixels.scaled(selectedSize(), Qt::IgnoreAspectRatio, Qt::FastTransformation);
         const auto size = canvas->pixels.size();
         int scale = 384 / qMax(size.width(), size.height());
         canvas->setMinimumSize(0, 0);
@@ -1381,6 +1444,16 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         (*state)[selectedIdKey] = id;
         draft->def = definition(*p, id);
         auto d = draft->def;
+        {
+            QSignalBlocker block(actorSize);
+            actorSize->setCurrentIndex((TYPES_Width(&d) - 1) * 2 + TYPES_Height(&d) - 1);
+        }
+        actorSize->setEnabled(actorKind && id >= 512);
+        context->setEnabled(actorKind && id >= 512);
+        if (id < 512) {
+            QSignalBlocker block(context);
+            context->setCurrentIndex(0);
+        }
         draft->frames = frames(records(*p).value(id));
         draft->originalAnimation =
             actorKind && id < 512 &&
@@ -1670,7 +1743,8 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     for (auto box : props->findChildren<QCheckBox *>())
         QObject::connect(box, &QCheckBox::toggled, w, [=] { applySettings(); });
     for (auto box : props->findChildren<QComboBox *>())
-        QObject::connect(box, &QComboBox::currentIndexChanged, w, [=] { applySettings(); });
+        if (box != actorSize)
+            QObject::connect(box, &QComboBox::currentIndexChanged, w, [=] { applySettings(); });
     for (auto spin : QVector<QSpinBox *>{damageMin, damageMax, attackRange} + actorStats)
         QObject::connect(spin, &QSpinBox::editingFinished, w, applySettings);
 
@@ -1679,18 +1753,26 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         (*state)["customTiles/tool"] = i;
     });
     auto editableFrame = [=]() -> int {
-        unsigned variant = variants->currentIndex();
+        unsigned variant = selectedVariant();
+        if (variant >= 6 && !std::any_of(draft->frames.begin(), draft->frames.end(),
+                                         [](const Frame &f) { return f.variant >= 6; })) {
+            auto originals = draft->frames;
+            for (auto frame : originals) {
+                frame.variant += 6;
+                draft->frames.append(frame);
+            }
+        }
         int row = qMax(0, frameList->currentRow());
         if (draft->frames.isEmpty())
             draft->frames.append({image(*p, draft->id), 150, 0});
         bool supplied = std::any_of(draft->frames.begin(), draft->frames.end(),
                                     [=](const Frame &f) { return f.variant == variant; });
-        if (!supplied && variant) {
+        if (!supplied && variant % 6) {
             auto defaults = draft->frames;
             for (auto f : defaults)
-                if (!f.variant) {
+                if (f.variant == (variant < 6 ? 0u : 6u)) {
                     f.variant = variant;
-                    f.image = f.image.scaled(artworkSize(variant), Qt::IgnoreAspectRatio,
+                    f.image = f.image.scaled(selectedSize(), Qt::IgnoreAspectRatio,
                                              Qt::FastTransformation);
                     draft->frames.append(f);
                 }
@@ -1709,8 +1791,8 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     };
     QObject::connect(resetArtwork, &QAction::triggered, w, [=] {
         report([&] {
-            unsigned slot = variants->currentIndex();
-            if (!slot)
+            unsigned slot = selectedVariant();
+            if (slot % 6 == 0)
                 return;
             draft->frames.erase(std::remove_if(draft->frames.begin(), draft->frames.end(),
                                                [=](const Frame &f) { return f.variant == slot; }),
@@ -1724,8 +1806,8 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             return;
         (*state)[QString("customTiles/%1/frame").arg(draft->id)] = frameList->row(item);
         const auto &f = draft->frames[item->data(Qt::UserRole).toInt()];
-        canvas->pixels = f.image.scaled(artworkSize(variants->currentIndex()),
-                                        Qt::IgnoreAspectRatio, Qt::FastTransformation);
+        canvas->pixels =
+            f.image.scaled(selectedSize(), Qt::IgnoreAspectRatio, Qt::FastTransformation);
         QSignalBlocker block(ms);
         ms->setValue(f.duration);
         canvas->update();
@@ -1743,6 +1825,67 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         reloadPalette();
         reloadFrames();
     });
+    QObject::connect(context, &QComboBox::currentIndexChanged, w, [=](int index) {
+        (*state)["customTiles/artworkContext"] = index;
+        reloadFrames();
+    });
+    QObject::connect(actorSize, &QComboBox::currentIndexChanged, w, [=](int index) {
+        if (draft->loading || draft->id < 512)
+            return;
+        report([&] {
+            auto previous = draft->def;
+            auto oldFrames = draft->frames;
+            auto d = previous;
+            d.width = 1 + index / 2;
+            d.height = 1 + index % 2;
+            QVector<Frame> next = draft->frames;
+            bool world = std::any_of(next.begin(), next.end(),
+                                     [](const Frame &f) { return f.variant >= 6; });
+            if (!world) {
+                for (auto frame : draft->frames) {
+                    auto cell = artworkSize(frame.variant);
+                    frame.variant += 6;
+                    frame.image = frame.image.copy(0, 0, cell.width(), cell.height());
+                    next.append(frame);
+                }
+            }
+            for (auto &frame : next)
+                if (frame.variant < 6) {
+                    auto cell = artworkSize(frame.variant);
+                    QImage resized(cell.width() * d.width, cell.height() * d.height,
+                                   QImage::Format_RGBA8888);
+                    resized.fill(Qt::transparent);
+                    QPainter painter(&resized);
+                    painter.setCompositionMode(QPainter::CompositionMode_Source);
+                    painter.drawImage(0, 0, frame.image);
+                    painter.end();
+                    frame.image = resized;
+                }
+            std::stable_sort(next.begin(), next.end(),
+                             [](const Frame &a, const Frame &b) { return a.variant < b.variant; });
+            draft->def = d;
+            draft->frames = next;
+            try {
+                if (!save("Resize creature")) {
+                    draft->def = previous;
+                    draft->frames = oldFrames;
+                }
+            } catch (...) {
+                draft->def = previous;
+                draft->frames = oldFrames;
+                QSignalBlocker block(actorSize);
+                actorSize->setCurrentIndex((TYPES_Width(&previous) - 1) * 2 +
+                                           TYPES_Height(&previous) - 1);
+                throw;
+            }
+            {
+                QSignalBlocker block(actorSize);
+                actorSize->setCurrentIndex((TYPES_Width(&draft->def) - 1) * 2 +
+                                           TYPES_Height(&draft->def) - 1);
+            }
+            reloadFrames();
+        });
+    });
     QObject::connect(ms, &QSpinBox::editingFinished, w, [=] {
         if (!draft->loading && !draft->originalAnimation && frameList->currentItem())
             report([&] {
@@ -1755,7 +1898,9 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         report([&] {
             require(variants->currentIndex() == 0,
                     "Add frames to the default animation before supplying alternative artwork");
-            for (int v = 0; v < 7; v++) {
+            require(frameList->count() < 64, "An animation supports at most 64 frames");
+            editableFrame();
+            for (int v = selectedVariant() < 6 ? 0 : 6, endVariant = v + 6; v < endVariant; v++) {
                 auto f = std::find_if(draft->frames.begin(), draft->frames.end(),
                                       [=](const Frame &f) { return f.variant == unsigned(v); });
                 if (f != draft->frames.end()) {
@@ -1774,8 +1919,9 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         report([&] {
             require(variants->currentIndex() == 0 && frameList->count() > 1,
                     "The default animation needs at least one frame");
+            editableFrame();
             int index = frameList->currentRow();
-            for (int v = 6; v >= 0; v--) {
+            for (int base = selectedVariant() < 6 ? 0 : 6, v = base + 5; v >= base; v--) {
                 int n = 0;
                 for (int i = 0; i < draft->frames.size(); i++)
                     if (draft->frames[i].variant == unsigned(v) && n++ == index) {
@@ -1815,7 +1961,7 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             auto img = reader.read().convertToFormat(QImage::Format_RGBA8888);
             require(!img.isNull(), "Cannot decode PNG");
             img = Workshop::paletteImage(img, *allowedColors);
-            const QSize frameSize = artworkSize(variants->currentIndex());
+            const QSize frameSize = selectedSize();
             const int width = frameSize.width(), height = frameSize.height();
             require(img.width() % width == 0 && img.height() % height == 0,
                     QString("This tileset needs %1 × %2 pixel frames; sheet dimensions must be "
@@ -1835,7 +1981,10 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
                                                                  Qt::FastTransformation));
             if (preview.exec() != QMessageBox::Yes)
                 return;
-            unsigned variant = variants->currentIndex();
+            auto old = draft->frames;
+            if (selectedVariant() >= 6)
+                editableFrame();
+            unsigned variant = selectedVariant();
             QVector<Frame> next;
             for (const auto &f : draft->frames)
                 if (f.variant != variant)
@@ -1860,7 +2009,6 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
                 }
                 sprite->setChecked(true);
             }
-            auto old = draft->frames;
             draft->frames = next;
             try {
                 saveArtwork("Import tile animation");
@@ -1883,14 +2031,13 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     });
     QObject::connect(timer, &QTimer::timeout, w, [=] {
         auto r = record(draft->def, draft->frames);
-        unsigned side = 0;
-        auto rgba = TYPES_Frame(reinterpret_cast<const unsigned char *>(r.constData()),
-                                variants->currentIndex(), clock->elapsed(), &side);
+        unsigned side = 0, height = 0;
+        auto rgba = TYPES_FrameImage(reinterpret_cast<const unsigned char *>(r.constData()),
+                                     selectedVariant(), clock->elapsed(), &side, &height);
         if (rgba) {
             canvas->pixels =
-                QImage(rgba, side, TYPES_FrameHeight(side), side * 4, QImage::Format_RGBA8888)
-                    .scaled(artworkSize(variants->currentIndex()), Qt::IgnoreAspectRatio,
-                            Qt::FastTransformation);
+                QImage(rgba, side, height, side * 4, QImage::Format_RGBA8888)
+                    .scaled(selectedSize(), Qt::IgnoreAspectRatio, Qt::FastTransformation);
             canvas->update();
         }
     });

@@ -490,6 +490,7 @@ int main(void)
     for (int i = 0; i < 16; i++)
         ega[i] = 0xff000000u | i * 0x111111u;
     customTypeGame();
+    multiTileActors();
     const char *files[] = {NULL, "Ultima_5_Tiles_Amiga.png", "Ultima_5_Tiles_AppleII.png",
                            "Ultima_5_Tiles_Grayscale.png", "Ultima_5_Tiles_SharpX68000_World.png"};
     for (int choice = 1; choice <= TILESET_SHARP; choice++)

@@ -389,6 +389,19 @@ void ULTIMA_56ac_DrawMap(void)
                     ACTORS_AtCell(D_5893_map_id >= 128 ? local_6 : D_5896_map_x + local_6 - 5,
                                   D_5893_map_id >= 128 ? local_8 : D_5897_map_y + local_8 - 5,
                                   256 + GetActorMap(local_6, local_8)));
+    /* A large actor may enter the view before its top-left anchor does. */
+    for (unsigned actor = 0; actor < 32; ++actor) {
+        unsigned w, h;
+        ACTORS_Size(actor, &w, &h);
+        ActorFmt *a = &D_5c5a[actor];
+        if ((w == 1 && h == 1) || !a->_1_animTile || a->_4_z != D_5895_map_level)
+            continue;
+        int x = D_5893_map_id >= 128 ? a->_2_x : a->_2_x - D_5896_map_x + 5;
+        int y = D_5893_map_id >= 128 ? a->_3_y : a->_3_y - D_5897_map_y + 5;
+        if ((x < 0 || y < 0 || x > 10 || y > 10) && x + (int)w > 0 && y + (int)h > 0 && x < 11 &&
+            y < 11 && WIDE_FootprintVisible(x - 5, y - 5, w, h))
+            GRAP_BUF_PutMapSprite(x, y, ACTORS_Sprite(actor, 256 + a->_1_animTile));
+    }
 #endif
 
     if (0x7f < D_5893_map_id && (D_589f = !D_589f) != 0 && D_589e != 0xff && ULTIMA_5646(D_589e) == 0)

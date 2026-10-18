@@ -285,10 +285,14 @@ void MapCanvas::paintEvent(QPaintEvent *e) {
     for (auto a : actors)
         if (a.x >= 0 && a.y >= 0 && a.x < side && a.y < rowCount() && a.tile >= 0 &&
             a.tile < tiles.size() && a.label.isEmpty())
-            p.drawImage(QRectF(a.x * cell, a.y * cell, cell, cell), tiles[a.tile]);
+            p.drawImage(QRectF(a.x * cell, a.y * cell, actorSize(a.tile).width() * cell,
+                               actorSize(a.tile).height() * cell),
+                        tiles[a.tile]);
     for (auto actor : contextActors)
         if (actor.tile >= 0 && actor.tile < tiles.size())
-            p.drawImage(QRectF(actor.x * cell, actor.y * cell, cell, cell), tiles[actor.tile]);
+            p.drawImage(QRectF(actor.x * cell, actor.y * cell, actorSize(actor.tile).width() * cell,
+                               actorSize(actor.tile).height() * cell),
+                        tiles[actor.tile]);
     if (tool == InspectNpc) {
         for (auto marker : positionMarkers) {
             QRectF r(marker.x * cell, marker.y * cell, cell, cell);
@@ -305,10 +309,14 @@ void MapCanvas::paintEvent(QPaintEvent *e) {
 
         for (auto actor : actors)
             if (!actor.label.isEmpty()) {
-                QRectF r(actor.x * cell, actor.y * cell, cell, cell);
+                QRectF r(actor.x * cell, actor.y * cell, actorSize(actor.tile).width() * cell,
+                         actorSize(actor.tile).height() * cell);
                 if (actor.x < 0 || actor.y < 0 || actor.x >= side || actor.y >= rowCount())
                     continue;
-                p.fillRect(r.adjusted(2, 2, -2, -2), QColor(20, 30, 60, 180));
+                if (actor.tile >= 512 && actor.tile < tiles.size())
+                    p.drawImage(r, tiles[actor.tile]);
+                else
+                    p.fillRect(r.adjusted(2, 2, -2, -2), QColor(20, 30, 60, 180));
                 p.setPen(actor.label.startsWith("T") ? QColor("#ffbd55") : QColor("#72caff"));
                 p.drawRect(r.adjusted(2, 2, -2, -2));
                 p.drawText(r, Qt::AlignCenter, actor.label);
@@ -316,29 +324,37 @@ void MapCanvas::paintEvent(QPaintEvent *e) {
         for (auto actor : ghosts) {
             p.setOpacity(0.35);
             if (actor.tile >= 0 && actor.tile < tiles.size())
-                p.drawImage(QRectF(actor.x * cell, actor.y * cell, cell, cell), tiles[actor.tile]);
+                p.drawImage(QRectF(actor.x * cell, actor.y * cell,
+                                   actorSize(actor.tile).width() * cell,
+                                   actorSize(actor.tile).height() * cell),
+                            tiles[actor.tile]);
             p.setOpacity(1);
             p.setPen(QColor("#72caff"));
-            p.drawText(QRectF(actor.x * cell, actor.y * cell, cell, cell),
+            p.drawText(QRectF(actor.x * cell, actor.y * cell, actorSize(actor.tile).width() * cell,
+                              actorSize(actor.tile).height() * cell),
                        Qt::AlignTop | Qt::AlignLeft,
                        actor.label.isEmpty() ? QString::number(actor.npc + 1) : actor.label);
         }
         for (auto actor : actors)
             if (actor.npc == selectedNpc) {
                 p.setPen(QPen(QColor("#72caff"), 2));
-                p.drawRect(
-                    QRectF(actor.x * cell, actor.y * cell, cell, cell).adjusted(1, 1, -1, -1));
+                p.drawRect(QRectF(actor.x * cell, actor.y * cell,
+                                  actorSize(actor.tile).width() * cell,
+                                  actorSize(actor.tile).height() * cell)
+                               .adjusted(1, 1, -1, -1));
                 if (npcDrag && npcDestination.x() >= 0) {
                     if (actor.tile >= 0 && actor.tile < tiles.size()) {
                         p.setOpacity(0.65);
                         p.drawImage(QRectF(npcDestination.x() * cell, npcDestination.y() * cell,
-                                           cell, cell),
+                                           actorSize(actor.tile).width() * cell,
+                                           actorSize(actor.tile).height() * cell),
                                     tiles[actor.tile]);
                         p.setOpacity(1);
                     }
-                    p.drawRect(
-                        QRectF(npcDestination.x() * cell, npcDestination.y() * cell, cell, cell)
-                            .adjusted(1, 1, -1, -1));
+                    p.drawRect(QRectF(npcDestination.x() * cell, npcDestination.y() * cell,
+                                      actorSize(actor.tile).width() * cell,
+                                      actorSize(actor.tile).height() * cell)
+                                   .adjusted(1, 1, -1, -1));
                     if (!actor.label.isEmpty()) {
                         p.setPen(QColor("#72caff"));
                         p.drawText(QRectF(npcDestination.x() * cell, npcDestination.y() * cell,
@@ -387,8 +403,11 @@ void MapCanvas::paintEvent(QPaintEvent *e) {
     if (placing() && hover.x() >= 0) {
         QRectF target(hover.x() * cell, hover.y() * cell, cell, cell);
         p.setOpacity(.65);
-        if (placementTile >= 0 && placementTile < tiles.size())
+        if (placementTile >= 0 && placementTile < tiles.size()) {
+            target.setWidth(cell * actorSize(placementTile).width());
+            target.setHeight(cell * actorSize(placementTile).height());
             p.drawImage(target, tiles[placementTile]);
+        }
         p.setOpacity(1);
         p.setPen(QPen(QColor("#72caff"), 2, Qt::DashLine));
         p.drawRect(target.adjusted(1, 1, -1, -1));
@@ -509,7 +528,7 @@ void MapCanvas::mousePressEvent(QMouseEvent *e) {
             return;
         QList<int> candidates;
         for (auto a : actors)
-            if (a.x == cell.x() && a.y == cell.y())
+            if (actorRect(a).contains(cell))
                 candidates.append(a.npc);
         bool chooser = candidates.size() > 1 && !candidates.contains(selectedNpc);
         int npc = candidates.contains(selectedNpc)       ? selectedNpc
@@ -520,7 +539,11 @@ void MapCanvas::mousePressEvent(QMouseEvent *e) {
             selectedNpc = npc;
             if (chooseNpc)
                 chooseNpc(npc);
-            npcOrigin = npcDestination = cell;
+            auto selected = std::find_if(actors.begin(), actors.end(),
+                                         [=](const Actor &a) { return a.npc == npc; });
+            npcOrigin = npcDestination =
+                selected == actors.end() ? cell : QPoint(selected->x, selected->y);
+            npcGrabOffset = cell - npcOrigin;
             // The modal chooser consumes the release that initiated selection.
             // A subsequent drag moves the chosen actor, without reopening it.
             npcDrag = !chooser;
@@ -552,6 +575,8 @@ void MapCanvas::mousePressEvent(QMouseEvent *e) {
 void MapCanvas::mouseMoveEvent(QMouseEvent *e) {
     if (npcDrag) {
         npcDestination = cellAt(e->position());
+        if (npcDestination.x() >= 0)
+            npcDestination -= npcGrabOffset;
         say(npcDestination.x() >= 0
                 ? QString("Move to X %1 · Y %2").arg(npcDestination.x()).arg(npcDestination.y())
                 : "Destination outside map");
@@ -563,6 +588,8 @@ void MapCanvas::mouseMoveEvent(QMouseEvent *e) {
 void MapCanvas::mouseReleaseEvent(QMouseEvent *e) {
     if (npcDrag && e->button() == Qt::LeftButton) {
         npcDestination = cellAt(e->position());
+        if (npcDestination.x() >= 0)
+            npcDestination -= npcGrabOffset;
         npcDrag = false;
         if (npcDestination.x() >= 0 && npcDestination != npcOrigin && moveNpc)
             moveNpc(selectedNpc, npcDestination);
@@ -1450,7 +1477,11 @@ MapWorkspace::MapWorkspace(
         auto d = CustomTiles::definition(*project, it.key());
         if (canvas->tiles.size() <= int(d.id))
             canvas->tiles.resize(d.id + 1);
-        canvas->tiles[d.id] = CustomTiles::image(*project, d.id);
+        const bool world = resource == "BRIT.DAT" || resource == "UNDER.DAT";
+        canvas->tiles[d.id] = CustomTiles::image(*project, d.id, world ? 6 : 0);
+        if (d.kind)
+            canvas->actorFootprints[d.id] =
+                QSize(world ? 1 : TYPES_Width(&d), world ? 1 : TYPES_Height(&d));
         if (d.kind)
             continue;
         canvas->legacyTiles[d.id] = d.base;
@@ -2778,6 +2809,13 @@ bool MapWorkspace::moveNpcTo(int npc, int x, int y, int floor) {
         destination.x = x;
         destination.y = y;
         destination.floor = floor;
+        int destinationPage = currentPage();
+        for (int i = 0; i < document.pages.size(); ++i)
+            if (document.pages[i].settlement == settlement && document.pages[i].floor == floor)
+                destinationPage = i;
+        Workshop::validateActorPlacement(*project, resource, destinationPage, {x, y},
+                                         npcs.sprite(settlement, npc), npc,
+                                         schedule->currentIndex());
         auto bytes = npcs.move(settlement, npc, schedule->currentIndex(), destination);
         if (bytes != project->data(npcResource) &&
             !commitResources({{npcResource, bytes}}, "Move NPC " + npcName(npc)))
@@ -3084,6 +3122,16 @@ bool MapWorkspace::moveCombat(int entity, QPoint destination) {
     if (entity < 0 || entity >= 30 || destination.x() < 0 || destination.y() < 0 ||
         destination.x() > 10 || destination.y() > 10)
         return false;
+    for (const auto &actor : canvas->actors)
+        if (actor.npc == entity) {
+            try {
+                Workshop::validateActorPlacement(*project, resource, currentPage(), destination,
+                                                 actor.tile, entity - 6);
+            } catch (const std::exception &e) {
+                QMessageBox::warning(this, "Move rejected", QString::fromUtf8(e.what()));
+                return false;
+            }
+        }
     auto bytes = project->data(resource);
     auto offsets =
         combatOffsets(document.pages[currentPage()].offset, entity, combatEntry->currentIndex());
@@ -3479,9 +3527,8 @@ void MapWorkspace::beginAdd(int value) {
                     TypeDef d;
                     TYPES_Decode(reinterpret_cast<const unsigned char *>(record.constData()), &d);
                     if (d.id >= 512 && d.kind == (kind == Workshop::MapItemKind::Npc ? 1 : 2))
-                        shapes->addItem(
-                            QIcon(QPixmap::fromImage(CustomTiles::image(*project, d.id))),
-                            QString::fromUtf8(d.name), d.id);
+                        shapes->addItem(QIcon(QPixmap::fromImage(canvas->tiles.value(d.id))),
+                                        QString::fromUtf8(d.name), d.id);
                 }
             shapes->setToolTip(Workshop::mapItemVariants(kind).isEmpty()
                                    ? "Choose the artwork and native creature type."
@@ -3516,6 +3563,9 @@ void MapWorkspace::beginAdd(int value) {
         if (kind != Workshop::MapItemKind::Sign && kind != Workshop::MapItemKind::Container &&
             kind != Workshop::MapItemKind::HiddenContents && kind != Workshop::MapItemKind::Trigger)
             tile = 256 + Workshop::mapItemShape(kind, appearance);
+        if (appearance >= 512 &&
+            (kind == Workshop::MapItemKind::Npc || kind == Workshop::MapItemKind::Monster))
+            tile = appearance;
         canvas->beginPlacement(
             tile,
             kind != Workshop::MapItemKind::Npc && kind != Workshop::MapItemKind::Sign &&
@@ -3554,7 +3604,7 @@ bool MapWorkspace::placeAddedItem(int value, int appearance, int conversation, Q
                 editor->selectCell(cell);
         } else if (edit.mode == "Signs") {
             for (auto actor : canvas->actors)
-                if (actor.x == cell.x() && actor.y == cell.y() && canvas->chooseNpc)
+                if (canvas->actorRect(actor).contains(cell) && canvas->chooseNpc)
                     canvas->chooseNpc(actor.npc);
         }
         if (repeat)

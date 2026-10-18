@@ -619,6 +619,10 @@ static void NPC_06e4(int param_1, int param_2)
             D_5878 = local_8->_4_y;
             NPC_0632(local_1a);
 
+            unsigned w, h;
+            ACTORS_Size(local_8->_c, &w, &h);
+            if ((w > 1 || h > 1) && !ACTORS_CanMove(local_8->_c, D_5876, D_5878))
+                return;
             D_5c5a[local_8->_c]._2_x = local_8->_2_x = D_5876;
             D_5c5a[local_8->_c]._3_y = local_8->_4_y = D_5878;
             D_24e6 |= 2;
@@ -767,6 +771,12 @@ static int NPC_0adc(int param_1, int param_2, int param_3, int param_4, int para
 
     local_6 = 0;
     local_4 = &D_5d5e[param_4];
+    unsigned actor = D_5f5e[param_4]._c, width, height;
+    if (actor < 32 && param_3 == D_5895_map_level) {
+        ACTORS_Size(actor, &width, &height);
+        if (width > 1 || height > 1)
+            return ACTORS_CanMove(actor, param_1, param_2);
+    }
 
     if (param_5 > -1 && local_4->x[param_5] == param_1 && local_4->y[param_5] == param_2 && local_4->z[param_5] == param_3)
     {
@@ -813,6 +823,12 @@ static int NPC_0adc(int param_1, int param_2, int param_3, int param_4, int para
 
 static int NPC_0b9e(int param_1, int param_2, int param_3, int param_4)
 {
+    unsigned actor = D_5f5e[param_3]._c, w, h;
+    if (actor < 32) {
+        ACTORS_Size(actor, &w, &h);
+        if (w > 1 || h > 1)
+            return ACTORS_CanMove(actor, param_1, param_2);
+    }
     int local_8;
     int local_6;
     int local_4;

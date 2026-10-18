@@ -1,3 +1,4 @@
+#include "mod/actors.h"
 #include "crt.h"
 #include "common/common.h"
 #include "common/settings.h"
@@ -69,19 +70,21 @@ static int s_previousWidth, s_previousHeight, s_previousX, s_previousY, s_previo
 typedef struct ActorVisual {
     bool visible, sighted;
     int x,y,worldX,worldY,kind,level;
-    Uint32 sprite[36*36], terrain[36*36];
+    Uint32 sprite[68 * 68], terrain[68 * 68];
 } ActorVisual;
 static ActorVisual s_previousActors[32];
 #define s_egaPalette IMPERA_TextPalette
 
 static void PatchActor(SDL_Surface* surface, const ActorVisual* actor, const Uint32* pixels, int left, int top, int right, int bottom)
 {
-    for (int y=0;y<36;y++) {
+    for (int y = 0; y < 68; y++) {
         if (actor->y+y/2 < top || actor->y+y/2 >= bottom) continue;
-        for (int x=0;x<36;x++) {
+        for (int x = 0; x < 68; x++) {
             if (actor->x+x/2 < left || actor->x+x/2 >= right) continue;
-            if (pixels[y*36+x] >> 24)
-                ((Uint32*)((byte*)surface->pixels+(actor->y*2+y)*surface->pitch))[actor->x*2+x]=pixels[y*36+x];
+            if (pixels[y * 68 + x] >> 24)
+                ((Uint32 *)((byte *)surface->pixels +
+                            (actor->y * 2 + y) * surface->pitch))[actor->x * 2 + x] =
+                    pixels[y * 68 + x];
         }
     }
 }
@@ -102,29 +105,60 @@ static void CaptureActors(ActorVisual* actors, const byte* indices, int w,
         v->kind=a->_0_tile<0x30?a->_0_tile:a->_0_tile&0xfc;
         v->level=a->_4_z;
         if (!combat && !dx && !dy) continue;
-        if (abs(dx)<=5 && abs(dy)<=5) {
+        unsigned bodyW, bodyH;
+        ACTORS_Size(i, &bodyW, &bodyH);
+        bool large = bodyW > 1 || bodyH > 1;
+        if (large) {
+            if (!WIDE_FootprintVisible(dx, dy, bodyW, bodyH))
+                continue;
+        } else if (abs(dx) <= 5 && abs(dy) <= 5) {
             if (GetMapViewport(dx+5,dy+5)!=0 || GetActorMap(dx+5,dy+5)==0x16) continue;
-        } else if (combat || !WIDE_Visible(dx,dy)) continue;
+        } else if (combat || !WIDE_Visible(dx, dy))
+            continue;
         v->sighted=true;
-        if (col<0 || row<0 || col>=columns || row>=rows) continue;
+        if (col + (int)bodyW <= 0 || row + (int)bodyH <= 0 || col >= columns || row >= rows)
+            continue;
         v->visible=true;
         int tile;
-        if (abs(dx)<=5 && abs(dy)<=5) tile=256+GetActorMap(dx+5,dy+5);
+        if (large)
+            tile = ACTORS_Sprite(i, 256 + a->_1_animTile);
+        else if (abs(dx) <= 5 && abs(dy) <= 5)
+            tile = 256 + GetActorMap(dx + 5, dy + 5);
         else {
             tile=WIDE_ActorTile(i);
             if(tile<0) {v->visible=v->sighted=false;continue;}
         }
-        for (int y=0;y<18;y++) for (int x=0;x<18;x++) {
-            int tx=x-1,ty=y-1;
-            int nx=dx+(tx<0?-1:tx>=16?1:0),ny=dy+(ty<0?-1:ty>=16?1:0);
-            int wx=a->_2_x+nx-dx, wy=a->_3_y+ny-dy;
-            int color=WIDE_SpritePixel(tile,combat?a->_2_x-D_5896_map_x:dx,combat?a->_3_y-D_5897_map_y:dy,tx,ty);
-            for(int sy=0;sy<2;sy++) for(int sx=0;sx<2;sx++)
-                v->sprite[(y*2+sy)*36+x*2+sx]=TILESET_LastSpriteColor(color,sx,sy,s_egaPalette,GRAP_BUF_SpriteIsTransparent(tile));
-            color=WIDE_TerrainPixel(combat?wx-D_5896_map_x:nx,combat?wy-D_5897_map_y:ny,(tx+16)%16,(ty+16)%16);
-            for(int sy=0;sy<2;sy++) for(int sx=0;sx<2;sx++)
-                v->terrain[(y*2+sy)*36+x*2+sx]=TILESET_LastColor(color,sx,sy,s_egaPalette);
-        }
+        tile = ACTORS_Sprite(i, tile);
+        unsigned fw = 1, fh = 1;
+        if (TYPES_ArtSlot(tile))
+            TYPES_ArtSize(tile, D_5893_map_id == 0, &fw, &fh);
+        for (int y = 0; y < (int)(16 * fh + 2); y++)
+            for (int x = 0; x < (int)(16 * fw + 2); x++) {
+                int tx = x - 1, ty = y - 1;
+                int nx = dx + (tx < 0     ? -1
+                               : tx >= 16 ? 1
+                                          : 0),
+                    ny = dy + (ty < 0     ? -1
+                               : ty >= 16 ? 1
+                                          : 0);
+                int wx = a->_2_x + nx - dx, wy = a->_3_y + ny - dy;
+                int color = WIDE_SpritePixel(tile, combat ? a->_2_x - D_5896_map_x : dx,
+                                             combat ? a->_3_y - D_5897_map_y : dy, tx, ty);
+                if (large && tx >= 0 && ty >= 0 && tx < (int)(16 * fw) && ty < (int)(16 * fh) &&
+                    !WIDE_FootprintVisible(dx + tx / 16, dy + ty / 16, 1, 1))
+                    color = -1;
+                for (int sy = 0; sy < 2; sy++)
+                    for (int sx = 0; sx < 2; sx++)
+                        v->sprite[(y * 2 + sy) * 68 + x * 2 + sx] = TILESET_LastSpriteColor(
+                            color, sx, sy, s_egaPalette, GRAP_BUF_SpriteIsTransparent(tile));
+                color = WIDE_TerrainPixel(combat ? wx - D_5896_map_x : nx,
+                                          combat ? wy - D_5897_map_y : ny, (tx + 16) % 16,
+                                          (ty + 16) % 16);
+                for (int sy = 0; sy < 2; sy++)
+                    for (int sx = 0; sx < 2; sx++)
+                        v->terrain[(y * 2 + sy) * 68 + x * 2 + sx] =
+                            TILESET_LastColor(color, sx, sy, s_egaPalette);
+            }
     }
 }
 
@@ -463,7 +497,7 @@ static void SmoothFrame(const byte* indices, int w, int h, int mapX, int mapY,
     int dx = D_5896_map_x - s_previousX, dy = D_5897_map_y - s_previousY;
     if (!D_5893_map_id) { dx = ((dx+128)&255)-128; dy = ((dy+128)&255)-128; }
     if (combat) dx=dy=0;
-    ActorVisual actors[32];
+    static ActorVisual actors[32];
     bool moving[32]={false};
     CaptureActors(actors,indices,w,mapX,mapY,columns,rows);
     bool compatible = s_previousValid && s_previousWidth == w && s_previousHeight == h &&
@@ -480,9 +514,14 @@ static void SmoothFrame(const byte* indices, int w, int h, int mapX, int mapY,
         if (moving[i]) {
             animate=true;
             if (next->visible) {
-                for(int y=0;y<36;y++) for(int x=0;x<36;x++)
-                    if((next->sprite[y*36+x]>>24) && next->x+x/2>=mapX && next->x+x/2<mapX+columns*16 && next->y+y/2>=mapTop && next->y+y/2<mapBottom)
-                        ((Uint32*)((byte*)clean->pixels+(next->y*2+y)*clean->pitch))[next->x*2+x]=next->terrain[y*36+x];
+                for (int y = 0; y < 68; y++)
+                    for (int x = 0; x < 68; x++)
+                        if ((next->sprite[y * 68 + x] >> 24) && next->x + x / 2 >= mapX &&
+                            next->x + x / 2 < mapX + columns * 16 && next->y + y / 2 >= mapTop &&
+                            next->y + y / 2 < mapBottom)
+                            ((Uint32 *)((byte *)clean->pixels +
+                                        (next->y * 2 + y) * clean->pitch))[next->x * 2 + x] =
+                                next->terrain[y * 68 + x];
             }
         }
     }
@@ -517,13 +556,16 @@ static void SmoothFrame(const byte* indices, int w, int h, int mapX, int mapY,
             SDL_SetTextureScaleMode(next,SDL_SCALEMODE_NEAREST);
             SDL_Texture* actorTextures[32]={NULL};
             for (int i=0;i<32;i++) if (moving[i]) {
-                actorTextures[i]=SDL_CreateTexture(s_sdlRenderer,SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STATIC,36,36);
-                if (actorTextures[i]) {
-                    SDL_UpdateTexture(actorTextures[i],NULL,
-                        actors[i].visible?actors[i].sprite:s_previousActors[i].sprite,36*4);
-                    SDL_SetTextureScaleMode(actorTextures[i],SDL_SCALEMODE_NEAREST);
-                    SDL_SetTextureBlendMode(actorTextures[i],SDL_BLENDMODE_BLEND);
-                }
+                    actorTextures[i] = SDL_CreateTexture(s_sdlRenderer, SDL_PIXELFORMAT_ARGB8888,
+                                                         SDL_TEXTUREACCESS_STATIC, 68, 68);
+                    if (actorTextures[i]) {
+                        SDL_UpdateTexture(actorTextures[i], NULL,
+                                          actors[i].visible ? actors[i].sprite
+                                                            : s_previousActors[i].sprite,
+                                          68 * 4);
+                        SDL_SetTextureScaleMode(actorTextures[i], SDL_SCALEMODE_NEAREST);
+                        SDL_SetTextureBlendMode(actorTextures[i], SDL_BLENDMODE_BLEND);
+                    }
             }
             float sx = dst.w / w, sy = dst.h / h;
             SDL_Rect clip = {(int)(dst.x+mapX*sx),(int)(dst.y+mapY*sy),
@@ -562,8 +604,9 @@ static void SmoothFrame(const byte* indices, int w, int h, int mapX, int mapY,
                 SDL_RenderTexture(s_sdlRenderer,next,&mapSrc,&b);
                 for (int i=31;i>=0;i--) if (moving[i]) {
                     ActorVisual* a=&s_previousActors[i]; ActorVisual* b=&actors[i];
-                    SDL_FRect rect={dst.x+SDL_roundf((a->x+(b->x-a->x)*progress)*sx),
-                                    dst.y+SDL_roundf((a->y+(b->y-a->y)*progress)*sy),18*sx,18*sy};
+                    SDL_FRect rect = {dst.x + SDL_roundf((a->x + (b->x - a->x) * progress) * sx),
+                                      dst.y + SDL_roundf((a->y + (b->y - a->y) * progress) * sy),
+                                      34 * sx, 34 * sy};
                     if (actorTextures[i]) SDL_RenderTexture(s_sdlRenderer,actorTextures[i],NULL,&rect);
                     else if (b->visible) {
                         SDL_FRect src={b->x*sourceScale,b->y*sourceScale,16*sourceScale,16*sourceScale};

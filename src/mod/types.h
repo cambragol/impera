@@ -25,10 +25,12 @@ extern "C" {
  * effects:u8, damageMin:u8, damageMax:u8, ground:u32,
  * result[4]:u32 (open,closed,locked,broken), stats[8], actorFlags:u16,
  * moveProfile:u8,range:u8,projectileAppearance:u8,companion:u8, effectModes:u16,
- * name[64],description[128],frames:u16,skiffDirections:u8,humanoidSeat:u8,combatMap:u8,reserved[3].
- * Frames: variant:u8 (0 default,1..5),side:u8 (14/16/32),duration:u16 (10..60000 ms),
- * followed by width*height RGBA bytes. Width 14 means Apple II 14x16;
- * widths 16 and 32 are square. Each variant has the same frame count.
+ * name[64],description[128],frames:u16,skiffDirections:u8,humanoidSeat:u8,combatMap:u8,widthMinus1:u8,heightMinus1:u8,reserved:u8.
+ * Frames: variant:u8 (0..5 local tilesets,6..11 world tilesets),cellWidth:u8
+ * (14/16/32),duration:u16 (10..60000 ms), followed by RGBA pixels. Local frames
+ * multiply the cell dimensions by the actor footprint; world frames are one cell.
+ * Cell width 14 means Apple II 14x16; 16 and 32 are square cells. Variants in
+ * each appearance group share a frame count; the two groups animate independently.
  * ITYMAP01 header: UUID[16], count:u32,reserved[4]. Sorted cells:
  * kind:u8 (0 map,1 BRIT.CBT,2 DUNGEON.CBT), map:u8,floor:i8,x:u8,y:u8,
  * kinds 3 NPC slots, 4 world actor slots, 5/6 encounter actor slots; x=slot,y=0.
@@ -39,7 +41,7 @@ typedef struct TypeDef {
     uint16_t movement, actorFlags, frames, effectModes;
     uint8_t kind, base, filters, render, sight, projectile, travel, effects, damageMin, damageMax;
     uint8_t stats[8], moveProfile, range, projectileAppearance, companion;
-    uint8_t skiffDirections, humanoidSeat, combatMap;
+    uint8_t skiffDirections, humanoidSeat, combatMap, width, height;
     char name[64], description[128];
 } TypeDef;
 typedef struct TypeCell {
@@ -59,6 +61,23 @@ int TYPES_Validate(const void *, size_t);
 int TYPES_ValidateMap(const void *, size_t, const void *, size_t);
 const unsigned char *TYPES_Find(const void *, size_t, uint32_t);
 static inline unsigned TYPES_FrameHeight(unsigned width) { return width == 14 ? 16 : width; }
+static inline unsigned TYPES_Width(const TypeDef *d) { return d->width ? d->width : 1; }
+static inline unsigned TYPES_Height(const TypeDef *d) { return d->height ? d->height : 1; }
+static inline unsigned TYPES_FrameWidth(const unsigned char *p, unsigned variant, unsigned cell) {
+    return cell * (variant < 6 ? 1u + p[253] : 1u);
+}
+static inline unsigned TYPES_FrameRows(const unsigned char *p, unsigned variant, unsigned cell) {
+    return TYPES_FrameHeight(cell) * (variant < 6 ? 1u + p[254] : 1u);
+}
+static inline size_t TYPES_FrameBytes(const unsigned char *p, size_t off) {
+    return 4 + (size_t)TYPES_FrameWidth(p, p[off], p[off + 1]) *
+                   TYPES_FrameRows(p, p[off], p[off + 1]) * 4;
+}
+const unsigned char *TYPES_FrameImage(const unsigned char *, unsigned, uint64_t, unsigned *,
+                                      unsigned *);
+const unsigned char *TYPES_ArtImage(uint32_t, unsigned, uint64_t, unsigned *, unsigned *);
+const unsigned char *TYPES_SampleArtImage(unsigned, unsigned, uint64_t, unsigned *, unsigned *);
+void TYPES_ArtSize(uint32_t, int world, unsigned *, unsigned *);
 const unsigned char *TYPES_Frame(const unsigned char *, unsigned variant, uint64_t ms,
                                  unsigned *side);
 void TYPES_CellDecode(const unsigned char *, TypeCell *);

@@ -334,7 +334,8 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
             U5::MapPage mapPage{mapName, 256, 0, 256};
             unsigned appearance = CustomTiles::actorType(*project, mapName, mapPage, 0, slot, 256 + tile);
             QString label = appearance >= 512 ? QString::fromUtf8(CustomTiles::definition(*project, appearance).name) : objectName(tile);
-            auto art = appearance >= 512 ? CustomTiles::image(*project, appearance) : canvas->tiles.value(appearance);
+            auto art = appearance >= 512 ? CustomTiles::image(*project, appearance, 6)
+                                         : canvas->tiles.value(appearance);
             auto item = new QListWidgetItem(QIcon(QPixmap::fromImage(art)),
                 QString("%1 · (%2,%3)").arg(label).arg(uchar(r[2])).arg(uchar(r[3])), list);
             item->setData(Qt::UserRole, slot);

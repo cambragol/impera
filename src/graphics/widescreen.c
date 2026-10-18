@@ -143,7 +143,10 @@ int WIDE_SpritePixel(int tile, int dx, int dy, int x, int y)
 {
     /* Southern foreground scenery owns its pixels. Sprite art is 16x16;
      * only the outline margin can cross into the following map row. */
-    if (GRAP_BUF_TransparentSprites() && y >= 16) {
+    unsigned fw = 1, fh = 1;
+    if (TYPES_ArtSlot(tile))
+        TYPES_ArtSize(tile, D_5893_map_id == 0, &fw, &fh);
+    if (GRAP_BUF_TransparentSprites() && fw == 1 && fh == 1 && y >= 16) {
         int neighbor = x < 0 ? -1 : x >= 16 ? 1 : 0;
         byte south = WIDE_MapTile(dx + neighbor, dy + 1);
         if (memchr(D_6a86, south, sizeof(D_6a86))) return -1;
@@ -200,6 +203,21 @@ bool WIDE_Visible(int dx, int dy)
             return false;
     }
     return true;
+}
+
+bool WIDE_FootprintVisible(int dx, int dy, unsigned width, unsigned height) {
+    if (D_5893_map_id >= 128)
+        return true;
+    for (unsigned y = 0; y < height; ++y)
+        for (unsigned x = 0; x < width; ++x) {
+            int vx = dx + x, vy = dy + y;
+            if (abs(vx) <= 5 && abs(vy) <= 5) {
+                if (GetMapViewport(vx + 5, vy + 5) != 255 && WIDE_Visible(vx, vy))
+                    return true;
+            } else if (WIDE_Visible(vx, vy))
+                return true;
+        }
+    return false;
 }
 
 static void Copy(byte* dst, int stride, int dx, int dy, int sx, int sy, int w, int h)
@@ -330,6 +348,20 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
             if (sprite >= 0)
                 GRAP_BUF_DrawSprite(pixels, l.width, l.mapX + col * 16, l.mapY + row * 16,
                     sprite, l.mapX, 8, l.mapX + l.columns * 16, l.height - 8,col-cx,row-cy);
+        }
+    /* Large central actors can cross the seam of the original 11x11 viewport. */
+    if (D_5893_map_id > 0 && D_5893_map_id < 128)
+        for (unsigned actor = 0; actor < 32; ++actor) {
+            ActorFmt *a = &D_5c5a[actor];
+            unsigned w, h;
+            ACTORS_Size(actor, &w, &h);
+            int dx = a->_2_x - D_5896_map_x, dy = a->_3_y - D_5897_map_y;
+            if ((w > 1 || h > 1) && a->_1_animTile && a->_4_z == D_5895_map_level &&
+                WIDE_FootprintVisible(dx, dy, w, h))
+                GRAP_BUF_DrawSprite(pixels, l.width, l.mapX + (cx + dx) * 16,
+                                    l.mapY + (cy + dy) * 16,
+                                    ACTORS_Sprite(actor, 256 + a->_1_animTile), l.mapX, 8,
+                                    l.mapX + l.columns * 16, l.height - 8, dx, dy);
         }
     free(sprites);
     /* Restore outline margins at the seam after copying central effects. */

@@ -1,3 +1,4 @@
+#include "mod/actors.h"
 #include "common/common.h"
 #include "common/movement.h"
 #include "mod/types_game.h"
@@ -524,9 +525,9 @@ int ULTIMA_368e_FindActorTileAtPos(int param_1_x, int param_2_y, int param_3_lev
 {
     for (D_5876 = 1; D_5876 < 32; D_5876++)
     {
-        if (D_5c5a[D_5876]._2_x == param_1_x && D_5c5a[D_5876]._3_y == param_2_y &&
-            (D_5893_map_id > 0x7f || (D_5893_map_id < 0x80 && D_5c5a[D_5876]._4_z == param_3_level)))
-        {
+        if (ACTORS_Contains(D_5876, param_1_x, param_2_y) &&
+            (D_5893_map_id > 0x7f ||
+             (D_5893_map_id < 0x80 && D_5c5a[D_5876]._4_z == param_3_level))) {
             return D_5c5a[D_5876]._0_tile;
         }
     }
@@ -539,9 +540,8 @@ int ULTIMA_3702(int param_1, int param_2, int param_3)
 {
     for (D_5876 = 31; D_5876 >= 0; D_5876--)
     {
-        if (D_5c5a[D_5876]._2_x == param_1 && D_5c5a[D_5876]._3_y == param_2 &&
-            (D_5893_map_id > 0x7f || (D_5893_map_id < 0x80 && D_5c5a[D_5876]._4_z == param_3)))
-        {
+        if (ACTORS_Contains(D_5876, param_1, param_2) &&
+            (D_5893_map_id > 0x7f || (D_5893_map_id < 0x80 && D_5c5a[D_5876]._4_z == param_3))) {
             return D_5c5a[D_5876]._0_tile;
         }
     }

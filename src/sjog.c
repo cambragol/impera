@@ -1,3 +1,4 @@
+#include "mod/actors.h"
 #include "common/common.h"
 #include "common/movement.h"
 #include "funcs.h"
@@ -2139,7 +2140,14 @@ int SJOG_20d8(int param_1, int param_2, int param_3)
 
     if (param_1 > -1 && param_1 < 11 && param_2 > -1 && param_2 < 11)
     {
-        local_6 = COMBAT_0000(D_5c5a[local_4->actorIdx]._0_tile, param_1, param_2);
+        unsigned width, height;
+        ACTORS_Size(local_4->actorIdx, &width, &height);
+        if ((local_4->flags & COMBAT_FLAGS_2) &&
+            (param_1 + (int)width > 11 || param_2 + (int)height > 11))
+            return 0;
+        local_6 = width > 1 || height > 1
+                      ? ACTORS_CanMove(local_4->actorIdx, param_1, param_2)
+                      : COMBAT_0000(D_5c5a[local_4->actorIdx]._0_tile, param_1, param_2);
         local_6 = 1 - local_6;
     }
     else

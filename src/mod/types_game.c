@@ -153,16 +153,35 @@ int TYPES_GAME_CombatEffects(unsigned entity) {
     CombatEntity *actor = &D_ba14[entity];
     if (actor->actorIdx >= 32)
         return 0;
-    uint32_t id = TYPES_GAME_At(actor->x, actor->y);
-    TypeDef d, move;
-    if (!TYPES_Defined(id) || !TYPES_Get(id, &d))
-        return 0;
+    TypeDef d = {0}, move;
     if (actor->flags & COMBAT_FLAGS_MONSTER)
         move = ACTORS_Def(actor->entityIdx);
     else
         TYPES_Vanilla(1, D_5c5a[actor->actorIdx]._0_tile, &move);
-    if (move.moveProfile > 10 || !(d.effectModes & (1u << move.moveProfile)))
-        return 1;
+    unsigned w, h;
+    ACTORS_Size(actor->actorIdx, &w, &h);
+    int handled = 0;
+    for (unsigned oy = 0; oy < h; ++oy)
+        for (unsigned ox = 0; ox < w; ++ox) {
+            uint32_t id = TYPES_GAME_At(actor->x + ox, actor->y + oy);
+            TypeDef tile;
+            if (w == 1 && h == 1 && !TYPES_Defined(id))
+                continue;
+            if (!TYPES_Get(id, &tile))
+                continue;
+            handled = 1;
+            if (move.moveProfile > 10 || !(tile.effectModes & (1u << move.moveProfile)))
+                continue;
+            d.effects |= tile.effects;
+            if (tile.effects & TYPES_BURN) {
+                if (tile.damageMin > d.damageMin)
+                    d.damageMin = tile.damageMin;
+                if (tile.damageMax > d.damageMax)
+                    d.damageMax = tile.damageMax;
+            }
+        }
+    if (!handled)
+        return 0;
     if (d.effects & TYPES_POISON)
         COMBAT_18ba(entity, -1);
     if ((d.effects & TYPES_BURN) && !(actor->flags & COMBAT_FLAGS_DEAD))

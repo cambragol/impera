@@ -48,7 +48,7 @@ int COMBAT_0000(int param_1, int param_2, int param_3)
         // 0043
         for (local_8 = 0; local_8 < 0x20; local_8++)
         {
-            if (D_5c5a[local_8]._2_x == param_2 && D_5c5a[local_8]._3_y == param_3) // a317
+            if (ACTORS_Contains(local_8, param_2, param_3)) // a317
             {
                 local_4 = D_5c5a[local_8]._0_tile;
                 if (local_4 == TILE_ACTOR_EB)
@@ -68,8 +68,7 @@ int COMBAT_0000(int param_1, int param_2, int param_3)
                         return 0;
                     }
                 }
-            }
-            else if (D_ba14[local_8].x == param_2 && D_ba14[local_8].y == param_3) // a398
+            } else if (D_ba14[local_8].x == param_2 && D_ba14[local_8].y == param_3) // a398
             {
                 local_6 = D_ba14[local_8].flags; // a3b3
                 if ((local_6 & (COMBAT_FLAGS_DEAD | COMBAT_FLAGS_4)) == 0)
@@ -152,8 +151,10 @@ static int COMBAT_0226(int param_1)
         return 0;
     }
 
-    if (!MOVEMENT_AttackAllowed(D_ba14[local_4].x-D_ba14[param_1].x,
-                                D_ba14[local_4].y-D_ba14[param_1].y)) return 0;
+    int ax, ay, bx, by;
+    ACTORS_AttackCells(param_1, local_4, &ax, &ay, &bx, &by);
+    if (!MOVEMENT_AttackAllowed(bx - ax, by - ay))
+        return 0;
     // 025c
     local_6 = D_ba14[local_4].entityIdx;
 
@@ -1059,8 +1060,7 @@ int COMBAT_0ee4(int param_1)
             (ACTORS_Flags(local_4->entityIdx) & ENEMY_FLAG_TELEPORT) != 0 && D_587a != 0x4e &&
             D_587a != 0x1c && (SJOG_2148(param_1) != 0 || ULTIMA_3aae_Random(3) != 3) &&
             COMBAT_120e() != 0) {
-            if (COMBAT_0000(ACTORS_MoveShape(local_4->actorIdx, D_5c5a[local_4->actorIdx]._0_tile),
-                            D_5876, D_5878) != 0) {
+            if (ACTORS_CanMove(local_4->actorIdx, D_5876, D_5878) != 0) {
                 D_5c5a[local_4->actorIdx]._2_x = local_4->x = D_5876;
                 D_5c5a[local_4->actorIdx]._3_y = local_4->y = D_5878;
 
@@ -1076,10 +1076,8 @@ int COMBAT_0ee4(int param_1)
             // 0fc1
             local_a = COMBAT_0d30(param_1);
             if (MOVEMENT_Diagonal() && D_5876 && D_5878 &&
-                COMBAT_0000(ACTORS_MoveShape(local_4->actorIdx, D_5c5a[local_4->actorIdx]._0_tile),
-                            local_4->x + D_5876, local_4->y) &&
-                COMBAT_0000(ACTORS_MoveShape(local_4->actorIdx, D_5c5a[local_4->actorIdx]._0_tile),
-                            local_4->x, local_4->y + D_5878) &&
+                ACTORS_CanMove(local_4->actorIdx, local_4->x + D_5876, local_4->y) &&
+                ACTORS_CanMove(local_4->actorIdx, local_4->x, local_4->y + D_5878) &&
                 SJOG_20d8(local_4->x + D_5876, local_4->y + D_5878, param_1) == 0) {
                 local_6=997;
             } else if (ULTIMA_3aae_Random(0xff) > 0x7f &&
@@ -1615,9 +1613,22 @@ int COMBAT_1574(int param_1, int param_2)
 
                 local_10 = D_5876;
                 local_12 = D_5878;
-                if (COMBAT_0000(
-                        ACTORS_MoveShape(local_a->actorIdx, D_5c5a[local_a->actorIdx]._0_tile),
-                        local_10, local_12) != 0) {
+                unsigned parentW, parentH;
+                ACTORS_Size(local_a->actorIdx, &parentW, &parentH);
+                TypeDef child =
+                    ACTORS_Def(ACTORS_Target(local_a->entityIdx, 2, local_a->entityIdx));
+                if (parentW > 1 || parentH > 1 || TYPES_Width(&child) > 1 ||
+                    TYPES_Height(&child) > 1) {
+                    int dx = local_10 - local_a->x, dy = local_12 - local_a->y;
+                    local_10 = local_a->x + (dx < 0   ? -(int)TYPES_Width(&child)
+                                             : dx > 0 ? (int)parentW
+                                                      : 0);
+                    local_12 = local_a->y + (dy < 0   ? -(int)TYPES_Height(&child)
+                                             : dy > 0 ? (int)parentH
+                                                      : 0);
+                }
+                if (ACTORS_CanPlace(ACTORS_Target(local_a->entityIdx, 2, local_a->entityIdx),
+                                    local_10, local_12, 32) != 0) {
                     local_4 = ULTIMA_6506(ACTORS_Target(local_a->entityIdx, 2, local_a->entityIdx),
                                           0, local_10, local_12, D_5895_map_level);
                     if (local_4 > -1)
@@ -1827,9 +1838,7 @@ static void COMBAT_1b1e(int param_1)
         for (local_8 = 0; local_8 < 0x20; local_8++)
         {
             if (local_8 != local_6->actorIdx &&
-                local_6->x == D_5c5a[local_8]._2_x &&
-                local_6->y == D_5c5a[local_8]._3_y)
-            {
+                ACTORS_CombatContains(param_1, D_5c5a[local_8]._2_x, D_5c5a[local_8]._3_y)) {
                 if (D_5c5a[local_8]._0_tile == TILE_ACTOR_EA)
                 {
                     local_a = 100;

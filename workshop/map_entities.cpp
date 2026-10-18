@@ -248,6 +248,79 @@ static int freeWorldSlot(const Project &p, int world) {
     require(false, "No free world object slots remain");
     return -1;
 }
+void validateActorPlacement(const Project &p, const QString &r, int index, QPoint cell,
+                            unsigned type, int ignoreSlot, int schedule) {
+    MapDocument doc(&p, r);
+    const auto page = doc.pages.at(index);
+    bool world = r == "BRIT.DAT" || r == "UNDER.DAT";
+    auto d = CustomTiles::definition(p, type);
+    QSize size(world ? 1 : TYPES_Width(&d), world ? 1 : TYPES_Height(&d));
+    QRect footprint(cell, size);
+    bool large = size != QSize(1, 1);
+    require(QRect(0, 0, page.side, page.side).contains(footprint),
+            "The whole creature must fit inside the map");
+    if (large) {
+        unsigned shape = d.base;
+        for (unsigned a = 0; a < 256; a += 4) {
+            TypeDef native;
+            TYPES_Vanilla(1, a, &native);
+            if (native.moveProfile == d.moveProfile) {
+                shape = a;
+                break;
+            }
+        }
+        auto terrain = doc.terrain(index);
+        auto expanded = CustomTiles::expanded(p, r, page, index, terrain);
+        for (int y = footprint.top(); y <= footprint.bottom(); ++y)
+            for (int x = footprint.left(); x <= footprint.right(); ++x) {
+                unsigned id = TYPES_U32(expanded.constData() + (y * page.side + x) * 4);
+                if (id) {
+                    auto tile = CustomTiles::definition(p, id);
+                    require(TYPES_DefWalkable(shape, &tile),
+                            "Part of the creature is on blocked terrain");
+                } else
+                    require(TYPES_Walkable(shape, U5::byte(terrain, y * page.side + x)),
+                            "Part of the creature is on blocked terrain");
+            }
+    }
+    auto check = [&](QPoint at, unsigned otherType) {
+        auto other = CustomTiles::definition(p, otherType);
+        QSize otherSize(world ? 1 : TYPES_Width(&other), world ? 1 : TYPES_Height(&other));
+        if (large || otherSize != QSize(1, 1))
+            require(!footprint.intersects(QRect(at, otherSize)), "Creature footprints overlap");
+    };
+    auto npcResource = r.left(r.size() - 4) + ".NPC";
+    if (!world && p.resources.contains(npcResource) && page.settlement >= 0) {
+        Project view = p;
+        MapNpcDocument npcs(&view, npcResource);
+        for (int slot = 1; slot < 32; ++slot) {
+            if (slot == ignoreSlot ||
+                !U5::byte(p.data(npcResource), page.settlement * 576 + 512 + slot))
+                continue;
+            for (int hour = schedule < 0 ? 0 : schedule; hour < (schedule < 0 ? 4 : schedule + 1);
+                 ++hour) {
+                auto pos = npcs.location(page.settlement, slot, hour);
+                if (pos.floor == page.floor && pos.x < page.side && pos.y < page.side)
+                    check({pos.x, pos.y}, npcs.sprite(page.settlement, slot));
+            }
+        }
+    } else if (r.endsWith(".CBT")) {
+        auto bytes = p.data(r);
+        int base = page.offset;
+        for (int slot = 0; slot < 16; ++slot) {
+            if (slot == ignoreSlot)
+                continue;
+            int x = U5::byte(bytes, base + 6 * 32 + 11 + slot),
+                y = U5::byte(bytes, base + 7 * 32 + 11 + slot);
+            if (x > 10 || y > 10 ||
+                (r == "DUNGEON.CBT" && !U5::byte(bytes, base + 5 * 32 + 11 + slot)))
+                continue;
+            unsigned fallback =
+                r == "DUNGEON.CBT" ? 256 + U5::byte(bytes, base + 5 * 32 + 11 + slot) : 400;
+            check({x, y}, CustomTiles::actorType(p, r, page, index, slot, fallback));
+        }
+    }
+}
 MapItemEdit addMapItem(const Project &p, const QString &r, int index, QPoint cell, MapItemKind kind,
                        int appearance, int conversation, const QString &name) {
     require(availableMapItems(p, r).contains(kind), "This item is not supported on this map");
@@ -263,6 +336,12 @@ MapItemEdit addMapItem(const Project &p, const QString &r, int index, QPoint cel
                 "Choose a creature type");
         appearance = type.base;
     }
+    if (kind == MapItemKind::Npc || kind == MapItemKind::Monster)
+        validateActorPlacement(
+            p, r, index, cell,
+            customType
+                ? customType
+                : 256 + (appearance < 0 ? (kind == MapItemKind::Monster ? 144 : 80) : appearance));
     MapItemEdit out;
     auto target = contentsTarget(r, page, index);
     if (kind == MapItemKind::Moonstone) {

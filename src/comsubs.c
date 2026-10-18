@@ -144,8 +144,7 @@ int COMSUBS_00f4(int param_1)
         ULTIMA_2092_RandomRange(0, 0xff) < 0x20) {
         if (COMBAT_120e() != 0)
         {
-            if (COMBAT_0000(ACTORS_Def(ACTORS_Target(local_4, 1, 0x26)).base, D_5876, D_5878) !=
-                0) {
+            if (ACTORS_CanPlace(ACTORS_Target(local_4, 1, 0x26), D_5876, D_5878, 32) != 0) {
                 local_8 = ULTIMA_6506(ACTORS_Target(local_4, 1, 0x26), 0, D_5876, D_5878,
                                       D_5895_map_level);
                 if (local_8 != -1)
@@ -289,6 +288,11 @@ int COMSUBS_048a(int param_1, int param_2, int param_3, int param_4)
 
 int COMSUBS_04d4(int param_1, int param_2)
 {
+    unsigned aw, ah, bw, bh;
+    ACTORS_Size(D_ba14[param_1].actorIdx, &aw, &ah);
+    ACTORS_Size(D_ba14[param_2].actorIdx, &bw, &bh);
+    if (aw > 1 || ah > 1 || bw > 1 || bh > 1)
+        return ACTORS_Distance(param_1, param_2);
     return COMSUBS_048a(D_ba14[param_1].x, D_ba14[param_1].y, D_ba14[param_2].x, D_ba14[param_2].y);
 }
 
@@ -379,17 +383,19 @@ int COMSUBS_0504(int param_1, int param_2)
             break;
 
         case U5_KEY_SPACE: // 068a
-            if ((D_ba14[param_1].x == D_5899) && (D_ba14[param_1].y == D_589a))
-            {
+            if (ACTORS_CombatContains(param_1, D_5899, D_589a)) {
                 local_e = 1;
             }
             // fallthrough
 
         case U5_KEY_ENTER:  // 06a3
         case 0x41: // 06a3
-            if (D_ba14[param_1].x != D_5899 || D_ba14[param_1].y != D_589a)
-            {
-                if (!MOVEMENT_AttackAllowed(D_5899-D_ba14[param_1].x,D_589a-D_ba14[param_1].y)) {
+            if (!ACTORS_CombatContains(param_1, D_5899, D_589a)) {
+                int ax = D_ba14[param_1].x, ay = D_ba14[param_1].y, bx = D_5899, by = D_589a;
+                int target = COMSUBS_0748(bx, by);
+                if (target >= 0)
+                    ACTORS_AttackCells(param_1, target, &ax, &ay, &bx, &by);
+                if (!MOVEMENT_AttackAllowed(bx - ax, by - ay)) {
                     ULTIMA_1850_PrintString("Cardinal directions only!\n");
                     break;
                 }
@@ -413,6 +419,9 @@ int COMSUBS_0504(int param_1, int param_2)
         local_6 = local_12 + D_589a;
 
         local_14 = COMSUBS_048a(local_4, local_6, D_ba14[param_1].x, D_ba14[param_1].y);
+        int footprintTarget = COMSUBS_0748(local_4, local_6);
+        if (footprintTarget >= 0 && footprintTarget != param_1)
+            local_14 = COMSUBS_04d4(param_1, footprintTarget);
         if (local_14 <= param_2 &&
             local_4 >= 0 && local_4 < 0xb &&
             local_6 >= 0 && local_6 < 0xb)
@@ -445,8 +454,7 @@ int COMSUBS_0748(int param_1, int param_2)
 
     for (local_6 = 0; local_6 < 0x20; local_6++)
     {
-        if (D_ba14[local_6].x == param_1 && D_ba14[local_6].y == param_2)
-        {
+        if (ACTORS_CombatContains(local_6, param_1, param_2)) {
             local_4 = D_ba14[local_6].flags;
 
             if (D_5c5a[D_ba14[local_6].actorIdx]._1_animTile != TILE_ACTOR_F4)
@@ -490,11 +498,15 @@ int COMSUBS_0822(int param_1, int param_2, int param_3, int param_4, int param_5
     int local_6;
     int local_8;
 
-    if (!MOVEMENT_AttackAllowed(param_2-D_ba14[param_1].x,param_3-D_ba14[param_1].y)) return -1;
-    local_6 = param_2;
-    local_c = param_3;
     local_4 = D_ba14[param_1].x;
     local_a = D_ba14[param_1].y;
+    int target = COMSUBS_0748(param_2, param_3);
+    if (target >= 0)
+        ACTORS_AttackCells(param_1, target, &local_4, &local_a, &param_2, &param_3);
+    if (!MOVEMENT_AttackAllowed(param_2 - local_4, param_3 - local_a))
+        return -1;
+    local_6 = param_2;
+    local_c = param_3;
 
     if (param_4 == 0)
     {

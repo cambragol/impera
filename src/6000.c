@@ -225,6 +225,24 @@ void ULTIMA_637e_DrawFrame(void) {
 // return: placed actor idx
 int ULTIMA_6506(int param_1, int param_2, int param_3, int param_4, int param_5)
 {
+    TypeDef footprint = ACTORS_Def(param_1);
+    if (param_2 == 0 && (TYPES_Width(&footprint) > 1 || TYPES_Height(&footprint) > 1) &&
+        !ACTORS_CanPlace(param_1, param_3, param_4, 32)) {
+        int best = 1000, foundX = -1, foundY = -1;
+        for (int y = 0; y < 11; ++y)
+            for (int x = 0; x < 11; ++x) {
+                int distance = (x - param_3) * (x - param_3) + (y - param_4) * (y - param_4);
+                if (distance < best && ACTORS_CanPlace(param_1, x, y, 32)) {
+                    best = distance;
+                    foundX = x;
+                    foundY = y;
+                }
+            }
+        if (foundX < 0)
+            return -1;
+        param_3 = foundX;
+        param_4 = foundY;
+    }
     int local_a;
     int local_8;
     int local_6;

@@ -49,6 +49,8 @@ void TYPES_Decode(const unsigned char *p, TypeDef *d) {
     d->humanoidSeat = p[251];
     d->combatMap = p[252];
     d->frames = word(p + 248);
+    d->width = 1 + p[253];
+    d->height = 1 + p[254];
 }
 void TYPES_Encode(unsigned char *p, const TypeDef *d) {
     memset(p, 0, TYPES_RECORD);
@@ -80,6 +82,8 @@ void TYPES_Encode(unsigned char *p, const TypeDef *d) {
     p[250] = d->skiffDirections;
     p[251] = d->humanoidSeat;
     p[252] = d->combatMap;
+    p[253] = TYPES_Width(d) - 1;
+    p[254] = TYPES_Height(d) - 1;
     put16(p + 248, d->frames);
 }
 int TYPES_Walkable(unsigned a, unsigned t) {
@@ -243,7 +247,8 @@ int TYPES_Validate(const void *v, size_t size) {
             d.effects > 3 || d.damageMin > d.damageMax || d.moveProfile > 10 ||
             d.projectileAppearance > 7 || !memchr(d.name, 0, 64) || !d.name[0] ||
             !memchr(d.description, 0, 128) || d.effectModes > 2047 || d.skiffDirections > 15 ||
-            d.humanoidSeat > 1 || d.combatMap > 16 || !zeros(p + 253, 3))
+            d.humanoidSeat > 1 || d.combatMap > 16 || p[253] > 1 || p[254] > 1 || p[255] ||
+            ((!d.kind || d.id < 512) && (p[253] || p[254])))
             return 0;
         if (d.id < 512 && ((d.kind == 0 && d.id > 255) || (d.kind && (d.id < 256 || d.id > 511))))
             return 0;
@@ -253,18 +258,19 @@ int TYPES_Validate(const void *v, size_t size) {
             (d.base < 64 || (d.base & 3) || !d.stats[5] || !d.stats[6] || d.stats[6] > 16 ||
              d.stats[1] > 30 || d.companion >= 48 || d.range > 11))
             return 0;
-        if (d.frames > 384 || (d.id >= 512 && !d.frames))
+        if (d.frames > 768 || (d.id >= 512 && !d.frames))
             return 0;
-        unsigned variants[6] = {0}, last = 0;
+        unsigned variants[12] = {0}, last = 0;
         size_t f = 256;
         for (unsigned j = 0; j < d.frames; j++) {
             if (len - f < 4)
                 return 0;
             unsigned variant = p[f], side = p[f + 1], ms = word(p + f + 2);
-            if (variant > 5 || (j && variant < last) || (side != 16 && side != 32 && !(variant == 2 && side == 14)) || ms < 10 ||
+            if (variant > 11 || (j && variant < last) ||
+                (side != 16 && side != 32 && !(variant % 6 == 2 && side == 14)) || ms < 10 ||
                 ms > 60000)
                 return 0;
-            size_t bytes = 4 + (size_t)side * TYPES_FrameHeight(side) * 4;
+            size_t bytes = TYPES_FrameBytes(p, f);
             if (bytes > len - f)
                 return 0;
             if (++variants[variant] > 64)
@@ -274,9 +280,15 @@ int TYPES_Validate(const void *v, size_t size) {
         }
         if (f != len || (d.frames && !variants[0]))
             return 0;
-        for (int k = 1; k < 6; k++)
-            if (variants[k] && variants[k] != variants[0])
+        for (int k = 1; k < 12; k++)
+            if (k != 6 && variants[k] && variants[k] != variants[k < 6 ? 0 : 6])
                 return 0;
+        if ((p[253] || p[254]) && (!variants[6] || !d.kind))
+            return 0;
+        if (!d.kind)
+            for (int k = 6; k < 12; ++k)
+                if (variants[k])
+                    return 0;
         prev = d.id;
         off += len;
     }
@@ -383,38 +395,43 @@ int TYPES_ValidateMap(const void *v, size_t size, const void *defs, size_t len) 
     }
     return 1;
 }
-const unsigned char *TYPES_Frame(const unsigned char *p, unsigned variant, uint64_t ms,
-                                 unsigned *side) {
-    if (!p || variant > 5)
+const unsigned char *TYPES_FrameImage(const unsigned char *p, unsigned variant, uint64_t ms,
+                                      unsigned *width, unsigned *height) {
+    if (!p || variant > 11)
         return NULL;
     unsigned count = word(p + 248), total = 0;
     size_t off = 256;
-    int found = 0;
-    for (unsigned i = 0; i < count; i++) {
-        if (p[off] == variant) {
-            found = 1;
+    for (unsigned i = 0; i < count; ++i) {
+        if (p[off] == variant)
             total += word(p + off + 2);
-        }
-        off += 4 + (size_t)p[off + 1] * TYPES_FrameHeight(p[off + 1]) * 4;
+        off += TYPES_FrameBytes(p, off);
     }
-    if (!found && variant)
-        return TYPES_Frame(p, 0, ms, side);
+    if (!total && variant % 6)
+        return TYPES_FrameImage(p, variant < 6 ? 0 : 6, ms, width, height);
+    if (!total && variant >= 6)
+        return TYPES_FrameImage(p, variant - 6, ms, width, height);
     if (!total)
         return NULL;
     ms %= total;
     off = 256;
-    for (unsigned i = 0; i < count; i++) {
+    for (unsigned i = 0; i < count; ++i) {
         unsigned duration = word(p + off + 2);
         if (p[off] == variant) {
             if (ms < duration) {
-                *side = p[off + 1];
+                *width = TYPES_FrameWidth(p, variant, p[off + 1]);
+                *height = TYPES_FrameRows(p, variant, p[off + 1]);
                 return p + off + 4;
             }
             ms -= duration;
         }
-        off += 4 + (size_t)p[off + 1] * TYPES_FrameHeight(p[off + 1]) * 4;
+        off += TYPES_FrameBytes(p, off);
     }
     return NULL;
+}
+const unsigned char *TYPES_Frame(const unsigned char *p, unsigned variant, uint64_t ms,
+                                 unsigned *side) {
+    unsigned height;
+    return TYPES_FrameImage(p, variant, ms, side, &height);
 }
 static const unsigned char *mounted;
 static size_t mountedSize;
@@ -428,9 +445,9 @@ static uint16_t byId[TYPES_LAST_CUSTOM + 1];
 typedef struct FrameCache {
     uint64_t tick;
     const unsigned char *rgba;
-    unsigned side;
+    unsigned side, height;
 } FrameCache;
-static FrameCache frameCache[TYPES_MAX][6];
+static FrameCache frameCache[TYPES_MAX][12];
 void TYPES_Reset(void) {
     cellCount = 0;
     if (initial)
@@ -590,23 +607,42 @@ unsigned TYPES_ActorArt(uint32_t type, unsigned nativeTile) {
         size_t off = 256;
         for (unsigned i = 0; i < word(r + 248); ++i) {
             defaults += r[off] == 0;
-            off += 4 + (size_t)r[off + 1] * TYPES_FrameHeight(r[off + 1]) * 4;
+            off += TYPES_FrameBytes(r, off);
         }
         if (defaults <= 1)
             return nativeTile; /* Native animation selects among four independently authored slots. */
     }
     return TYPES_ArtSlot(type) ? type : nativeTile;
 }
-const unsigned char *TYPES_SampleArt(unsigned slot, unsigned variant, uint64_t ms, unsigned *side) {
-    if (slot < 512 || slot >= 512 + artCount || variant > 5)
+void TYPES_ArtSize(uint32_t id, int world, unsigned *width, unsigned *height) {
+    TypeDef d;
+    *width = *height = 1;
+    if (!world && TYPES_Get(id, &d) && d.kind) {
+        *width = TYPES_Width(&d);
+        *height = TYPES_Height(&d);
+    }
+}
+const unsigned char *TYPES_ArtImage(uint32_t id, unsigned variant, uint64_t ms, unsigned *w,
+                                    unsigned *h) {
+    return TYPES_FrameImage(TYPES_Find(mounted, mountedSize, id), variant, ms, w, h);
+}
+const unsigned char *TYPES_SampleArtImage(unsigned slot, unsigned variant, uint64_t ms, unsigned *w,
+                                          unsigned *h) {
+    if (slot < 512 || slot >= 512 + artCount || variant > 11)
         return NULL;
     FrameCache *cache = &frameCache[slot - 512][variant];
     if (cache->tick != ms || !cache->rgba) {
-        cache->rgba = TYPES_Frame(artRecords[slot - 512], variant, ms, &cache->side);
+        cache->rgba =
+            TYPES_FrameImage(artRecords[slot - 512], variant, ms, &cache->side, &cache->height);
         cache->tick = ms;
     }
-    *side = cache->side;
+    *w = cache->side;
+    *h = cache->height;
     return cache->rgba;
+}
+const unsigned char *TYPES_SampleArt(unsigned slot, unsigned variant, uint64_t ms, unsigned *side) {
+    unsigned height;
+    return TYPES_SampleArtImage(slot, variant, ms, side, &height);
 }
 
 void TYPES_BeginEncounter(unsigned kind, unsigned map) {

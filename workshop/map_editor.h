@@ -87,6 +87,11 @@ class MapCanvas : public QWidget {
         int x, y, tile, npc;
         QString label;
     };
+    QMap<unsigned, QSize> actorFootprints;
+    QSize actorSize(int tile) const { return actorFootprints.value(tile, QSize(1, 1)); }
+    QRect actorRect(const Actor &actor) const {
+        return QRect(QPoint(actor.x, actor.y), actorSize(actor.tile));
+    }
     QVector<Actor> actors, ghosts;
     int selectedNpc = -1;
     QPoint keyboardCell = {0, 0};
@@ -134,6 +139,7 @@ class MapCanvas : public QWidget {
     bool pasteFits() const;
     void pasteAt(QPoint cell);
     void say(const QString &message);
+    QPoint npcGrabOffset;
     QPoint last = {-1, -1}, hover = {-1, -1};
     void point(QPointF position, bool draw);
     void line(QPoint from, QPoint to);

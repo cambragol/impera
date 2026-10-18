@@ -462,7 +462,7 @@ static int CAST_05dc_InPor(void)
                 if (COMBAT_120e() == 0)
                     continue;
 
-                if (COMBAT_0000(local_4->_0_tile, D_5876, D_5878) == 0)
+                if (!ACTORS_CanMove(D_ba14[D_589e].actorIdx, D_5876, D_5878))
                     continue;
 
                 local_4->_2_x = D_ba14[D_589e].x = D_5876;
@@ -808,6 +808,23 @@ static int CAST_0b28_InQuasXen(void)
 
                 D_5c5a[local_c] = D_5c5a[D_ba14[local_6].actorIdx];
 
+                unsigned cloneW, cloneH;
+                ACTORS_Size(local_c, &cloneW, &cloneH);
+                if (cloneW > 1 || cloneH > 1) {
+                    local_8 = 0;
+                    for (int y = 0; y < 11 && !local_8; ++y)
+                        for (int x = 0; x < 11 && !local_8; ++x)
+                            if (ACTORS_CanPlace(D_ba14[local_4].entityIdx, x, y, local_c)) {
+                                D_5c5a[local_c]._2_x = D_ba14[local_4].x = x;
+                                D_5c5a[local_c]._3_y = D_ba14[local_4].y = y;
+                                local_8 = 1;
+                            }
+                    if (!local_8) {
+                        D_ba14[local_4].flags = 0;
+                        D_5c5a[local_c]._0_tile = D_5c5a[local_c]._1_animTile = 0;
+                    }
+                    return local_8;
+                }
                 do
                 {
                     if (COMBAT_120e() == 0 || COMBAT_0000(TILE_ACTOR_AVATAR, D_5876, D_5878) == 0)

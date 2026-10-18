@@ -311,3 +311,20 @@ floor changes), world slots use map zero and floor 0/-1, encounter slots use the
 room index and floor zero. Location/world actor references survive encounter
 resets and saves. Encounter references reset with the selected encounter. The
 same library UUID and shared validation protect terrain and actor references.
+
+### Multi-tile actors (package version 11)
+
+`IMOD0011` adds rectangular actor footprints and separate world artwork to
+`TYPES.OVR`. Bytes 253–254 encode width minus one and height minus one (each 0–1);
+byte 255 remains reserved. Non-actor and original-ID records retain a 1×1 footprint.
+Frame variants 0–5 describe local/combat artwork, with pixel dimensions equal to
+cell dimensions multiplied by the footprint. Variants 6–11 describe single-cell
+world artwork in the same tileset order. Each appearance has its own default
+variant and animation length. Larger actors require default world artwork.
+Packages containing any world-artwork variants require version 11, even for 1×1
+actors. Older versions reject these records; ordinary legacy packages remain valid.
+
+Actor instances retain one anchor coordinate, type identity, health pool and turn.
+Footprints derive from the mounted type definition, so saved positions and the
+existing type-state save format do not duplicate geometry. Britannia and Underworld
+always use the single-cell appearance and collision footprint.

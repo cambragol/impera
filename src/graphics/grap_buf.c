@@ -476,7 +476,7 @@ bool GRAP_BUF_HasTileset(void) { return s_tileset != NULL; }
 
 byte GRAP_BUF_TilePixel(int tile, int x, int y)
 {
-    if (tile >= 0 && x >= 0 && y >= 0 && x < 16 && y < 16 && TYPES_ArtSlot(tile))
+    if (tile >= 0 && x >= 0 && y >= 0 && TYPES_ArtSlot(tile))
         return (byte)TILESET_Pixel(tile, x, y);
     if (!s_tileset || tile < 0 || tile >= 512 || x < 0 || y < 0 || x >= 16 || y >= 16) {TILESET_SetSample(0);return 0;}
     int alternate=TILESET_Pixel(tile,x,y);
@@ -505,8 +505,13 @@ bool GRAP_BUF_SpriteIsTransparent(int tile)
 int GRAP_BUF_SpritePixel(int tile, int x, int y)
 {
     /* Authored RGBA artwork supplies its own edges, including opaque black. */
-    if (TYPES_ArtSlot(tile))
-        return x < 0 || y < 0 || x >= 16 || y >= 16 ? -1 : GRAP_BUF_TilePixel(tile, x, y);
+    if (TYPES_ArtSlot(tile)) {
+        unsigned w, h;
+        TYPES_ArtSize(tile, D_5893_map_id == 0, &w, &h);
+        return x < 0 || y < 0 || x >= (int)(16 * w) || y >= (int)(16 * h)
+                   ? -1
+                   : GRAP_BUF_TilePixel(tile, x, y);
+    }
     if (!GRAP_BUF_SpriteIsTransparent(tile))
         return x < 0 || y < 0 || x >= 16 || y >= 16 ? -1 : GRAP_BUF_TilePixel(tile, x, y);
     byte color = GRAP_BUF_TilePixel(tile, x, y);
@@ -522,9 +527,20 @@ int GRAP_BUF_SpritePixel(int tile, int x, int y)
 void GRAP_BUF_DrawSprite(byte* pixels, int stride, int x, int y, int tile,
                          int left, int top, int right, int bottom, int dx, int dy)
 {
-    for (int sy = -1; sy <= 16; sy++)
-        for (int sx = -1; sx <= 16; sx++) {
+    unsigned w = 1, h = 1;
+    if (TYPES_ArtSlot(tile))
+        TYPES_ArtSize(tile, D_5893_map_id == 0, &w, &h);
+    bool visible[4] = {true, true, true, true};
+    if ((w > 1 || h > 1) && D_5893_map_id > 0 && D_5893_map_id < 128)
+        for (unsigned cy = 0; cy < h; ++cy)
+            for (unsigned cx = 0; cx < w; ++cx)
+                visible[cy * w + cx] = WIDE_FootprintVisible(dx + cx, dy + cy, 1, 1);
+    for (int sy = -1; sy <= (int)(16 * h); sy++)
+        for (int sx = -1; sx <= (int)(16 * w); sx++) {
             int px = x + sx, py = y + sy;
+            if (sx >= 0 && sy >= 0 && sx < (int)(16 * w) && sy < (int)(16 * h) &&
+                !visible[(sy / 16) * w + sx / 16])
+                continue;
             if (px < left || py < top || px >= right || py >= bottom) continue;
             int color = WIDE_SpritePixel(tile, dx, dy, sx, sy);
             if (color >= 0) { TILESET_RecordSprite(pixels+py*stride+px,color,GRAP_BUF_SpriteIsTransparent(tile));pixels[py * stride + px] = (byte)color; }

@@ -1486,6 +1486,10 @@ static int MAINOUT_131a(int param_1)
 
 static int MAINOUT_1482(int param_1, int param_2, int param_3)
 {
+    unsigned width, height;
+    ACTORS_Size(param_1, &width, &height);
+    if (width > 1 || height > 1)
+        return ACTORS_CanMove(param_1, param_2, param_3);
     if (TYPES_GAME_Walkable(ACTORS_MoveShape(param_1, D_5c5a[param_1]._0_tile), param_2, param_3) ==
         0)
         return 0;
