@@ -85,7 +85,11 @@ class ColorPalette : public QWidget {
             b->setCheckable(true);
             b->setFixedSize(30, 30);
             b->setProperty("rgba", quint32(rgba));
-            b->setToolTip(qAlpha(rgba) ? QColor::fromRgba(rgba).name() : "Transparent");
+            b->setToolTip(
+                qAlpha(rgba)
+                    ? "Draw with this palette color (" + QColor::fromRgba(rgba).name() +
+                          "). Black is opaque."
+                    : "Draw transparent pixels to reveal the ground behind a transparent sprite.");
             b->setAccessibleName(b->toolTip());
             b->setStyleSheet(QString("QToolButton {background:%1;border:1px solid #8290a0;} "
                                      "QToolButton:checked {border:3px solid #ffffff;}")

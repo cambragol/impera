@@ -26,11 +26,27 @@ class PropertySection : public QWidget {
         layout->setContentsMargins(0, 4, 0, 4);
         header = new QToolButton;
         header->setText(name);
-        header->setToolTip("Expand or collapse " + name.toLower() + ".");
+        const QMap<QString, QString> help{
+            {"Interaction", "What players can do with this tile, and which type it becomes after "
+                            "opening, closing, locking or breaking."},
+            {"Behavior & encounters", "Original creature behavior and the types produced by "
+                                      "transformations, summoning, division and group encounters."},
+            {"Movement & visibility", "Who can cross this terrain, how it slows travel, and "
+                                      "whether it blocks sight or projectiles."},
+            {"Appearance", "How transparent pixels and wall lighting are rendered; these settings "
+                           "do not control movement."},
+            {"Hazards",
+             "Poison and damage caused by this terrain, and which travelers are affected."},
+            {"Advanced", "Specialized movement and combat rules. Leave these unchanged unless this "
+                         "type needs special behavior."},
+            {"Combat",
+             "Shared combat statistics and movement for every creature using this type."}};
+        header->setToolTip(help.value(name) + " Click to expand or collapse.");
         header->setCheckable(true);
         header->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         header->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         summary = new QLabel;
+        summary->setToolTip(header->toolTip());
         summary->setWordWrap(true);
         summary->setStyleSheet("color:#abb6c7;");
         body = new QWidget;
@@ -662,7 +678,8 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     filters->addStretch();
     details->addRow("Tile picker", filters);
     inspector->addLayout(details);
-    auto interactions = new PropertySection(actorKind ? "Behavior & encounters" : "Interaction", true, props);
+    auto interactions =
+        new PropertySection(actorKind ? "Behavior & encounters" : "Interaction", true, props);
     auto travel = new PropertySection("Movement & visibility", true, props);
     auto appearance = new PropertySection("Appearance", false, props);
     auto hazards = new PropertySection("Hazards", false, props);
@@ -818,6 +835,226 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     for (auto box : results)
         box->setToolTip(
             "Choose the tile’s appearance after this action, or keep the behavior’s default.");
+    // Keep guidance at the control where it is needed, rather than in permanent notes.
+    search->setToolTip("Filter this list by name to find an existing type to edit or copy.");
+    filter->setToolTip("Show all tiles, or only tiles included in the World or Locations picker. A "
+                       "tile can belong to both.");
+    list->setToolTip("Select a type to edit its artwork and shared settings. Changes affect every "
+                     "map placement using this type.");
+    add->setToolTip("Create a new " + noun +
+                    " with its own artwork and settings, without replacing an existing type. Place "
+                    "it using Add on a map.");
+    copy->setToolTip("Create an independent " + noun +
+                     " from the selected type’s artwork and settings. Editing the copy leaves the "
+                     "source unchanged.");
+    variants->setToolTip("Choose which tileset’s artwork to edit: DOS, Amiga and Grayscale use 16 "
+                         "× 16 pixels; Apple II uses 14 × 16; Sharp uses 32 × 32. An empty slot "
+                         "displays DOS artwork until you paint or import artwork for it.");
+    artworkMenuButton->setToolTip("Artwork options for the selected tileset, including removing an "
+                                  "alternative artwork slot so it falls back to DOS.");
+    canvas->setToolTip("Edit the selected animation frame at its native pixel size. Left-drag uses "
+                       "the selected tool; right-click picks a drawing color. Changes affect only "
+                       "the selected tileset’s artwork.");
+    palette->setToolTip("Choose a drawing color from the selected tileset’s palette. The crossed "
+                        "swatch paints transparent pixels; black is a visible color.");
+    frameList->setToolTip("Select the animation frame to draw. Frames play from "
+                          "left to right, each for its own duration.");
+    frameAdd->setToolTip("Append an animation frame to all supplied tilesets. Select DOS to change "
+                         "the frame count; all tilesets must have the same number of frames.");
+    frameDelete->setToolTip("Remove this frame from all supplied tilesets. Select DOS to change "
+                            "the frame count. At least one frame must remain.");
+    frameLeft->setToolTip(
+        "Move the selected frame one position earlier in this tileset’s animation.");
+    frameRight->setToolTip(
+        "Move the selected frame one position later in this tileset’s animation.");
+    play->setToolTip(
+        "Start or stop a preview of the selected tileset’s animation using each frame’s duration.");
+    ms->setToolTip("How long the selected frame stays visible, in milliseconds. 1000 ms is one "
+                   "second. This sets animation timing, not movement speed.");
+    import->setToolTip(
+        "Replace this tileset’s artwork with a PNG containing one frame or a grid of frames, read "
+        "left to right then top to bottom. Frame sizes must match this tileset. Colors are "
+        "converted to its palette; PNG transparency is preserved.");
+    name->setToolTip(actorKind
+                         ? "Name of this NPC or monster type in pickers. Individual NPC names and "
+                           "conversations are edited on the map, separately from this shared type."
+                         : "Name shown in Workshop’s tile picker and map inspector. The Look "
+                           "description below controls what players read in-game.");
+    world->setToolTip(
+        "Include this new tile in the World picker filter. This does not restrict where it can be "
+        "painted. Original tiles are classified automatically from the maps.");
+    location->setToolTip("Include this new tile in the Locations picker filter. Both filters can "
+                         "be enabled. Original tiles are classified automatically from the maps.");
+    speed->setToolTip("How much this terrain slows travel when crossed. This does not change "
+                      "animation speed or decide who can enter.");
+    sprite->setToolTip("Show the underlying ground through transparent pixels in the artwork. "
+                       "Opaque black stays black. Choose the ground underneath below.");
+    ground->setToolTip("Choose the ground drawn behind transparent pixels. Nearby ground infers it "
+                       "from surrounding terrain rather than using a fixed floor.");
+    masonry->setToolTip(
+        "Use Impera’s wall lighting treatment to keep architectural edges crisp where darkness "
+        "fades around walls. This does not make the tile block movement or sight.");
+    poison->setToolTip("Allow this terrain to inflict poison. Choose which movement types are "
+                       "affected below; movement permissions are configured separately.");
+    burn->setToolTip("Allow this terrain to inflict immediate damage. Set the damage range and "
+                     "affected movement types below. Poison is a separate effect.");
+    effectGroup->setToolTip("Choose which travelers can suffer this terrain’s poison or damage. A "
+                            "checked type can still be blocked by movement permissions.");
+    humanoidSeat->setToolTip("Apply the original humanoid-only seating restriction. This does not "
+                             "create an NPC or assign a sitting schedule.");
+    combatMap->setToolTip(
+        "Choose the battlefield layout used when combat starts on this terrain. From terrain keeps "
+        "the normal game choice; special combat situations may override it.");
+    actorMovement->setToolTip(
+        "Choose how this creature travels. Terrain permissions for that movement type determine "
+        "where it can go; specialized profiles restrict it to particular terrain.");
+    attackRange->setToolTip(
+        "Maximum attack distance in map tiles. Values above one allow ranged attacks; projectile "
+        "appearance and magical behavior are separate settings.");
+    projectileType->setToolTip(
+        "Choose the visual style of ranged attacks, using original creatures as examples. This "
+        "does not set attack damage, distance or magical effects.");
+    const QStringList statHelp{"Strength used by the original combat rules. With Uses strength to "
+                               "hit enabled, it also replaces Dexterity for hit checks.",
+                               "Dexterity affects combat turn timing and ordinary hit checks. "
+                               "Higher values make this creature more agile.",
+                               "Intelligence used by the original magic and creature behavior "
+                               "rules. This is not a list of spells to cast.",
+                               "Physical defense used when resolving incoming attacks. Higher "
+                               "values make physical attacks less effective.",
+                               "Attack rating used to determine the damage this creature deals. "
+                               "Hit chance is controlled separately.",
+                               "Maximum health for this creature type. This also contributes to "
+                               "the experience awarded for defeating it.",
+                               "Maximum group size when this type starts an encounter, subject to "
+                               "available combat positions.",
+                               "Treasure rating used by the original loot rules after combat. This "
+                               "is not a fixed quantity of gold."};
+    for (int i = 0; i < actorStats.size(); ++i)
+        actorStats[i]->setToolTip(statHelp[i]);
+    const QStringList abilityHelp{
+        "Do not leave an ordinary corpse after this creature dies.",
+        "Allow the original food-stealing behavior against the party.",
+        "Allow this creature’s hits to poison their target, using the original poison rules.",
+        "Use the original immunity to ordinary damage. Special scripted effects can still have "
+        "their own rules.",
+        "Allow this creature to split after surviving damage. Choose the offspring type in Divides "
+        "into.",
+        "Treat this creature as undead for undead-specific spells and combat rules.",
+        "Use Strength instead of Dexterity for this creature’s attack hit checks.",
+        "Allow the original possession behavior against party members.",
+        "Allow this creature to summon allies. Choose their type in Summons; an empty choice uses "
+        "the original daemon default.",
+        "Allow the original combat behavior that makes the creature disappear and reappear.",
+        "Use the original vanishing death behavior instead of an ordinary death result.",
+        "Allow the original teleporting combat behavior.",
+        "Treat ranged attacks as magical, including suppression by magic negation. Projectile "
+        "appearance is chosen separately."};
+    for (int i = 0; i < actorAbilities.size(); ++i)
+        actorAbilities[i]->setToolTip(abilityHelp[i]);
+    const QStringList transitionHelp =
+        actorKind
+            ? QStringList{"Creature type produced when this one is defeated. No transformation "
+                          "keeps its ordinary death behavior.",
+                          "Creature type produced by Summons creatures. The ability must also be "
+                          "enabled; the default is a daemon.",
+                          "Creature type produced by Divides when hit. The ability must also be "
+                          "enabled; the default is another of this type.",
+                          "Additional creature type that can accompany this type in an encounter. "
+                          "The default keeps the original companion rules."}
+            : QStringList{
+                  "Type this tile becomes when opened. The target’s behavior and movement settings "
+                  "apply too, not just its artwork. Default uses the original behavior.",
+                  "Type this tile becomes when closed, including the target’s behavior and "
+                  "movement settings. Default uses the original behavior.",
+                  "Type this tile becomes when locked, including the target’s behavior and "
+                  "movement settings. This does not set a particular container’s lock.",
+                  "Type this tile becomes when broken, including the target’s behavior and "
+                  "movement settings. Default uses the original behavior."};
+    for (int i = 0; i < results.size(); ++i)
+        results[i]->setToolTip(transitionHelp[i]);
+    for (auto box : skiffDirections)
+        box->setToolTip("Allow a skiff facing " + box->text().toLower() +
+                        " to enter this terrain. Skiff movement must also be allowed.");
+    const QStringList movementHelp{"people traveling on foot",
+                                   "swimming sea creatures",
+                                   "flying creatures",
+                                   "riders on horseback",
+                                   "creatures that pass through obstacles",
+                                   "small boats (skiffs)",
+                                   "large ships (frigates)",
+                                   "swamp-dwelling creatures",
+                                   "grass-dwelling creatures",
+                                   "deep-water creatures",
+                                   "sand-dwelling creatures"};
+    for (int i = 0; i < movement.size(); ++i) {
+        movement[i]->setToolTip(
+            "Allow " + movementHelp[i] +
+            " to enter this terrain. This does not decide whether they suffer its hazards.");
+        effectModes[i]->setToolTip("Apply enabled poison and damage effects to " + movementHelp[i] +
+                                   ". This does not grant permission to enter the terrain.");
+        actorMovement->setItemData(i, "Use terrain permissions for " + movementHelp[i] + ".",
+                                   Qt::ToolTipRole);
+    }
+    sight->setItemData(0, "Let the player see through this tile. Movement can still be blocked.",
+                       Qt::ToolTipRole);
+    sight->setItemData(1, "Hide terrain behind this tile using the game’s line-of-sight rules.",
+                       Qt::ToolTipRole);
+    sight->setItemData(
+        2, "Use Ultima 5’s distance-dependent window visibility rules rather than a solid wall.",
+        Qt::ToolTipRole);
+    const QStringList interactionHelp{
+        "Ordinary terrain without a special interaction.",
+        "Scenery without a special interaction.",
+        "Use the original wall interaction rules. Set movement and sight separately.",
+        "Use the original water interaction rules. Set swimming and boat permissions separately.",
+        "Use closed-door interactions, including opening and closing.",
+        "Use magically locked door interactions.",
+        "Use locked-door interactions.",
+        "Use container interactions. Set individual contents, locks and traps by selecting the "
+        "container on its map.",
+        "Use sign interactions. Edit the sign’s text by selecting it on its map.",
+        "Use the original stairs interaction.",
+        "Use a ladder leading upward.",
+        "Use a ladder leading downward.",
+        "Use the original mirror interaction.",
+        "Use the original well interaction.",
+        "Use the original fountain interaction.",
+        "Use the original clock interaction.",
+        "Use the original cannon interaction.",
+        "Use the original tree interaction.",
+        "Use the original crops interaction.",
+        "Use the original moongate interaction; this does not create a new travel destination."};
+    for (int i = 0; i < interaction->count(); ++i)
+        interaction->setItemData(
+            i,
+            actorKind ? "Use the special native behavior of " + interaction->itemText(i) +
+                            ". Artwork, statistics and enabled abilities are set separately."
+                      : interactionHelp.value(i),
+            Qt::ToolTipRole);
+    for (auto combo : {filter, variants, speed, combatMap, projectileType})
+        for (int i = 0; i < combo->count(); ++i)
+            combo->setItemData(i, combo->itemText(i) + ": " + combo->toolTip(), Qt::ToolTipRole);
+    if (auto label = details->labelForField(filters))
+        label->setToolTip("Control where this tile appears in the picker. World and Locations may "
+                          "overlap; neither limits map placement.");
+    if (auto label = travel->form->labelForField(commonMovement))
+        label->setToolTip("Choose whether people on foot and riders can enter. Other movement "
+                          "types are under Advanced.");
+    if (auto label = hazards->form->labelForField(damageRow))
+        label->setToolTip("Minimum and maximum damage for a damaging terrain event. These values "
+                          "are used only when Damaging is enabled.");
+    for (auto label : w->findChildren<QLabel *>())
+        if (label->text() == "Tileset:")
+            label->setToolTip(variants->toolTip());
+    // Labels should offer the same explanation as their fields.
+    for (auto form : props->findChildren<QFormLayout *>())
+        for (int i = 0; i < form->rowCount(); ++i) {
+            auto field = form->itemAt(i, QFormLayout::FieldRole);
+            auto label = form->itemAt(i, QFormLayout::LabelRole);
+            if (field && field->widget() && label && label->widget())
+                label->widget()->setToolTip(field->widget()->toolTip());
+        }
     scroll->setWidget(props);
     scroll->setMinimumWidth(340);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -949,6 +1186,9 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             for (auto box : results)
                 box->addItem(referenceIcon(d.id), label, d.id);
         }
+        for (auto box : QVector<QComboBox *>{ground} + results)
+            for (int i = 0; i < box->count(); ++i)
+                box->setItemData(i, box->itemText(i) + ": " + box->toolTip(), Qt::ToolTipRole);
     };
     auto reloadFrames = [=] {
         QSignalBlocker block(frameList);
@@ -964,7 +1204,14 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
                 auto item = new QListWidgetItem(QIcon(QPixmap::fromImage(draft->frames[i].image)),
                                                 QString::number(frameList->count() + 1), frameList);
                 item->setData(Qt::UserRole, i);
-                item->setToolTip(supplied ? "" : "DOS artwork");
+                item->setToolTip(
+                    QString("Frame %1: %2 ms. %3")
+                        .arg(frameList->count())
+                        .arg(draft->frames[i].duration)
+                        .arg(
+                            supplied
+                                ? "Select to edit this tileset’s frame."
+                                : "Using DOS artwork; painting creates artwork for this tileset."));
             }
         if (frameList->count())
             frameList->setCurrentRow(
@@ -1093,9 +1340,11 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             interaction->addItem("Same interaction as " + MapDocument::tileName(d.base), d.base);
         interaction->setCurrentIndex(interaction->findData(d.base));
         interaction->setEnabled(!actorKind || id >= 512);
-        if (actorKind) interaction->setToolTip(id >= 512
-            ? "Original creature behavior used by this type, independently of artwork and stats."
-            : "Copy this type to choose a different original creature behavior.");
+        if (actorKind)
+            interaction->setToolTip(
+                id >= 512 ? "Original creature behavior used by this type, independently of "
+                            "artwork and stats."
+                          : "Copy this type to choose a different original creature behavior.");
         ground->setCurrentIndex(d.ground == TYPES_INFER_GROUND ? 0 : ground->findData(d.ground));
         for (int i = 0; i < 4; i++)
             results[i]->setCurrentIndex(results[i]->findData(d.result[i]));
@@ -1137,6 +1386,8 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         for (int i = 0; i < list->count(); i++)
             if (list->item(i)->data(Qt::UserRole).toUInt() == draft->id)
                 list->setCurrentRow(i);
+        for (int i = 0; i < list->count(); ++i)
+            list->item(i)->setToolTip(list->item(i)->text() + ": " + list->toolTip());
         filterList();
     };
     QObject::connect(search, &QLineEdit::textChanged, w, [=] { filterList(); });
@@ -1146,11 +1397,23 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     });
     auto create = [=](bool copying) {
         report([&] {
-            bool ok = false;
-            auto title =
-                QInputDialog::getText(w, "New " + noun, "Name", QLineEdit::Normal,
-                                      copying ? name->text() + " copy" : "New " + noun, &ok);
-            if (!ok || title.trimmed().isEmpty())
+            QInputDialog dialog(w);
+            dialog.setWindowTitle("New " + noun);
+            dialog.setLabelText("Name");
+            dialog.setTextValue(copying ? name->text() + " copy" : "New " + noun);
+            for (auto input : dialog.findChildren<QLineEdit *>())
+                input->setToolTip("Name used to find this new type in Workshop. You can change it "
+                                  "later in the properties panel.");
+            for (auto button : dialog.findChildren<QPushButton *>())
+                button->setToolTip(dialog.findChild<QDialogButtonBox *>()->standardButton(button) ==
+                                           QDialogButtonBox::Ok
+                                       ? "Create the new type with this name, then edit its "
+                                         "artwork and properties."
+                                       : "Close without creating a type.");
+            if (dialog.exec() != QDialog::Accepted)
+                return;
+            auto title = dialog.textValue();
+            if (title.trimmed().isEmpty())
                 return;
             auto r = records(*p);
             unsigned id = 512;
