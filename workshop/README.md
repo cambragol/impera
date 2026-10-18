@@ -640,6 +640,13 @@ abilities, movement, death transformations, summon/division targets and encounte
 companions are edited separately from artwork. Original behavior profiles retain
 special vanilla behavior. Unknown original flag bits are preserved.
 
+Selecting an original NPC or monster type shows all four native artwork frames for
+each tileset. Painting or importing updates those original slots and preserves the
+engine’s animation sequences and timing. Original creatures keep four fixed slots;
+copy a type to create an independent animation with a different frame count.
+For custom animations, **Advanced → Frame duration** controls the selected frame’s
+duration. It is hidden for native animations.
+
 Choose your type in map **Add… → NPC / Monster**, or select a placed creature
 and change **Type** in its inspector. **Edit type…** opens its shared definition.
 World-object and combat-room inspectors also support custom monster types.

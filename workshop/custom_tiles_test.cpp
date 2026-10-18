@@ -303,10 +303,81 @@ int main(int argc, char **argv) {
         QMap<QString, int> npcTypeState{{"customTiles/kind", 1}, {"customTiles/1/id", 40010}};
         std::unique_ptr<QWidget> npcTypesUi(CustomTiles::editor(&p, edit, &npcTypeState));
         for (auto button : npcTypesUi->findChildren<QPushButton *>())
-            if (button->text() == "Delete / Reset") button->click();
+            if (button->text() == "Delete / Reset")
+                button->click();
         CHECK(!CustomTiles::records(p).contains(40010));
         CHECK(npcTypeState["customTiles/1/id"] == 336);
         CHECK(!npcTypesUi->findChild<QLineEdit *>("customTileName")->text().isEmpty());
+        // Original actor frames belong to the native sheets, not a timed type override.
+        for (int kind : {1, 2}) {
+            const unsigned nativeId = kind == 1 ? 336 : 400;
+            QMap<QString, int> nativeState{{"customTiles/kind", kind},
+                                           {QString("customTiles/%1/id").arg(kind), int(nativeId)}};
+            std::unique_ptr<QWidget> nativeUi(CustomTiles::editor(&p, edit, &nativeState));
+            auto nativeFrames = nativeUi->findChild<QListWidget *>("customTileFrames");
+            auto nativeVariants = nativeUi->findChild<QComboBox *>("customTileVariant");
+            CHECK(nativeFrames && nativeFrames->count() == 4);
+            CHECK(nativeUi->findChild<QSpinBox *>("customTileFrameDuration")->isHidden());
+            const QStringList nativeSheets{"TILES.16",     "TILE_AMI.PNG", "TILE_APP.PNG",
+                                           "TILE_GRY.PNG", "TILE_SHN.PNG", "TILES.16"};
+            for (int variant = 0; variant < nativeSheets.size(); ++variant) {
+                nativeVariants->setCurrentIndex(variant);
+                CHECK(nativeFrames->count() == 4);
+                nativeFrames->setCurrentRow(2);
+                auto before =
+                    U5::readGraphics(nativeSheets[variant], p.data(nativeSheets[variant]));
+                int index = int(nativeId) - before.tileOffset;
+                auto color = before.images[index + 2].pixelColor(0, 0) == QColor(Qt::white)
+                                 ? qRgb(0, 0, 0)
+                                 : qRgb(255, 255, 255);
+                auto nativePalette = nativeUi->findChild<QWidget *>("customTilePalette");
+                bool picked = false;
+                for (auto swatch : nativePalette->findChildren<QToolButton *>())
+                    if (swatch->property("rgba").isValid() &&
+                        swatch->property("rgba").toUInt() == color) {
+                        swatch->click();
+                        picked = true;
+                    }
+                CHECK(picked);
+                nativeUi->findChild<QToolButton *>("customTileTool0")->click();
+                auto nativeCanvas = nativeUi->findChild<QWidget *>("customTileCanvas");
+                QMouseEvent down(QEvent::MouseButtonPress, QPointF(1, 1), QPointF(1, 1),
+                                 Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QMouseEvent up(QEvent::MouseButtonRelease, QPointF(1, 1), QPointF(1, 1),
+                               Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                QApplication::sendEvent(nativeCanvas, &down);
+                QApplication::sendEvent(nativeCanvas, &up);
+                auto after = U5::readGraphics(nativeSheets[variant], p.data(nativeSheets[variant]));
+                CHECK(after.images[index + 2].pixelColor(0, 0).rgb() == color);
+                for (int i = 0; i < before.images.size(); ++i)
+                    if (i != index + 2)
+                        for (int y = 0; y < before.images[i].height(); ++y)
+                            for (int x = 0; x < before.images[i].width(); ++x)
+                                CHECK(before.images[i].pixel(x, y) == after.images[i].pixel(x, y));
+                CHECK(CustomTiles::frames(CustomTiles::records(p).value(nativeId)).isEmpty());
+                CHECK(nativeFrames->count() == 4 && nativeFrames->currentRow() == 2);
+            }
+            auto nativeHealth = nativeUi->findChild<QSpinBox *>("actorStat5");
+            nativeHealth->setValue(nativeHealth->value() + 1);
+            QMetaObject::invokeMethod(nativeHealth, "editingFinished", Qt::DirectConnection);
+            CHECK(CustomTiles::frames(CustomTiles::records(p).value(nativeId)).isEmpty());
+            CHECK(nativeFrames->count() == 4);
+            for (auto button : nativeUi->findChildren<QPushButton *>())
+                if (button->text() == "Delete / Reset")
+                    button->click();
+            CHECK(!CustomTiles::records(p).contains(nativeId));
+            for (const auto &resource : nativeSheets) {
+                auto restored = U5::readGraphics(resource, p.data(resource));
+                auto original = U5::readGraphics(resource, p.resources.value(resource).original);
+                int index = int(nativeId) - restored.tileOffset;
+                for (int frame = 0; frame < 4; ++frame)
+                    for (int y = 0; y < restored.images[index + frame].height(); ++y)
+                        for (int x = 0; x < restored.images[index + frame].width(); ++x)
+                            CHECK(restored.images[index + frame].pixel(x, y) ==
+                                  original.images[index + frame].pixel(x, y));
+            }
+            p.validate();
+        }
         WorkshopWindow window;
         CHECK(window.openGame(TEST_GAME_DIR));
         window.projectForTests() = p;
