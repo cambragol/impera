@@ -13,6 +13,39 @@
 #include <cstring>
 using U5::require;
 namespace Workshop {
+QMap<QString, QByteArray> createNpcConversation(const Project &p, const QString &npc, int town,
+                                                int slot, const QString &name) {
+    auto bytes = p.data(npc);
+    require(NPCS_Validate(bytes.constData(), bytes.size()), "Invalid NPC resource");
+    require(town >= 0 && town < 8 && slot > 0 &&
+                slot < int(NPCS_Count(bytes.constData(), bytes.size(), town)),
+            "Choose an NPC");
+    auto dialogue = [&](int t, int n) {
+        return U5::byte(bytes, NPCS_DialogueOffset(bytes.constData(), bytes.size(), t, n));
+    };
+    const QString talk = npc.left(npc.size() - 4) + ".TLK";
+    require(p.resources.contains(talk), "Conversation resource unavailable");
+    auto entries = U5::readDialogue(p.data(talk));
+    for (const auto &entry : entries)
+        require(int(entry.id) != dialogue(town, slot), "NPC already has a conversation");
+    QSet<int> used;
+    for (const auto &entry : entries)
+        used.insert(entry.id);
+    for (int t = 0; t < 8; ++t)
+        for (int n = 0; n < int(NPCS_Count(bytes.constData(), bytes.size(), t)); ++n)
+            used.insert(dialogue(t, n));
+    int id = 1;
+    while (id < 128 && used.contains(id))
+        ++id;
+    require(id < 128, "No free conversation numbers remain");
+    auto text = Dialogue::text(name);
+    text += U5::encodeText("<Entry>A traveler.<Entry>Greetings.<Entry>I live "
+                           "here.<Entry>Farewell.\"<End Conversation><Entry><Any><Label 15>@");
+    require(Dialogue::parse(text).structuralError.isEmpty(), "Invalid new conversation");
+    entries.append({unsigned(id), text});
+    bytes[NPCS_DialogueOffset(bytes.constData(), bytes.size(), town, slot)] = char(id);
+    return {{npc, bytes}, {talk, U5::writeDialogue(entries)}};
+}
 QString actorName(int shape) {
     // Combat group names do not always describe the NPC appearance artwork.
     if (shape == 96)

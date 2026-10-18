@@ -225,6 +225,26 @@ int main(int argc, char** argv)
     D_5f5e[257] = npc257;
     D_5d5e[32] = schedule32;
     D_5d5e[257] = schedule257;
+    /* Stay here is a schedule behavior, independent of monster artwork and
+     * dialogue. Keep both extra NPC slots stationary over actual turns. */
+    byte previousShape = D_659e[32];
+    D_659e[32] = D_5c5a[32]._0_tile = 216; /* daemon appearance */
+    memset(D_5d5e[32].type, 0, 3);
+    memset(D_5d5e[257].type, 0, 3);
+    D_5f5e[32]._e = D_5f5e[257]._e = 2;
+    D_5f5e[32]._0 = D_5f5e[257]._0 = 1;
+    D_5f5e[32]._a = 0;
+    D_5f5e[257]._a = 3;
+    for (int turn = 0; turn < 8; ++turn)
+        NPC_0db4(13);
+    assert(D_5c5a[32]._2_x == before32._2_x && D_5c5a[32]._3_y == before32._3_y);
+    assert(D_5c5a[257]._2_x == before257._2_x && D_5c5a[257]._3_y == before257._3_y);
+    D_659e[32] = previousShape;
+    D_5c5a[32] = before32;
+    D_5f5e[32] = npc32;
+    D_5f5e[257] = npc257;
+    D_5d5e[32] = schedule32;
+    D_5d5e[257] = schedule257;
     D_587f = 12;
     D_65be = D_65bf = 0;
     assert(!TOWN_0000_CheckNpcKilled(257));

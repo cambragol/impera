@@ -46,6 +46,8 @@ QMap<QString, QByteArray> moveSignTerrain(const Project &, const QString &, int 
 QByteArray addContentsAt(const Project &, ContentsTarget target, QPoint cell, bool container);
 void validateActorPlacement(const Project &, const QString &, int page, QPoint, unsigned type,
                             int ignoreSlot = -1, int schedule = -1);
+QMap<QString, QByteArray> createNpcConversation(const Project &, const QString &npcResource,
+                                                int town, int slot, const QString &name);
 QString actorName(int shape);
 QList<int> monsterShapes();
 } // namespace Workshop

@@ -2,6 +2,7 @@
 #include "map_editor.h"
 #include "../src/tiles.h"
 #include "contents_editor.h"
+#include "content_navigation.h"
 #include "custom_tiles.h"
 #include "dialogue.h"
 #include "location_text.h"
@@ -2654,7 +2655,7 @@ void MapWorkspace::createNpcInspector(QVBoxLayout *layout) {
                 for (int i = 0; i < conversations.size(); ++i)
                     if (int(conversations[i].id) == npcs.dialogue(town, canvas->selectedNpc)) {
                         (*navigation)[talkResource + "/character"] =
-                            town * 32 + canvas->selectedNpc;
+                            Workshop::npcCharacter(town, canvas->selectedNpc);
                         (*navigation)[talkResource + "/conversation"] = i;
                         (*navigation)[talkResource + "/characterTab"] = 1;
                         navigateResource(talkResource);
@@ -2666,22 +2667,35 @@ void MapWorkspace::createNpcInspector(QVBoxLayout *layout) {
         navigateResource(npcResource);
     });
     connect(npcConversation, &QPushButton::clicked, this, [this] {
-        if (canvas->selectedNpc < 0 || !project->resources.contains(talkResource))
+        if (canvas->selectedNpc <= 0 || !project->resources.contains(talkResource))
             return;
-        MapNpcDocument npcs(project, npcResource);
-        int id = npcs.dialogue(document.pages[currentPage()].settlement, canvas->selectedNpc);
-        auto conversations = U5::readDialogue(project->data(talkResource));
-        for (int i = 0; i < conversations.size(); ++i)
-            if (int(conversations[i].id) == id) {
+        try {
+            const int town = document.pages[currentPage()].settlement;
+            const int slot = canvas->selectedNpc;
+            MapNpcDocument npcs(project, npcResource);
+            int id = npcs.dialogue(town, slot);
+            if (!conversationIndices.contains(id)) {
+                const auto changes = Workshop::createNpcConversation(*project, npcResource, town,
+                                                                     slot, npcName(slot));
                 saveView();
-                (*navigation)[talkResource + "/character"] =
-                    document.pages[currentPage()].settlement * 32 + canvas->selectedNpc;
-                (*navigation)[talkResource + "/conversation"] = i;
-                (*navigation)[talkResource + "/entry"] = 0;
-                (*navigation)[talkResource + "/characterTab"] = 0;
-                navigateResource(talkResource);
-                return;
+                if (!commitResources(changes, "Create NPC conversation"))
+                    return;
+                id = npcs.dialogue(town, slot);
             }
+            auto conversations = U5::readDialogue(project->data(talkResource));
+            for (int i = 0; i < conversations.size(); ++i)
+                if (int(conversations[i].id) == id) {
+                    saveView();
+                    (*navigation)[talkResource + "/character"] = Workshop::npcCharacter(town, slot);
+                    (*navigation)[talkResource + "/conversation"] = i;
+                    (*navigation)[talkResource + "/entry"] = 0;
+                    (*navigation)[talkResource + "/characterTab"] = 0;
+                    navigateResource(talkResource);
+                    return;
+                }
+        } catch (const std::exception &e) {
+            QMessageBox::warning(this, "Cannot create conversation", e.what());
+        }
     });
 }
 void MapWorkspace::refreshNpcs() {
@@ -2819,9 +2833,13 @@ void MapWorkspace::refreshNpcs() {
             canvas->ghosts.append({other.x, other.y, sprite, s});
     }
     info += "Scheduled destinations:\n" + positions.join("\n");
-    npcConversation->setEnabled(conversationIndices.contains(id));
-    if (!npcConversation->isEnabled())
-        info += "\nNo editable conversation is available for this NPC.";
+    npcConversation->setEnabled(npc > 0 && project->resources.contains(talkResource));
+    npcConversation->setText(conversationIndices.contains(id) ? "Edit conversation"
+                                                              : "Create conversation");
+    npcConversation->setToolTip(
+        conversationIndices.contains(id)
+            ? "Open this NPC’s dialogue for editing."
+            : "Create a new conversation for this NPC and open it for editing.");
     npcInfo->setText(info);
     canvas->update();
 }
