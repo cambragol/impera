@@ -612,7 +612,7 @@ void WorkshopWindow::navigateContent(const QString &id) {
         prepareNavigation();
         if (!replayNavigation && navigationIndex >= 0)
             navigationStates[navigationIndex] = editorState;
-        if (d.workspace == "NPCs" && d.resource != "SHOPPE.DAT") {
+        if (d.workspace == "Dialogue" && d.resource != "SHOPPE.DAT") {
             if (!replayNavigation && d.character >= 0 && d.resource != current &&
                 current.left(current.size() - 4) == d.resource.left(d.resource.size() - 4) &&
                 editorState.value(current + "/character", -1) == d.character)
@@ -656,7 +656,7 @@ void WorkshopWindow::rebuildTree() {
     assets->setProperty("workspace", workspaceSelector->currentText());
     destinations = Workshop::contentDestinations(project);
     QMap<QString, QTreeWidgetItem *> groups;
-    const bool characters = workspaceSelector->currentText() == "NPCs";
+    const bool characters = workspaceSelector->currentText() == "Dialogue";
     characterLocation->setVisible(characters);
     const QString selectedLocation = characterLocation->currentData().toString();
     {
@@ -665,7 +665,7 @@ void WorkshopWindow::rebuildTree() {
         characterLocation->addItem("All NPCs & services", QString());
         QSet<QString> locations;
         for (const auto &d : destinations)
-            if (d.workspace == "NPCs")
+            if (d.workspace == "Dialogue")
                 locations.insert(d.group);
         QStringList sorted = locations.values();
         sorted.sort();
@@ -683,7 +683,7 @@ void WorkshopWindow::rebuildTree() {
     }
     if (workspaceSelector->currentText() == "Graphics") {
         for (const QString &label :
-             {QString("Tilesets"), QString("Illustrations"), QString("Fonts")}) {
+             {QString("Tilesets"), QString("Custom tiles"), QString("Illustrations"), QString("Fonts")}) {
             const bool present = std::any_of(destinations.cbegin(), destinations.cend(),
                                             [&](const auto &d) {
                                                 return d.workspace == "Graphics" && d.group == label;
@@ -734,7 +734,7 @@ void WorkshopWindow::rebuildTree() {
         if (d.resource == current) {
             const int selected = editorState.value(current + "/map");
             bool matches = (d.page < 0 || selected == d.page) && Workshop::matchesSelection(d, editorState);
-            if (d.workspace == "NPCs" && (d.character >= 0 || d.conversation >= 0))
+            if (d.workspace == "Dialogue" && (d.character >= 0 || d.conversation >= 0))
                 matches = editorState.value(current + "/character", -1) == d.character &&
                           (d.conversation < 0 ||
                            editorState.value(current + "/conversation") == d.conversation);
@@ -746,7 +746,7 @@ void WorkshopWindow::rebuildTree() {
             }
             if (matches) {
                 assets->setCurrentItem(item);
-                if (d.workspace == "NPCs" && content->currentWidget())
+                if (d.workspace == "Dialogue" && content->currentWidget())
                     if (auto title = content->currentWidget()->findChild<QLabel *>("characterTitle"))
                         title->setText(d.title + " — " + d.group);
             }
@@ -836,7 +836,7 @@ void WorkshopWindow::selectResource(const QString &name) {
         for (const auto &d : destinations) {
             if (d.resource != current || !Workshop::matchesSelection(d, editorState))
                 continue;
-            if (d.workspace == "NPCs" && (d.character >= 0 || d.conversation >= 0) &&
+            if (d.workspace == "Dialogue" && (d.character >= 0 || d.conversation >= 0) &&
                 (editorState.value(current + "/character", -1) != d.character ||
                  (d.conversation >= 0 &&
                   editorState.value(current + "/conversation") != d.conversation)))

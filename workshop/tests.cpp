@@ -806,7 +806,7 @@ int main(int argc, char **argv) {
                 }
                 if (d.resource == "UNDER.OOL" || d.resource == "INIT.OOL") ++underworld;
                 if (d.resource == "SHOPPE.DAT")
-                    check(d.workspace == "NPCs", "Shop dialogue misplaced");
+                    check(d.workspace == "Dialogue", "Shop dialogue misplaced");
                 if (d.resource == "DATA.OVL") check(d.workspace == "Mod Overview", "Overlay coverage is not a rule editor");
             }
             check(scenes == 5 && underworld == 1, "Scene or effective-world routes missing");
@@ -914,19 +914,21 @@ int main(int argc, char **argv) {
                 const auto navigation = Workshop::contentDestinations(p);
                 int dialogueEntries = 0;
                 for (const auto &d : navigation)
-                    if (d.workspace == "NPCs" && d.group != "Types") {
+                    if (d.workspace == "Dialogue") {
                         check(d.conversation >= 0, "Schedule-only NPC cluttered dialogue navigation");
                         ++dialogueEntries;
                     }
                 int typeLibraries = 0;
                 for (const auto &d : navigation)
-                    if (d.workspace == "NPCs" && d.group == "Types") {
+                    if (d.workspace == "Graphics" && d.group == "Custom tiles" &&
+                        d.selection.value("customTiles/kind") > 0) {
                         check(d.resource == "TYPES.OVR" &&
                                   d.selection.value("customTiles/kind") > 0,
                               "Type library lost its semantic navigation route");
                         ++typeLibraries;
                     }
-                check(typeLibraries == 2, "NPC and monster type libraries are missing");
+                check(typeLibraries == 2,
+                      "NPC and monster type libraries must be under Graphics / Custom tiles");
                 check(dialogueEntries == 6,
                       "Dialogue navigation lost shared NPCs or unassigned conversations");
                 check(p.data("TOWNE.NPC") == p.resources["TOWNE.NPC"].original,
@@ -935,14 +937,14 @@ int main(int argc, char **argv) {
                 check(w.openGame(dir.path()), "Character UI fixture failed");
                 w.show();
                 auto selector = w.findChild<QComboBox *>("contentWorkspace");
-                selector->setCurrentText("NPCs");
+                selector->setCurrentText("Dialogue");
                 auto filter = w.findChild<QComboBox *>("characterLocationFilter");
                 check(filter && filter->findText("Moonglow") >= 0 &&
                           filter->findText("Unassigned conversations") >= 0,
                       "Cross-bank location filters missing");
                 auto tree = w.findChild<QWidget *>("resourceLibrary")->findChild<QTreeWidget *>();
                 auto choose = [&](const QString &id) {
-                    selector->setCurrentText("NPCs");
+                    selector->setCurrentText("Dialogue");
                     filter->setCurrentIndex(0);
                     QTreeWidgetItemIterator it(tree);
                     while (*it) {
@@ -1445,7 +1447,7 @@ int main(int argc, char **argv) {
                       !editor->findChild<QCheckBox *>("narrativeExtended") &&
                       !editor->findChild<QPushButton *>("narrativeApply"),
                   "Shop editor still exposes preview or format controls");
-            check(window.findChild<QComboBox *>("contentWorkspace")->currentText() == "NPCs",
+            check(window.findChild<QComboBox *>("contentWorkspace")->currentText() == "Dialogue",
                   "Shop dialogue is not in NPCs");
             auto serviceFilter = window.findChild<QComboBox *>("characterLocationFilter");
             check(serviceFilter && !serviceFilter->isHidden() &&
@@ -5937,7 +5939,7 @@ int main(int argc, char **argv) {
                     app.processEvents();
                 }
                 w.show();
-                w.findChild<QComboBox *>("contentWorkspace")->setCurrentText("NPCs");
+                w.findChild<QComboBox *>("contentWorkspace")->setCurrentText("Dialogue");
                 auto characterTree =
                     w.findChild<QWidget *>("resourceLibrary")->findChild<QTreeWidget *>();
                 const auto originalCharacters = Workshop::characterDestinations(p);

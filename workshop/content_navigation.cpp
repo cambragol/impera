@@ -44,7 +44,7 @@ bool matchesSelection(const ContentDestination &d, const QMap<QString, int> &sta
     return true;
 }
 QStringList contentWorkspaces() {
-    return {"World", "NPCs", "Cutscenes", "Graphics", "Game Rules", "Mod Overview"};
+    return {"World", "Dialogue", "Cutscenes", "Graphics", "Game Rules", "Mod Overview"};
 }
 QVector<ContentDestination> characterDestinations(const Project &project) {
     QVector<ContentDestination> result;
@@ -97,7 +97,7 @@ QVector<ContentDestination> characterDestinations(const Project &project) {
                     QString name = conversation >= 0 ? names[conversation]
                                                      : QString("NPC %1").arg(slot + 1);
                     ContentDestination d{
-                        QString("character/%1/%2/%3").arg(stem).arg(town).arg(slot), "NPCs",
+                        QString("character/%1/%2/%3").arg(stem).arg(town).arg(slot), "Dialogue",
                         location, name, conversation >= 0 ? talk : schedule};
                     d.character = town * 32 + slot;
                     d.conversation = conversation;
@@ -115,7 +115,7 @@ QVector<ContentDestination> characterDestinations(const Project &project) {
         for (int i = 0; i < conversations.size(); ++i) {
             if (!users.contains(i)) {
                 ContentDestination d{
-                    QString("conversation/%1/%2").arg(stem).arg(conversations[i].id), "NPCs",
+                    QString("conversation/%1/%2").arg(stem).arg(conversations[i].id), "Dialogue",
                     data.size() == 4608 ? "Unassigned conversations" : "Unverified assignments", names[i], talk};
                 d.conversation = i;
                 d.provenance = data.size() == 4608
@@ -154,11 +154,12 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
     for (auto it = project.resources.begin(); it != project.resources.end(); ++it) {
         const auto name = it.key();
         if (name == "TYPES.OVR") {
-            ContentDestination tiles{"custom-tiles", "Graphics", "Tilesets", "Custom tiles", name};
+            ContentDestination tiles{"custom-tiles", "Graphics", "Custom tiles", "Tiles", name};
             tiles.selection["customTiles/kind"] = 0;
             result.append(tiles);
             for (int kind = 1; kind <= 2; kind++) {
-                ContentDestination types{kind == 1 ? "npc-types" : "monster-types", "NPCs", "Types",
+                ContentDestination types{kind == 1 ? "npc-types" : "monster-types", "Graphics",
+                                         "Custom tiles",
                                          kind == 1 ? "NPC types" : "Monster types", name};
                 types.selection["customTiles/kind"] = kind;
                 result.append(types);
@@ -287,7 +288,7 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
             if (name == "SHOPPE.DAT") {
                 const auto services = shopServices();
                 for (int index = 0; index < services.size(); ++index) {
-                    ContentDestination d{"shop/" + services[index], "NPCs", "Shops & Services",
+                    ContentDestination d{"shop/" + services[index], "Dialogue", "Shops & Services",
                                          services[index], name};
                     d.selection["SHOPPE.DAT/service"] = index;
                     d.sources = {name, "TEXT.OVR"};
@@ -357,7 +358,7 @@ QMap<QString, QStringList> contentChanges(const Project &project,
             continue;
         QStringList parts;
         try {
-            if (d.workspace == "NPCs" && d.character >= 0) {
+            if (d.workspace == "Dialogue" && d.character >= 0) {
                 if (changed(d.scheduleResource)) {
                     const auto &now = project.data(d.scheduleResource);
                     const auto &old = original.data(d.scheduleResource);
@@ -370,7 +371,7 @@ QMap<QString, QStringList> contentChanges(const Project &project,
                 }
                 if (dialogueChanged(d))
                     parts.append("Conversation");
-            } else if (d.workspace == "NPCs" && d.conversation >= 0) {
+            } else if (d.workspace == "Dialogue" && d.conversation >= 0) {
                 if (dialogueChanged(d))
                     parts.append("Conversation");
             } else if (d.page >= 0 && MapDocument::supported(d.resource)) {

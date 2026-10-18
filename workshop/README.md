@@ -578,7 +578,7 @@ Select / Move; the View menu does not contain inspector shortcuts.
 
 ### Shop and service dialogue
 
-**NPCs → Shops & Services** uses a response tree, one editable text pane and a
+**Dialogue → Shops & Services** uses a response tree, one editable text pane and a
 right-hand value-insertion pane. Shop values appear as inline labels; compressed
 words appear as readable text. Valid edits save with Undo and use extended mod
 storage automatically when needed. Shop/service templates are shared across
@@ -596,7 +596,7 @@ update. Playtest uses that same native implementation.
 
 ### New tiles
 
-Open **Graphics → Tilesets → Custom tiles**. **New tile…** creates a tile;
+Open **Graphics → Custom tiles → Tiles**. **New tile…** creates a tile;
 **Copy tile…** starts with an existing tile's settings and artwork. Draw pixels
 or import a PNG frame/sheet, add animation frames, and set frame durations.
 Alternative artwork can be supplied for each supported tileset; missing variants
@@ -633,7 +633,7 @@ leave the last valid tile definition unchanged.
 
 ## NPC and monster types
 
-Open **NPCs → Types → NPC types / Monster types** to create or copy independent
+Open **Graphics → Custom tiles → NPC types / Monster types** to create or copy independent
 creature types. The shared artwork editor supports each tileset's palette,
 pixel dimensions, PNG import, alpha and animated frames. Combat properties,
 abilities, movement, death transformations, summon/division targets and encounter

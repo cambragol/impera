@@ -13,7 +13,7 @@ packed save structs retain their original formats. Native interaction profiles
 bridge the existing command handlers; mutable operations use typed setters so
 custom identities are not written into byte-sized map data.
 
-Use **Graphics → Tilesets → Custom tiles**, or **New tile…** from an existing
+Use **Graphics → Custom tiles → Tiles**, or **New tile…** from an existing
 tileset editor. Choose **Copy tile…** to start with a vanilla or custom tile's
 resolved settings. The map inspector's **Edit tile…** opens the same definition.
 Original tile overrides support Reset; additions support Delete after references
@@ -245,7 +245,7 @@ Existing procedural/idle animation presets must keep their native behavior when
 copied. Custom animation affects appearance only unless an explicit state change
 is authored. Collision cannot oscillate because an animation frame changes.
 
-### NPCs → Types
+### Graphics → Custom tiles
 
 Add a type-library destination to the existing NPC workspace, distinct from its
 dialogue and Shops & Services filters. Include NPC types and Monster types in a
@@ -456,7 +456,7 @@ states type limits, per-map instance limits, compatibility and package conflicts
 
 ## Phase 4/5 implementation notes
 
-NPCs → Types contains **NPC types** and **Monster types**. Both reuse the same
+Graphics → Custom tiles contains **NPC types** and **Monster types**. Both reuse the same
 palette-limited, multi-tileset artwork editor as terrain. Type controls expose
 all eight original combat statistics, movement, attack range/projectile style,
 verified abilities, death/corpse behavior, and explicit transformation, summon,
