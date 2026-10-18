@@ -262,7 +262,7 @@ TypeCell actorCell(const QString &resource, const U5::MapPage &page, int index, 
     if (c.kind == 3 || c.kind >= 5)
         c.floor = 0;
     c.x = slot;
-    c.y = 0;
+    c.y = c.kind == 3 ? slot >> 8 : 0;
     return c;
 }
 unsigned actorType(const Project &p, const QString &resource, const U5::MapPage &page, int index,
@@ -383,7 +383,7 @@ void validate(const Project &p) {
                 Project view = p;
                 MapNpcDocument npcs(&view, npcResource);
                 for (int schedule = 0; schedule < 4; ++schedule) {
-                    auto pos = npcs.location((c.map - 1) % 8, c.x, schedule);
+                    auto pos = npcs.location((c.map - 1) % 8, c.x + (c.y << 8), schedule);
                     if (pos.x >= 32 || pos.y >= 32)
                         continue; // Preserve scheduled off-map absence.
                     int destPage = -1;
@@ -392,7 +392,7 @@ void validate(const Project &p) {
                             destPage = i;
                     require(destPage >= 0, "Creature schedule references a missing floor");
                     Workshop::validateActorPlacement(p, source, destPage, {pos.x, pos.y}, c.type,
-                                                     c.x, schedule);
+                                                     c.x + (c.y << 8), schedule);
                 }
             } else if (c.kind == 5 || c.kind == 6) {
                 auto data = p.data(source);

@@ -385,7 +385,7 @@ int MOUSE_Action(int dx, int dy, bool mainAction)
             int contentsCommand = CONTENTS_GAME_Command(x, y);
             if (contentsCommand)
                 return contentsCommand;
-            for (int i=1;i<32;i++) {
+            for (int i = 1; i < MAP_ACTOR_COUNT; i++) {
                 ActorFmt* a=&D_5c5a[i];
                 if (!a->_0_tile || a->_2_x!=x || a->_3_y!=y) continue;
                 if (a->_0_tile==TILE_ACTOR_CHEST) return 'O';
@@ -424,7 +424,7 @@ int MOUSE_Action(int dx, int dy, bool mainAction)
         int contentsCommand = CONTENTS_GAME_Command(x, y);
         if (contentsCommand)
             return contentsCommand;
-        for (int i = 1; i < 32; i++) {
+        for (int i = 1; i < MAP_ACTOR_COUNT; i++) {
             ActorFmt* a = &D_5c5a[i];
             if (a->_2_x == x && a->_3_y == y && a->_4_z == D_5895_map_level &&
                 ((a->_0_tile & 0xfc) == TILE_ACTOR_HORSE ||
@@ -451,7 +451,7 @@ int MOUSE_Action(int dx, int dy, bool mainAction)
     int contentsCommand = CONTENTS_GAME_Command(x, y);
     if (contentsCommand)
         return contentsCommand;
-    for (int i = 1; i < 32; i++) {
+    for (int i = 1; i < MAP_ACTOR_COUNT; i++) {
         ActorFmt* a = &D_5c5a[i];
         if (a->_0_tile && ACTORS_Contains(i, (byte)x, (byte)y) && a->_4_z == D_5895_map_level) {
             if (a->_0_tile == TILE_ACTOR_CHEST) return 'O';

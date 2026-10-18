@@ -2640,10 +2640,17 @@ int main(int argc, char **argv) {
             for (int i = 1; i < 32; i++)
                 p.resources["TOWNE.NPC"].edited[512 + i] = 80;
             auto before = p.data("TOWNE.NPC");
-            rejects([&] {
+            auto additional =
                 Workshop::addMapItem(p, "TOWNE.DAT", 0, {1, 1}, Workshop::MapItemKind::Npc);
-            });
-            check(p.data("TOWNE.NPC") == before, "Failed placement changed existing NPCs");
+            check(additional.slot == 32 && additional.changes["TOWNE.NPC"].left(4608) == before,
+                  "Extended placement changed original NPC records");
+            check(p.data("TOWNE.NPC") == before, "Placement preview committed its changes");
+            install(additional);
+            check(records.count(0) == 33 && records.location(0, 32, 0).x == 1 &&
+                      records.location(0, 32, 0).y == 1,
+                  "Extended NPC was not initialized");
+            p.validate();
+            check(p.package().startsWith("IMOD0012"), "Extended NPC package lacks version gate");
         });
         test("Map positions preserve bytes, floors, entrance pairs, packages and native placement",
              [&] {

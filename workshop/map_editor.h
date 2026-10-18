@@ -41,6 +41,11 @@ class MapNpcDocument {
   public:
     MapNpcDocument(Project *project, QString resource);
     static int locationIndex(int slot);
+    int count(int settlement) const;
+    int shapeOffset(int settlement, int npc) const;
+    int dialogueOffset(int settlement, int npc) const;
+    int offset(int settlement, int npc) const;
+    static void ensureSlot(QByteArray &, int settlement, int npc);
     NpcLocation location(int settlement, int npc, int slot) const;
     int hour(int settlement, int npc, int slot) const;
     int sprite(int settlement, int npc) const;
@@ -50,7 +55,6 @@ class MapNpcDocument {
   private:
     Project *project;
     QString resource;
-    int offset(int settlement, int npc) const;
 };
 
 class MapCanvas : public QWidget {

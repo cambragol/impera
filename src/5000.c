@@ -201,7 +201,7 @@ void ULTIMA_5394(void)
     }
 
     // 542a
-    local_c = 31;
+    local_c = MAP_ACTOR_COUNT - 1;
     do
     {
         if (D_5c5a[local_c]._0_tile != 0)
@@ -390,7 +390,7 @@ void ULTIMA_56ac_DrawMap(void)
                                   D_5893_map_id >= 128 ? local_8 : D_5897_map_y + local_8 - 5,
                                   256 + GetActorMap(local_6, local_8)));
     /* A large actor may enter the view before its top-left anchor does. */
-    for (unsigned actor = 0; actor < 32; ++actor) {
+    for (unsigned actor = 0; actor < (unsigned)MAP_ACTOR_COUNT; ++actor) {
         unsigned w, h;
         ACTORS_Size(actor, &w, &h);
         ActorFmt *a = &D_5c5a[actor];

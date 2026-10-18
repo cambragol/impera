@@ -50,7 +50,7 @@ unsigned ACTORS_Target(unsigned type, unsigned action, unsigned fallback) {
     return id ? (id < 512 ? ((id - 320) / 4) : id) : fallback;
 }
 unsigned ACTORS_Instance(unsigned actor) {
-    if (actor >= 32 || !D_5c5a[actor]._0_tile)
+    if (actor >= (unsigned)MAP_ACTOR_COUNT || !D_5c5a[actor]._0_tile)
         return 0;
     unsigned type = 0;
     if (D_5893_map_id >= 128) {
@@ -63,9 +63,9 @@ unsigned ACTORS_Instance(unsigned actor) {
         TypeCell key = {4, 0, (int8_t)D_5895_map_level, actor, 0, 0, 0};
         type = TYPES_At(key, 0);
     } else if (D_5893_map_id <= 32) {
-        for (unsigned slot = 1; slot < 32; slot++)
+        for (unsigned slot = actor >= 32 ? actor : 1; slot < (actor >= 32 ? actor + 1 : 32); slot++)
             if (D_5f5e[slot]._0 && D_5f5e[slot]._c == actor) {
-                TypeCell key = {3, D_5893_map_id, 0, slot, 0, 0, 0};
+                TypeCell key = {3, D_5893_map_id, 0, slot & 255, slot >> 8, 0, 0};
                 type = TYPES_At(key, 0);
                 break;
             }
@@ -88,7 +88,7 @@ void ACTORS_Size(unsigned actor, unsigned *width, unsigned *height) {
         TYPES_ArtSize(type, D_5893_map_id == 0, width, height);
 }
 int ACTORS_Contains(unsigned actor, int x, int y) {
-    if (actor >= 32)
+    if (actor >= (unsigned)MAP_ACTOR_COUNT)
         return 0;
     unsigned w, h;
     ACTORS_Size(actor, &w, &h);
@@ -115,7 +115,7 @@ int ACTORS_CanPlace(unsigned type, int x, int y, unsigned ignoreActor) {
     if (x < 0 || y < 0 || x + (int)w > limit || y + (int)h > limit)
         return 0;
     unsigned shape = d.base;
-    if (ignoreActor < 32)
+    if (ignoreActor < (unsigned)MAP_ACTOR_COUNT)
         shape = ACTORS_MoveShape(ignoreActor, shape);
     else {
         TypeDef native;
@@ -136,7 +136,7 @@ int ACTORS_CanPlace(unsigned type, int x, int y, unsigned ignoreActor) {
                 return 0;
             if (D_5893_map_id >= 128 && *ULTIMA_4402_GetTileAddr(tx, ty) == 255)
                 return 0;
-            for (unsigned other = 0; other < 32; ++other) {
+            for (unsigned other = 0; other < (unsigned)MAP_ACTOR_COUNT; ++other) {
                 ActorFmt *a = &D_5c5a[other];
                 if (other == ignoreActor || !a->_0_tile || !a->_1_animTile)
                     continue;
@@ -155,7 +155,7 @@ int ACTORS_CanPlace(unsigned type, int x, int y, unsigned ignoreActor) {
     return 1;
 }
 int ACTORS_CanMove(unsigned actor, int x, int y) {
-    if (actor >= 32)
+    if (actor >= (unsigned)MAP_ACTOR_COUNT)
         return 0;
     unsigned type = ACTORS_Instance(actor);
     if (!type) {
@@ -196,7 +196,7 @@ unsigned ACTORS_Sprite(unsigned actor, unsigned fallback) {
     return type && D_5c5a[actor]._1_animTile ? TYPES_ActorArt(type, fallback) : fallback;
 }
 unsigned ACTORS_AtCell(int x, int y, unsigned fallback) {
-    for (unsigned actor = 0; actor < 32; actor++) {
+    for (unsigned actor = 0; actor < (unsigned)MAP_ACTOR_COUNT; actor++) {
         ActorFmt *a = &D_5c5a[actor];
         if (a->_0_tile && a->_1_animTile && ACTORS_Contains(actor, x, y) &&
             a->_4_z == D_5895_map_level)
@@ -228,7 +228,8 @@ void ACTORS_SetEncounter(unsigned actor) {
 }
 unsigned ACTORS_Encounter(void) { return encounter; }
 unsigned ACTORS_PlacedEncounter(unsigned slot, unsigned fallback) {
-    TypeCell key = {CONTENTS_EncounterKind() + 4, CONTENTS_EncounterMap(), 0, slot, 0, 0, 0};
+    TypeCell key = {
+        CONTENTS_EncounterKind() + 4, CONTENTS_EncounterMap(), 0, slot & 255, slot >> 8, 0, 0};
     return TYPES_At(key, fallback);
 }
 

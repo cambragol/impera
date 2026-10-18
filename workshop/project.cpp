@@ -1,3 +1,4 @@
+#include "mod/npcs.h"
 #include "project.h"
 #include "contents_editor.h"
 #include "custom_tiles.h"
@@ -128,10 +129,16 @@ QByteArray Project::package() const {
         for (const auto &frame : CustomTiles::frames(record))
             largeActors |= frame.variant >= 6;
     }
+    bool extraNpcs = false;
+    for (const auto &resource : list)
+        extraNpcs |= resource.endsWith(".NPC") && data(resource).size() > 4608;
+    for (const auto &cell : CustomTiles::placements(*this))
+        extraNpcs |= cell.kind == 3 && (cell.x >= 32 || cell.y);
     QByteArray out(
-        list.contains("TYPES.OVR") || list.contains("TYPEMAP.OVR") ? (largeActors  ? "IMOD0011"
-                                                                      : actorTypes ? "IMOD0010"
-                                                                                   : "IMOD0009")
+        extraNpcs                                                    ? "IMOD0012"
+        : list.contains("TYPES.OVR") || list.contains("TYPEMAP.OVR") ? (largeActors  ? "IMOD0011"
+                                                                        : actorTypes ? "IMOD0010"
+                                                                                     : "IMOD0009")
         : list.contains("CUTSCENE.OVR")
             ? (data("CUTSCENE.OVR").startsWith("ICUT0003")
                    ? "IMOD0008"
@@ -453,11 +460,13 @@ QVector<ModDiagnostic> validateMod(const Project &project, const QString &modsDi
             }
         }
         const auto &bytes = project.data(name);
-        if (name.endsWith(".NPC") && bytes.size() == 4608) {
+        if (name.endsWith(".NPC") && bytes.size() >= 4608) {
             int unusual = 0;
             for (int settlement = 0; settlement < 8; ++settlement)
-                for (int actor = 0; actor < 32; ++actor) {
-                    int base = settlement * 576 + actor * 16;
+                for (int actor = 0;
+                     actor < int(NPCS_Count(bytes.constData(), bytes.size(), settlement));
+                     ++actor) {
+                    int base = NPCS_Offset(bytes.constData(), bytes.size(), settlement, actor);
                     for (int time = 0; time < 4; ++time)
                         unusual += U5::byte(bytes, base + 12 + time) > 23;
                     for (int position = 0; position < 3; ++position)

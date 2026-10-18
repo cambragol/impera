@@ -1,3 +1,4 @@
+#include "mod/npcs.h"
 #include "resource_document.h"
 #include "contents_editor.h"
 #include "custom_tiles.h"
@@ -308,7 +309,7 @@ void validateResource(const Project &project, const QString &name) {
         }
         U5::writeDialogue(entries);
     } else if (kind == EditorKind::Schedule)
-        require(b.size() == 4608, "NPC schedules must be 4608 bytes");
+        require(NPCS_Validate(b.constData(), b.size()), "Invalid NPC schedules");
     else if (kind == EditorKind::State)
         require(b.size() == 4192, "INIT.GAM must be 4192 bytes");
     else if (kind == EditorKind::WorldObjects)

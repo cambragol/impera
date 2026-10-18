@@ -1,3 +1,4 @@
+#include "mod/npcs.h"
 #include "color_palette.h"
 #include "window.h"
 #include "contents_editor.h"
@@ -1714,7 +1715,7 @@ QWidget *WorkshopWindow::characterEditor(const QString &name) {
     }
     if (character >= 0) {
         const QString schedule = selected.scheduleResource;
-        const int town = character / 32, slot = character % 32;
+        const int town = Workshop::npcTown(character), slot = Workshop::npcSlot(character);
         auto show = new QPushButton("Show NPC on map");
         show->setObjectName("showCharacterMap");
         show->setToolTip("Open this NPC's first scheduled floor in "
@@ -2126,7 +2127,8 @@ QWidget *WorkshopWindow::stateEditor() {
     return tabs;
 }
 QWidget *WorkshopWindow::npcEditor(const QString &name) {
-    require(project.data(name).size() == 4608, "NPC schedules must be 4608 bytes");
+    require(NPCS_Validate(project.data(name).constData(), project.data(name).size()),
+            "Invalid NPC schedules");
     QVBoxLayout *layout;
     auto w = panel(&layout);
     auto row = new QHBoxLayout;
@@ -2147,7 +2149,7 @@ QWidget *WorkshopWindow::npcEditor(const QString &name) {
     settlement->setCurrentIndex(qBound(0, editorState.value(name + "/settlement"), 7));
     row->addWidget(settlement, 1);
     auto npc = new QSpinBox;
-    npc->setRange(0, 31);
+    npc->setRange(0, MapNpcDocument(&project, name).count(settlement->currentIndex()) - 1);
     npc->setValue(editorState.value(name + "/npc"));
     row->addWidget(new QLabel("NPC"));
     row->addWidget(npc);
@@ -2158,7 +2160,10 @@ QWidget *WorkshopWindow::npcEditor(const QString &name) {
     layout->addWidget(table, 1);
     auto load = [=] {
         QSignalBlocker blocked(table);
-        int base = settlement->currentIndex() * 576 + npc->value() * 16;
+        MapNpcDocument npcs(&project, name);
+        QSignalBlocker blockNpc(npc);
+        npc->setMaximum(npcs.count(settlement->currentIndex()) - 1);
+        int base = npcs.offset(settlement->currentIndex(), npc->value());
         QStringList fields = {"Behavior: change 1",
                               "Behavior: changes 2 and 4",
                               "Behavior: change 3",
@@ -2178,9 +2183,10 @@ QWidget *WorkshopWindow::npcEditor(const QString &name) {
                               "Appearance code",
                               "Conversation number"};
         for (int r = 0; r < 18; r++) {
-            int off = r < 16
-                          ? base + r
-                          : settlement->currentIndex() * 576 + 512 + (r - 16) * 32 + npc->value();
+            int off =
+                r < 16 ? base + r
+                       : (r == 16 ? npcs.shapeOffset(settlement->currentIndex(), npc->value())
+                                  : npcs.dialogueOffset(settlement->currentIndex(), npc->value()));
             auto label = new QTableWidgetItem(fields[r]);
             label->setFlags(label->flags() & ~Qt::ItemIsEditable);
             table->setItem(r, 0, label);

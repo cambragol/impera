@@ -13,7 +13,7 @@
 #include "vars.h"
 #include <string.h>
 
-static int s_actorTiles[32];
+static int s_actorTiles[IMPERA_NPC_CAPACITY];
 int WIDE_ActorTile(int actor) { return s_actorTiles[actor]; }
 
 WideLayout WIDE_Layout(int width, int height)
@@ -256,7 +256,8 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
     Copy(pixels, l.width, l.sidebarX - 8, l.height - 8, 184, 184, 8, 8);
     Copy(pixels, l.width, l.sidebarX / 2 - 56, l.height - 8, 40, 184, 112, 8);
 
-    for (int i = 0; i < 32; i++) s_actorTiles[i] = -1;
+    for (int i = 0; i < MAP_ACTOR_COUNT; i++)
+        s_actorTiles[i] = -1;
     int cx = l.columns / 2, cy = l.rows / 2;
     int* sprites = malloc((size_t)l.columns * l.rows * sizeof(int));
     if (!sprites) return false;
@@ -275,7 +276,7 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
                     D_5893_map_id ? D_5897_map_y + dy : (D_5897_map_y + dy) & 255);
                 if (loot)
                     sprites[row * l.columns + col] = 256 + loot;
-                for (int actor = 31; actor >= 0; actor--) {
+                for (int actor = MAP_ACTOR_COUNT - 1; actor >= 0; actor--) {
                     ActorFmt* a = &D_5c5a[actor];
                     int ax = a->_2_x - D_5896_map_x, ay = a->_3_y - D_5897_map_y;
                     if (D_5893_map_id == 0) {
@@ -351,7 +352,7 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
         }
     /* Large central actors can cross the seam of the original 11x11 viewport. */
     if (D_5893_map_id > 0 && D_5893_map_id < 128)
-        for (unsigned actor = 0; actor < 32; ++actor) {
+        for (unsigned actor = 0; actor < (unsigned)MAP_ACTOR_COUNT; ++actor) {
             ActorFmt *a = &D_5c5a[actor];
             unsigned w, h;
             ACTORS_Size(actor, &w, &h);

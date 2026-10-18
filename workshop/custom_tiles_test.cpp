@@ -2,6 +2,8 @@
 #include "color_palette.h"
 #include "window.h"
 #include "map_entities.h"
+#include "mod/npcs.h"
+#include "native_dialogue_session.h"
 #include <QApplication>
 #include <QClipboard>
 #include <QToolButton>
@@ -320,6 +322,84 @@ int main(int argc, char **argv) {
         MapNpcDocument npcDocument(&p, "DWELLING.NPC");
         CHECK(npcDocument.sprite(doc.pages[page].settlement, placedNpc.slot) == 40010);
         CHECK(npcDocument.dialogue(doc.pages[page].settlement, placedNpc.slot) > 0);
+        {
+            Project crowded = p;
+            auto records = crowded.data("DWELLING.NPC");
+            int town = doc.pages[page].settlement;
+            for (int i = 1; i < 32; i++)
+                records[town * 576 + 512 + i] = 80;
+            crowded.resources["DWELLING.NPC"].edited = records;
+            auto conversation = npcDocument.dialogue(town, placedNpc.slot);
+            auto apply = [&](const QMap<QString, QByteArray> &changes) {
+                for (auto it = changes.begin(); it != changes.end(); ++it)
+                    crowded.resources[it.key()].edited = it.value();
+            };
+            auto extraNpc =
+                Workshop::addMapItem(crowded, "DWELLING.DAT", page, {9, 9},
+                                     Workshop::MapItemKind::Npc, 40010, conversation, "Extra");
+            CHECK(extraNpc.slot == 32);
+            apply(extraNpc.changes);
+            MapNpcDocument extraDoc(&crowded, "DWELLING.NPC");
+            CHECK(extraDoc.count(town) == 33 && extraDoc.sprite(town, 32) == 40010);
+            CHECK(extraDoc.dialogue(town, 32) == conversation);
+            apply(
+                {{"DWELLING.NPC", extraDoc.move(town, 32, 0, {10, 9, doc.pages[page].floor, 0})}});
+            CHECK(extraDoc.location(town, 32, 0).x == 10);
+            // Exercise both bytes of instance IDs, keeping existing records intact.
+            records = crowded.data("DWELLING.NPC");
+            for (int slot = 33; slot <= 257; slot++)
+                MapNpcDocument::ensureSlot(records, town, slot);
+            records[NPCS_ShapeOffset(records.constData(), records.size(), town, 257)] = 80;
+            records[NPCS_DialogueOffset(records.constData(), records.size(), town, 257)] =
+                char(conversation);
+            crowded.resources["DWELLING.NPC"].edited = records;
+            apply(CustomTiles::assignActor(crowded, "DWELLING.DAT", doc.pages[page], page, 257,
+                                           40010));
+            CHECK(extraDoc.count(town) == 258 && extraDoc.sprite(town, 257) == 40010);
+            auto destinations = Workshop::characterDestinations(crowded);
+            bool found = false;
+            for (auto d : destinations)
+                found |= d.scheduleResource == "DWELLING.NPC" &&
+                         Workshop::npcSlot(d.character) == 257 &&
+                         Workshop::npcTown(d.character) == town && d.conversation >= 0;
+            CHECK(found);
+            int conversationIndex = -1;
+            auto talks = U5::readDialogue(crowded.data("DWELLING.TLK"));
+            for (int i = 0; i < talks.size(); i++)
+                if (int(talks[i].id) == conversation)
+                    conversationIndex = i;
+            auto playtest = Dialogue::nativeSetup(crowded, "DWELLING.TLK", conversationIndex,
+                                                  Workshop::npcCharacter(town, 257));
+            CHECK(playtest.hasNpc && playtest.npc == 257 && playtest.shapes.size() == 258);
+            CHECK(playtest.npcRecords.size() == 258 * 16 &&
+                  playtest.actorRecords.size() == 258 * 8);
+            auto packaged = crowded.package();
+            CHECK(packaged.startsWith("IMOD0012"));
+            auto oldPackage = packaged;
+            oldPackage.replace(0, 8, "IMOD0011");
+            bool oldRejected = false;
+            try {
+                Project old;
+                old.openGame(TEST_GAME_DIR);
+                old.importPackage(oldPackage);
+            } catch (...) {
+                oldRejected = true;
+            }
+            CHECK(oldRejected);
+            Project imported;
+            imported.openGame(TEST_GAME_DIR);
+            imported.importPackage(packaged);
+            MapNpcDocument loaded(&imported, "DWELLING.NPC");
+            CHECK(loaded.count(town) == 258 && loaded.sprite(town, 257) == 40010);
+            CHECK(loaded.location(town, 32, 0).x == 10);
+            apply(Workshop::deleteMapItem(crowded, "DWELLING.DAT", page, "NPCs / Schedules", 32,
+                                          {10, 9}));
+            CHECK(!U5::byte(crowded.data("DWELLING.NPC"), extraDoc.shapeOffset(town, 32)));
+            auto reused =
+                Workshop::addMapItem(crowded, "DWELLING.DAT", page, {9, 9},
+                                     Workshop::MapItemKind::Npc, 40010, conversation, "Extra");
+            CHECK(reused.slot == 32);
+        }
         auto worldMonster =
             Workshop::addMapItem(p, "BRIT.DAT", 0, {20, 20}, Workshop::MapItemKind::Monster, 40011);
         applyChanges(worldMonster.changes);

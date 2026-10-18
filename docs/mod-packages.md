@@ -328,3 +328,25 @@ Actor instances retain one anchor coordinate, type identity, health pool and tur
 Footprints derive from the mounted type definition, so saved positions and the
 existing type-state save format do not duplicate geometry. Britannia and Underworld
 always use the single-cell appearance and collision footprint.
+
+### Version 12: additional location NPCs
+
+`IMOD0012` permits extended `.NPC` banks and 16-bit location actor instance IDs.
+The original 4608-byte bank remains unchanged in structure. Optional trailing
+bytes are `INPC0001`, a little-endian 32-bit record count, four reserved zero bytes,
+and sorted 24-byte records: settlement index (0–7), zero byte, slot LE16,
+schedule[16], native appearance byte, conversation byte, two reserved zero bytes.
+Within each settlement, extension slots start at 32 and are contiguous; deletion
+clears a record instead of renumbering later NPCs. Slots below 32 remain in the
+original bank. Slots 1–32767 represent NPCs; slot zero is reserved.
+
+For `TYPEMAP.OVR` kind 3, x and y are now the low and high bytes of the stable NPC
+slot. Other placement kinds retain their existing coordinate semantics. Version
+12 is required for any binding beyond slot 31. Unsupported older engines reject
+the package before mounting it.
+
+Saved games retain the original 4192-byte base. An optional `INPSAV01` prefix
+before the contents/type trailers stores additional killed/met flags and current
+NPC/actor/schedule/movement state, with explicit little-endian words and a CRC.
+The entire trailer is validated before the active game is modified. Vanilla saves
+without this prefix reset extension state normally.

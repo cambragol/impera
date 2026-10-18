@@ -25,8 +25,13 @@
 // check npc killed flag
 int TOWN_0000_CheckNpcKilled(int param_1)
 {
+    if (param_1 < 0 || param_1 >= LOCATION_NPC_COUNT || D_5893_map_id < 1 || D_5893_map_id > 32)
+        return 0;
     if (D_659e[param_1] == TILE_ACTOR_SANDALWOOD_BOX || D_659e[param_1] >= TILE_ACTOR_WIZARD)
     {
+        if (param_1 >= 32)
+            return (D_5b5a[128 + (D_5893_map_id - 1) * (IMPERA_NPC_CAPACITY / 8) + param_1 / 8] &
+                    (1u << (param_1 % 8))) != 0;
         return ((*(u32*)&D_5b5a[(D_5893_map_id - 1) * 4]) & ((u32)1 << (byte)param_1)) != 0;
     }
 
@@ -38,13 +43,18 @@ void TOWN_0052_SetNpcKilled(int param_1)
 {
     int local_4;
 
-    if (param_1 < 0 || param_1 > 0x1f)
+    if (param_1 < 0 || param_1 >= LOCATION_NPC_COUNT || D_5893_map_id < 1 || D_5893_map_id > 32)
         return;
 
     local_4 = D_659e[param_1] & 0xfc;
 
     if ((local_4 != TILE_ACTOR_GUARD && local_4 < TILE_ACTOR_80) || local_4 == TILE_ACTOR_SHARD)
     {
+        if (param_1 >= 32) {
+            D_5b5a[128 + (D_5893_map_id - 1) * (IMPERA_NPC_CAPACITY / 8) + param_1 / 8] |=
+                1u << (param_1 % 8);
+            return;
+        }
         // 0084
         (*(u32*)&D_5b5a[(D_5893_map_id - 1) * 4]) |= ((u32)1 << (byte)param_1);
     }
@@ -67,8 +77,7 @@ int TOWN_011e(int param_1)
     int local_4;
     int local_2 = -1;
 
-    for (local_4 = 0; local_4 < 0x20; local_4++)
-    {
+    for (local_4 = 0; local_4 < LOCATION_NPC_COUNT; local_4++) {
         if (D_5f5e[local_4]._c == param_1 && D_659e[local_4] != 0 && D_5f5e[local_4]._0 != 0)
         {
             local_2 = local_4;
@@ -176,28 +185,27 @@ static void TOWN_02ae(void)
     {
         // Setup shadow lord
         TOWN_0212();
-        for (local_8 = 0; local_8 < 0x20; local_8++)
-        {
+        for (local_8 = 0; local_8 < MAP_ACTOR_COUNT; local_8++) {
             if (D_5c5a[local_8]._0_tile == TILE_ACTOR_SHADOWLORD)
             {
                 return;
             }
         }
 
-        local_a = ULTIMA_38e4();
-
-        local_6 = &D_5c5a[local_a];
-
-        local_4 = 0x1f;
-        for (local_8 = 0x1f; local_8 >= 0; local_8--)
-        {
-            if (D_659e[local_8] == 0)
-            {
+        local_4 = -1;
+        for (local_8 = LOCATION_NPC_COUNT - 1; local_8 > 0; local_8--)
+            if (!D_659e[local_8]) {
                 local_4 = local_8;
                 break;
             }
+        if (local_4 < 0) {
+            if (LOCATION_NPC_COUNT >= IMPERA_NPC_CAPACITY)
+                return;
+            local_4 = LOCATION_NPC_COUNT;
+            D_imperaNpcCount = local_4 + 1;
         }
-
+        local_a = local_4 >= 32 ? local_4 : ULTIMA_38e4();
+        local_6 = &D_5c5a[local_a];
         ASSERT(D_5893_map_id > 0 && D_5893_map_id <= 8);
 
         D_5f5e[local_4]._0 = 1;
@@ -601,8 +609,7 @@ void TOWN_0958(void)
     int local_6;
     int local_4;
 
-    for (local_4 = 0; local_4 < 0x20; local_4++)
-    {
+    for (local_4 = 0; local_4 < LOCATION_NPC_COUNT; local_4++) {
         if (D_5f5e[local_4]._0 != 0)
         {
             local_6 = D_659e[local_4];
@@ -822,8 +829,7 @@ static void TOWN_0c78(void)
     int local_c;
     int local_e;
 
-    for (local_a = 0; local_a < 0x20; local_a++)
-    {
+    for (local_a = 0; local_a < LOCATION_NPC_COUNT; local_a++) {
         local_4 = &D_5c5a[local_a];
 
         local_e = local_4->_0_tile;
@@ -1104,8 +1110,7 @@ static void TOWN_1156(void)
     switch (D_5958)
     {
     case 1:
-        for (local_4 = 0; local_4 < 0x20; local_4++)
-        {
+        for (local_4 = 0; local_4 < LOCATION_NPC_COUNT; local_4++) {
             if (TOWN_10f2(local_4) != 0)
             {
                 TOWN_085e(local_4);
@@ -1115,8 +1120,7 @@ static void TOWN_1156(void)
         break;
 
     case 2:
-        for (local_4 = 0; local_4 < 0x20; local_4++)
-        {
+        for (local_4 = 0; local_4 < LOCATION_NPC_COUNT; local_4++) {
             if (TOWN_10f2(local_4) != 0)
             {
                 TOWN_08d4(local_4);
@@ -1146,8 +1150,7 @@ void TOWN_11f0_Entry(int param_1)
     D_a9bc = D_24e6 = 1;
     if (param_1 != 0)
     {
-        for (local_4 = 1; local_4 < 0x20; local_4++)
-        {
+        for (local_4 = 1; local_4 < LOCATION_NPC_COUNT; local_4++) {
             D_5c5a[local_4]._0_tile = 0;
         }
         D_5957 = 0;
@@ -1159,8 +1162,7 @@ void TOWN_11f0_Entry(int param_1)
     TOWN_0408(param_1);
     TOWN_02ae();
 
-    for (local_4 = 0; local_4 < 0x20; local_4++)
-    {
+    for (local_4 = 0; local_4 < LOCATION_NPC_COUNT; local_4++) {
         if (TOWN_0000_CheckNpcKilled(local_4) != 0)
             TOWN_00b0_DespawnNpc(local_4);
     }
@@ -1488,14 +1490,12 @@ void TOWN_1694(void)
     int local_4;
     int local_6;
 
-    for (local_4 = 1; local_4 < 0x20; local_4++)
-    {
+    for (local_4 = 1; local_4 < LOCATION_NPC_COUNT; local_4++) {
         ULTIMA_3a74(0, 0, 0, 0, 0, 0, local_4);
         D_5f5e[local_4]._c = 0;
     }
 
-    for (local_4 = 1; local_4 < 0x20; local_4++)
-    {
+    for (local_4 = 1; local_4 < LOCATION_NPC_COUNT; local_4++) {
         if (D_659e[local_4] != 0)
         {
             local_6 = NPC_12e0(local_4, D_587f);
@@ -1526,18 +1526,14 @@ void TOWN_1726(int param_1, int param_2, int param_3, int param_4)
 
     if (param_4 == D_5895_map_level && local_4->_c == 0)
     {
-        local_6 = ULTIMA_38e4();
+        local_6 = param_1 >= 32 ? param_1 : ULTIMA_38e4();
 
         if (D_659e[param_1] == 1)
         {
             local_8 = 0x1e;
-        }
-        else if ((D_28c6[D_5893_map_id - 1] & ((u32)1 << param_1)) != 0)
-        {
+        } else if (param_1 < 32 && (D_28c6[D_5893_map_id - 1] & ((u32)1 << param_1)) != 0) {
             local_8 = 0xff;
-        }
-        else
-        {
+        } else {
             local_8 = 0;
         }
 

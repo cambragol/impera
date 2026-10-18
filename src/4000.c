@@ -357,114 +357,102 @@ static void AnimateSpritesOneStep(void)
 	ActorFmt* local_8;
 	byte* local_12;
 
-	for (local_10 = 0; local_10 < 0x20; local_10++)
-	{
-		local_8 = &D_5c5a[local_10];
-		if (local_8->_0_tile == 0)
-		{
-			continue;
-		}
+        for (local_10 = 0; local_10 < MAP_ACTOR_COUNT; local_10++) {
+            local_8 = &D_5c5a[local_10];
+            if (local_8->_0_tile == 0) {
+                continue;
+            }
 
-        local_c = local_8->_6 & 0xf;
-        local_14 = local_8->_6 >> 4;
-        local_4 = local_8->_0_tile & 0xfc;
-        local_e = D_1b18[((local_4 - 0x34) >> 2) + 0xb0];
-		local_12 = &D_1b18[local_e * 0x10];
+            local_c = local_8->_6 & 0xf;
+            local_14 = local_8->_6 >> 4;
+            local_4 = local_8->_0_tile & 0xfc;
+            local_e = D_1b18[((local_4 - 0x34) >> 2) + 0xb0];
+            local_12 = &D_1b18[local_e * 0x10];
 
-		if (local_c == 0xf)
-		{
-			continue;
-		}
+            if (local_c == 0xf) {
+                continue;
+            }
 
-        if (local_c != 0)
-        {
-            local_c--;
-            local_8->_6 = (local_8->_6 & 0xf0) + local_c;
-			continue;
-        }
+            if (local_c != 0) {
+                local_c--;
+                local_8->_6 = (local_8->_6 & 0xf0) + local_c;
+                continue;
+            }
 
-		if (local_8->_1_animTile == 0 || local_8->_1_animTile == TILE_ACTOR_1D || local_8->_1_animTile == TILE_ACTOR_SLEEP)
-		{
-			continue;
-		}
+            if (local_8->_1_animTile == 0 || local_8->_1_animTile == TILE_ACTOR_1D ||
+                local_8->_1_animTile == TILE_ACTOR_SLEEP) {
+                continue;
+            }
 
-		if (local_4 <= 0x33 || local_4 == 0xe8 || local_4 == 0xb4)
-		{
-			continue;
-		}
+            if (local_4 <= 0x33 || local_4 == 0xe8 || local_4 == 0xb4) {
+                continue;
+            }
 
-		if (local_4 != 0x5c && local_4 != 0xa8)
-		{
-			if (ULTIMA_2092_RandomRange(0, 0xff) < 0x80)
-			{
-				continue;
-			}
-		}
+            if (local_4 != 0x5c && local_4 != 0xa8) {
+                if (ULTIMA_2092_RandomRange(0, 0xff) < 0x80) {
+                    continue;
+                }
+            }
 
-        local_a = 0;
-        do
-        {
-            local_6 = local_12[local_14];
-            switch (local_6)
-            {
-            case 1:
-            case 2:
-            case 3:
-            case 4:
-                local_8->_1_animTile = local_4 + local_6 - 1;
-                local_14++;
-                local_a = 1;
-                break;
+            local_a = 0;
+            do {
+                local_6 = local_12[local_14];
+                switch (local_6) {
+                case 1:
+                case 2:
+                case 3:
+                case 4:
+                    local_8->_1_animTile = local_4 + local_6 - 1;
+                    local_14++;
+                    local_a = 1;
+                    break;
 
-            case 5:
-                if (ULTIMA_2092_RandomRange(0, 0xff) < 0x40)
-                {
-                    local_8->_1_animTile = local_8->_0_tile;
-                    if (local_4 == 0x5c)
-                    {
-                        local_14++;
+                case 5:
+                    if (ULTIMA_2092_RandomRange(0, 0xff) < 0x40) {
+                        local_8->_1_animTile = local_8->_0_tile;
+                        if (local_4 == 0x5c) {
+                            local_14++;
+                            local_a = 1;
+                            break;
+                        }
+
+                        local_c = 6;
                         local_a = 1;
                         break;
                     }
 
-                    local_c = 6;
+                    local_14++;
+                    break;
+
+                case 6:
+                    if (ULTIMA_2092_RandomRange(0, 0xff) >= 0xc0) {
+                        local_14++;
+                        break;
+                    }
+                    local_14 = 0;
+                    break;
+
+                case 0:
+                    local_14 = 0;
+                    break;
+
+                case 7:
+                    local_14 = 2;
+                    break;
+
+                default:
+                    local_c = local_6 + 0x80;
+                    local_14++;
                     local_a = 1;
                     break;
                 }
 
-                local_14++;
-                break;
+                local_8->_6 = local_14 * 0x10 + local_c;
+            } while (!local_a);
+        }
 
-            case 6:
-                if (ULTIMA_2092_RandomRange(0, 0xff) >= 0xc0)
-                {
-                    local_14++;
-                    break;
-                }
-                local_14 = 0;
-                break;
-
-            case 0:
-                local_14 = 0;
-                break;
-
-            case 7:
-                local_14 = 2;
-                break;
-
-            default:
-                local_c = local_6 + 0x80;
-                local_14++;
-                local_a = 1;
-                break;
-            }
-
-            local_8->_6 = local_14 * 0x10 + local_c;
-        } while (!local_a);
-    }
-
-	ULTIMA_44b8_AnimateTiles();
-    ULTIMA_6fd6_GRAP_AnimateTiles();
+        ULTIMA_44b8_AnimateTiles();
+        ULTIMA_6fd6_GRAP_AnimateTiles();
 }
 
 void ULTIMA_4552_AnimateActors(void)

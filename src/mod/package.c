@@ -1,3 +1,4 @@
+#include "npcs.h"
 #include "package.h"
 #include "contents.h"
 #include "creation_scene.h"
@@ -84,7 +85,8 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
         memcmp(bytes, "IMOD0005", 8) && memcmp(bytes, "IMOD0006", 8) &&
         memcmp(bytes, "IMOD0007", 8) && memcmp(bytes, "IMOD0008", 8) &&
         (memcmp(bytes, "IMOD0009", 8) &&
-         (memcmp(bytes, "IMOD0010", 8) && memcmp(bytes, "IMOD0011", 8)))) {
+         (memcmp(bytes, "IMOD0010", 8) &&
+          (memcmp(bytes, "IMOD0011", 8) && memcmp(bytes, "IMOD0012", 8))))) {
         reason = "Unsupported mod package version; update Impera";
         goto fail;
     }
@@ -94,7 +96,8 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
          memcmp(magic, "IMOD0005", 8) && memcmp(magic, "IMOD0006", 8) &&
          memcmp(magic, "IMOD0007", 8) && memcmp(magic, "IMOD0008", 8) &&
          (memcmp(magic, "IMOD0009", 8) &&
-          (memcmp(magic, "IMOD0010", 8) && memcmp(magic, "IMOD0011", 8)))) ||
+          (memcmp(magic, "IMOD0010", 8) &&
+           (memcmp(magic, "IMOD0011", 8) && memcmp(magic, "IMOD0012", 8))))) ||
         !number(&c, &titleLength) || titleLength == 0 || titleLength > 256 || !number(&c, &count) ||
         count == 0 || count > MOD_MAX_ENTRIES || !take(&c, result->title, titleLength) ||
         memchr(result->title, 0, titleLength))
@@ -123,7 +126,8 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
             }
         if (!strcmp(entry->name, "TYPES.OVR") || !strcmp(entry->name, "TYPEMAP.OVR")) {
             if ((memcmp(magic, "IMOD0009", 8) &&
-                 (memcmp(magic, "IMOD0010", 8) && memcmp(magic, "IMOD0011", 8))) ||
+                 (memcmp(magic, "IMOD0010", 8) &&
+                  (memcmp(magic, "IMOD0011", 8) && memcmp(magic, "IMOD0012", 8)))) ||
                 baseSize || baseCrc) {
                 reason = "Custom types require package version 9 and an empty base";
                 goto fail;
@@ -148,22 +152,26 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
                  memcmp(magic, "IMOD0006", 8) && memcmp(magic, "IMOD0007", 8) &&
                  memcmp(magic, "IMOD0008", 8) &&
                  (memcmp(magic, "IMOD0009", 8) &&
-                  (memcmp(magic, "IMOD0010", 8) && memcmp(magic, "IMOD0011", 8)))) ||
+                  (memcmp(magic, "IMOD0010", 8) &&
+                   (memcmp(magic, "IMOD0011", 8) && memcmp(magic, "IMOD0012", 8))))) ||
                 (!strcmp(entry->name, "RULES.TBL") && memcmp(magic, "IMOD0003", 8) &&
                  memcmp(magic, "IMOD0004", 8) && memcmp(magic, "IMOD0005", 8) &&
                  memcmp(magic, "IMOD0006", 8) && memcmp(magic, "IMOD0007", 8) &&
                  memcmp(magic, "IMOD0008", 8) &&
                  (memcmp(magic, "IMOD0009", 8) &&
-                  (memcmp(magic, "IMOD0010", 8) && memcmp(magic, "IMOD0011", 8)))) ||
+                  (memcmp(magic, "IMOD0010", 8) &&
+                   (memcmp(magic, "IMOD0011", 8) && memcmp(magic, "IMOD0012", 8))))) ||
                 (!strcmp(entry->name, "CONTENTS.OVR") && memcmp(magic, "IMOD0004", 8) &&
                  memcmp(magic, "IMOD0005", 8) && memcmp(magic, "IMOD0006", 8) &&
                  memcmp(magic, "IMOD0007", 8) && memcmp(magic, "IMOD0008", 8) &&
                  (memcmp(magic, "IMOD0009", 8) &&
-                  (memcmp(magic, "IMOD0010", 8) && memcmp(magic, "IMOD0011", 8)))) ||
+                  (memcmp(magic, "IMOD0010", 8) &&
+                   (memcmp(magic, "IMOD0011", 8) && memcmp(magic, "IMOD0012", 8))))) ||
                 (!strcmp(entry->name, "CUTSCENE.OVR") && memcmp(magic, "IMOD0006", 8) &&
                  memcmp(magic, "IMOD0007", 8) && memcmp(magic, "IMOD0008", 8) &&
                  (memcmp(magic, "IMOD0009", 8) &&
-                  (memcmp(magic, "IMOD0010", 8) && memcmp(magic, "IMOD0011", 8)))) ||
+                  (memcmp(magic, "IMOD0010", 8) &&
+                   (memcmp(magic, "IMOD0011", 8) && memcmp(magic, "IMOD0012", 8))))) ||
                 baseSize || baseCrc) {
                 reason =
                     "Companion overrides require a supported package version and an empty base";
@@ -226,11 +234,21 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
              (!memcmp(entry->data, "ICUT0002", 8) && memcmp(magic, "IMOD0007", 8) &&
               memcmp(magic, "IMOD0008", 8) &&
               (memcmp(magic, "IMOD0009", 8) &&
-               (memcmp(magic, "IMOD0010", 8) && memcmp(magic, "IMOD0011", 8)))) ||
+               (memcmp(magic, "IMOD0010", 8) &&
+                (memcmp(magic, "IMOD0011", 8) && memcmp(magic, "IMOD0012", 8))))) ||
              (!memcmp(entry->data, "ICUT0003", 8) && memcmp(magic, "IMOD0008", 8) &&
               (memcmp(magic, "IMOD0009", 8) &&
-               (memcmp(magic, "IMOD0010", 8) && memcmp(magic, "IMOD0011", 8)))))) {
+               (memcmp(magic, "IMOD0010", 8) &&
+                (memcmp(magic, "IMOD0011", 8) && memcmp(magic, "IMOD0012", 8))))))) {
             reason = "Unsupported or invalid cutscene pages";
+            goto fail;
+        }
+        const char *extension = strrchr(entry->name, '.');
+        if (extension && !strcmp(extension, ".NPC") &&
+            (!NPCS_Validate(entry->data, entry->size) ||
+             (entry->size > IMPERA_NPC_BASE_SIZE && memcmp(magic, "IMOD0012", 8)))) {
+            reason = "Extended NPC records require package version 12 and valid schedules; update "
+                     "Impera";
             goto fail;
         }
         if (!strcmp(entry->name, "CONTENTS.OVR") && !CONTENTS_Validate(entry->data, entry->size)) {
@@ -265,7 +283,8 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
         if (!strcmp(result->entries[i].name, "TYPEMAP.OVR"))
             mapTypes = &result->entries[i];
     }
-    if (types && (memcmp(magic, "IMOD0010", 8) && memcmp(magic, "IMOD0011", 8))) {
+    if (types && (memcmp(magic, "IMOD0010", 8) &&
+                  (memcmp(magic, "IMOD0011", 8) && memcmp(magic, "IMOD0012", 8)))) {
         size_t off = 32;
         if (TYPES_Validate(types->data, types->size))
             for (unsigned i = 0; i < TYPES_U32(types->data + 24); i++) {
@@ -276,7 +295,8 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
                 off += TYPES_U32(types->data + off);
             }
     }
-    if (types && memcmp(magic, "IMOD0011", 8) && TYPES_Validate(types->data, types->size)) {
+    if (types && (memcmp(magic, "IMOD0011", 8) && memcmp(magic, "IMOD0012", 8)) &&
+        TYPES_Validate(types->data, types->size)) {
         size_t off = 32;
         for (unsigned i = 0; i < TYPES_U32(types->data + 24); ++i) {
             const unsigned char *r = types->data + off;
@@ -294,6 +314,14 @@ int MOD_Decode(const void *bytes, size_t size, ModBaseReader reader, void *conte
             }
             off += TYPES_U32(r);
         }
+    }
+    if (mapTypes && memcmp(magic, "IMOD0012", 8) && mapTypes->size >= 32) {
+        for (size_t off = 32; off + 16 <= mapTypes->size; off += 16)
+            if (mapTypes->data[off] == 3 &&
+                (mapTypes->data[off + 3] >= 32 || mapTypes->data[off + 4])) {
+                reason = "Extended NPC type bindings require package version 12; update Impera";
+                goto fail;
+            }
     }
     if ((types && !TYPES_Validate(types->data, types->size)) ||
         (mapTypes && (!types || !TYPES_ValidateMap(mapTypes->data, mapTypes->size, types->data,

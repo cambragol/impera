@@ -1,3 +1,4 @@
+#include "mod/npcs.h"
 #include "dialogue_editor.h"
 #include "native_text_viewport.h"
 #include "native_dialogue_session.h"
@@ -260,10 +261,14 @@ ConversationEditor::ConversationEditor(
         item->setData(0, Qt::UserRole, i);
         QVariantList usedLocations;
         for (auto town : locationNames.keys())
-            for (int slot = 0; slot < 32; ++slot)
-                if (town * 576 + 544 + slot < schedules.size() &&
-                    U5::byte(schedules, town * 576 + 512 + slot) != 0 &&
-                    U5::byte(schedules, town * 576 + 544 + slot) == conversations[i].id &&
+            for (int slot = 0;
+                 slot < int(NPCS_Count(schedules.constData(), schedules.size(), town)); ++slot)
+                if (NPCS_DialogueOffset(schedules.constData(), schedules.size(), town, slot) <
+                        schedules.size() &&
+                    U5::byte(schedules, NPCS_ShapeOffset(schedules.constData(), schedules.size(),
+                                                         town, slot)) != 0 &&
+                    U5::byte(schedules, NPCS_DialogueOffset(schedules.constData(), schedules.size(),
+                                                            town, slot)) == conversations[i].id &&
                     !usedLocations.contains(town))
                     usedLocations.append(town);
         item->setData(0, Qt::UserRole + 1, usedLocations);
@@ -692,8 +697,8 @@ void ConversationEditor::loadTestContext() {
     testNpc->clear();
     testNpc->addItem("Conversation only", -2);
     for (const auto &npc : Workshop::characterDestinations(*project))
-        if (npc.character > 0 && npc.character % 32 != 0 && npc.resource == resource &&
-            npc.conversation == npcIndex)
+        if (npc.character > 0 && Workshop::npcSlot(npc.character) != 0 &&
+            npc.resource == resource && npc.conversation == npcIndex)
             testNpc->addItem(npc.title + " — " + npc.group, npc.character);
     if (testNpc->count() == 2)
         testNpc->setCurrentIndex(1);
@@ -819,10 +824,11 @@ void ConversationEditor::loadEntry(int e) {
                                         project->data(resource.left(resource.size() - 4) + ".DAT"))
                          : QVector<U5::MapPage>{};
         for (int town = 0; town < 8; ++town)
-            for (int n = 0; n < 32; ++n)
-                if (town * 576 + 544 + n < data.size() &&
-                    U5::byte(data, town * 576 + 512 + n) != 0 &&
-                    U5::byte(data, town * 576 + 544 + n) == conversations[npcIndex].id) {
+            for (int n = 0; n < int(NPCS_Count(data.constData(), data.size(), town)); ++n)
+                if (NPCS_DialogueOffset(data.constData(), data.size(), town, n) < data.size() &&
+                    U5::byte(data, NPCS_ShapeOffset(data.constData(), data.size(), town, n)) != 0 &&
+                    U5::byte(data, NPCS_DialogueOffset(data.constData(), data.size(), town, n)) ==
+                        conversations[npcIndex].id) {
                     QString location = QString("Settlement %1").arg(town + 1);
                     for (auto page : pages)
                         if (page.settlement == town) {

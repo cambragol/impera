@@ -695,3 +695,15 @@ point cannot accommodate the larger body.
 
 These packages use version 11 and require a compatible Impera build. Existing
 single-tile packages retain their original versions and behavior.
+
+### Additional location NPCs
+
+The map editor’s **Add → NPC** and **Add → Monster** keep working when the
+original location slots are full. Additional NPCs use the same selection,
+schedule, appearance, conversation and deletion controls. Their IDs remain stable
+when another NPC is deleted. Conversations can be shared between NPCs.
+
+These mods require the updated Impera (package version 12). Original NPC files
+retain their first 4608 bytes; extension records hold the additional schedules.
+The extension supports up to 32,767 NPCs per location, across its floors, with
+slot zero reserved for the party. Combat encounter size is unchanged.

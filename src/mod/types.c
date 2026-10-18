@@ -352,7 +352,7 @@ uint64_t TYPES_CellKey(const TypeCell *c) {
 static int validCell(const TypeCell *c) {
     /* Actor placements use stable instance slots, never terrain coordinates. */
     if (c->kind == 3)
-        return c->map >= 1 && c->map <= 32 && c->floor == 0 && c->x > 0 && c->x < 32 && !c->y;
+        return c->map >= 1 && c->map <= 32 && c->floor == 0 && (c->x || c->y) && c->y < 128;
     if (c->kind == 4)
         return c->map == 0 && (c->floor == 0 || c->floor == -1) && c->x > 0 && c->x < 32 &&
                (c->floor != -1 || c->x < 28) && !c->y;

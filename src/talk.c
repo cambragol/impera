@@ -524,6 +524,10 @@ static ImperaDialogueGame dialogueGame(void) {
     g.shapes = D_659e;
     g.dirty = &D_24e6;
     g.npc = D_bcdc;
+    g.npcCount = LOCATION_NPC_COUNT;
+    g.actorCount = MAP_ACTOR_COUNT;
+    g.extraKilled = D_5b5a + 128;
+    g.extraMet = D_5bda + 128;
     g.random = gameRandom;
     g.vitals = gameVitals;
     return g;

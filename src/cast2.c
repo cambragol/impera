@@ -592,8 +592,7 @@ int CAST2_07bc(int param_1)
         }
 
         local_8 = 0;
-        for (local_6 = 0; local_6 < 0x20; local_6++)
-        {
+        for (local_6 = 0; local_6 < MAP_ACTOR_COUNT; local_6++) {
             if ((D_5c5a[local_6]._0_tile & 0xfc) == TILE_ACTOR_E8 && D_5876 == D_5c5a[local_6]._2_x &&
                 D_5878 == D_5c5a[local_6]._3_y)
             {

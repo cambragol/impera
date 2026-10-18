@@ -294,8 +294,7 @@ static int CAST_02d2_AnSanct(void)
         }
         else
         {
-            for (local_a = 0; local_a < 0x20; local_a++)
-            {
+            for (local_a = 0; local_a < MAP_ACTOR_COUNT; local_a++) {
                 local_6 = &D_5c5a[local_a];
 
                 if (local_6->_0_tile == TILE_ACTOR_CHEST && local_6->_2_x == D_5876 && local_6->_3_y == D_5878 &&
@@ -906,8 +905,7 @@ static int CAST_0d4c_AnTym(void)
     CAST2_0000_CastEffect(8);
     local_6 = -1;
 
-    for (local_4 = 0; local_4 < 0x20; local_4++)
-    {
+    for (local_4 = 0; local_4 < MAP_ACTOR_COUNT; local_4++) {
         if (D_5c5a[local_4]._0_tile == TILE_ACTOR_SHADOWLORD)
         {
             ULTIMA_1850_PrintString(_TEXT(0x45f2, "Magic absorbed!\n"));

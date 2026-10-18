@@ -1,5 +1,10 @@
 #ifndef _NPC_H
 #define _NPC_H
+#include <stdio.h>
+void NPC_LoadExtra(const char *, unsigned town);
+void NPC_ResetExtra(void);
+int NPC_ReadExtraState(FILE *, int apply);
+int NPC_WriteExtraState(FILE *);
 
 void NPC_0000_LoadNpcFile(void);
 /* Refresh a new settlement game from mounted NPC definitions, without entering gameplay. */

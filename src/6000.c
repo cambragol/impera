@@ -181,7 +181,7 @@ void ULTIMA_6150_Combat(int param_1)
     SJOG_203e(param_1);
     ULTIMA_5e4a();
     ULTIMA_4f7c(0);
-    ACTORS_SetEncounter(32);
+    ACTORS_SetEncounter(IMPERA_NPC_CAPACITY);
 }
 
 void ULTIMA_6360_Camping(int param_1, int param_2)

@@ -1,3 +1,4 @@
+#include "mod/npcs.h"
 #include "map_editor.h"
 #include "../src/tiles.h"
 #include "contents_editor.h"
@@ -84,15 +85,55 @@ QMap<QString, QByteArray> MapDocument::changes(int index, const QByteArray &cell
 }
 
 MapNpcDocument::MapNpcDocument(Project *p, QString r) : project(p), resource(r) {
-    require(project->data(resource).size() == 4608, "NPC schedules must be 4608 bytes");
+    require(NPCS_Validate(project->data(resource).constData(), project->data(resource).size()),
+            "Invalid NPC schedules");
 }
 int MapNpcDocument::locationIndex(int slot) {
     require(slot >= 0 && slot < 4, "Invalid NPC time slot");
     return slot == 0 ? 0 : slot == 2 ? 2 : 1;
 }
-int MapNpcDocument::offset(int settlement, int npc) const {
-    require(settlement >= 0 && settlement < 8 && npc >= 0 && npc < 32, "Invalid NPC record");
-    return settlement * 576 + npc * 16;
+int MapNpcDocument::count(int town) const {
+    auto b = project->data(resource);
+    return NPCS_Count(b.constData(), b.size(), town);
+}
+int MapNpcDocument::offset(int town, int npc) const {
+    auto b = project->data(resource);
+    auto off = NPCS_Offset(b.constData(), b.size(), town, npc);
+    require(off + 16 <= size_t(b.size()), "Invalid NPC record");
+    return int(off);
+}
+int MapNpcDocument::shapeOffset(int town, int npc) const {
+    offset(town, npc);
+    auto b = project->data(resource);
+    return NPCS_ShapeOffset(b.constData(), b.size(), town, npc);
+}
+int MapNpcDocument::dialogueOffset(int town, int npc) const {
+    offset(town, npc);
+    auto b = project->data(resource);
+    return NPCS_DialogueOffset(b.constData(), b.size(), town, npc);
+}
+void MapNpcDocument::ensureSlot(QByteArray &b, int town, int npc) {
+    require(town >= 0 && town < 8 && npc > 0 && npc < IMPERA_NPC_CAPACITY, "Invalid NPC slot");
+    require(NPCS_Validate(b.constData(), b.size()), "Invalid NPC schedules");
+    if (npc < 32 || NPCS_Offset(b.constData(), b.size(), town, npc) < size_t(b.size()))
+        return;
+    if (b.size() == 4608) {
+        b.append("INPC0001", 8);
+        b.append(QByteArray(8, 0));
+    }
+    QByteArray record(24, 0);
+    record[0] = char(town);
+    record[2] = char(npc);
+    record[3] = char(npc >> 8);
+    int at = IMPERA_NPC_EXTRA_START;
+    for (; at < b.size(); at += 24) {
+        int key = U5::byte(b, at) * IMPERA_NPC_CAPACITY +
+                  NPCS_Word(reinterpret_cast<const unsigned char *>(b.constData() + at + 2));
+        if (key > town * IMPERA_NPC_CAPACITY + npc)
+            break;
+    }
+    b.insert(at, record);
+    TYPES_Put32(b.data() + 4616, (b.size() - IMPERA_NPC_EXTRA_START) / 24);
 }
 NpcLocation MapNpcDocument::location(int settlement, int npc, int slot) const {
     int base = offset(settlement, npc), loc = locationIndex(slot);
@@ -111,13 +152,13 @@ int MapNpcDocument::sprite(int settlement, int npc) const {
                      : resource == "DWELLING.NPC" ? 8
                      : resource == "CASTLE.NPC"   ? 16
                                                   : 24;
-    TypeCell key{3, quint8(bank + settlement + 1), 0, quint8(npc), 0, 0, 0};
+    TypeCell key{3, quint8(bank + settlement + 1), 0, quint8(npc), quint8(npc >> 8), 0, 0};
     unsigned custom = CustomTiles::placements(*project).value(TYPES_CellKey(&key), key).type;
-    return custom ? custom : 256 + U5::byte(project->data(resource), settlement * 576 + 512 + npc);
+    return custom ? custom : 256 + U5::byte(project->data(resource), shapeOffset(settlement, npc));
 }
 int MapNpcDocument::dialogue(int settlement, int npc) const {
     offset(settlement, npc);
-    return U5::byte(project->data(resource), settlement * 576 + 544 + npc);
+    return U5::byte(project->data(resource), dialogueOffset(settlement, npc));
 }
 QByteArray MapNpcDocument::move(int settlement, int npc, int slot, NpcLocation destination) const {
     int base = offset(settlement, npc), loc = locationIndex(slot);
@@ -2006,13 +2047,13 @@ bool MapWorkspace::selectMapItem(QPoint cell) {
                       8 +
                   page.settlement + 1;
     const int signFloor = resource == "UNDER.DAT" ? -1 : page.floor;
-    if (npcMode >= 0 && page.settlement >= 0 && project->data(npcResource).size() == 4608) {
+    if (npcMode >= 0 && page.settlement >= 0 && project->data(npcResource).size() >= 4608) {
         MapNpcDocument npcs(project, npcResource);
-        for (int id = 1; id < 32; ++id) {
+        for (int id = 1; id < npcs.count(page.settlement); ++id) {
             auto position = npcs.location(page.settlement, id, schedule->currentIndex());
-            npcHit |= U5::byte(project->data(npcResource), page.settlement * 576 + 512 + id) != 0 &&
-                      position.floor == page.floor && position.x == cell.x() &&
-                      position.y == cell.y();
+            npcHit |=
+                U5::byte(project->data(npcResource), npcs.shapeOffset(page.settlement, id)) != 0 &&
+                position.floor == page.floor && position.x == cell.x() && position.y == cell.y();
         }
     }
     if (signMode >= 0) {
@@ -2131,12 +2172,12 @@ void MapWorkspace::refreshContextActors() {
             if (d.action && d.slot == 255)
                 canvas->contextActors.append({d.x, d.y, 257, -1, {}});
     if (!externalMode() || page.settlement < 0 || !project->resources.contains(npcResource) ||
-        project->data(npcResource).size() != 4608)
+        project->data(npcResource).size() < 4608)
         return;
     MapNpcDocument npcs(project, npcResource);
-    for (int id = 1; id < 32; id++) {
+    for (int id = 1; id < npcs.count(page.settlement); id++) {
         auto position = npcs.location(page.settlement, id, schedule->currentIndex());
-        if (U5::byte(project->data(npcResource), page.settlement * 576 + 512 + id) &&
+        if (U5::byte(project->data(npcResource), npcs.shapeOffset(page.settlement, id)) &&
             position.floor == page.floor && position.x < 32 && position.y < 32)
             canvas->contextActors.append(
                 {position.x, position.y, npcs.sprite(page.settlement, id), id, {}});
@@ -2567,7 +2608,8 @@ void MapWorkspace::createNpcInspector(QVBoxLayout *layout) {
             return;
         const int settlement = document.pages[currentPage()].settlement;
         const int offset =
-            settlement * 576 + canvas->selectedNpc * 16 + 12 + schedule->currentIndex();
+            MapNpcDocument(project, npcResource).offset(settlement, canvas->selectedNpc) + 12 +
+            schedule->currentIndex();
         auto bytes = project->data(npcResource);
         if (U5::byte(bytes, offset) == npcStartHour->value())
             return;
@@ -2657,7 +2699,7 @@ void MapWorkspace::refreshNpcs() {
         findChild<QPushButton *>(name)->setEnabled(canvas->selectedNpc >= 0 && mp.settlement >= 0 &&
                                                    project->resources.contains(npcResource));
     if (mp.settlement < 0 || !project->resources.contains(npcResource) ||
-        project->data(npcResource).size() != 4608) {
+        project->data(npcResource).size() < 4608) {
         npcInfo->setText("No valid NPC schedule resource for this map");
         return;
     }
@@ -2681,19 +2723,20 @@ void MapWorkspace::refreshNpcs() {
     }
     MapNpcDocument npcs(project, npcResource);
     int slot = schedule->currentIndex();
-    for (int npc = 0; npc < 32; ++npc) {
+    for (int npc = 0; npc < npcs.count(mp.settlement); ++npc) {
         npcList->addItem(QString("%1 · %2").arg(npc + 1).arg(npcName(npc)));
         if(auto list=qobject_cast<QListView *>(npcList->view()))
-            list->setRowHidden(npc,npc==0 || !U5::byte(project->data(npcResource),mp.settlement*576+512+npc));
+            list->setRowHidden(npc, npc == 0 || !U5::byte(project->data(npcResource),
+                                                          npcs.shapeOffset(mp.settlement, npc)));
         auto loc = npcs.location(mp.settlement, npc, slot);
-        if (npc > 0 && U5::byte(project->data(npcResource), mp.settlement * 576 + 512 + npc) &&
+        if (npc > 0 && U5::byte(project->data(npcResource), npcs.shapeOffset(mp.settlement, npc)) &&
             loc.floor == mp.floor && loc.x < 32 && loc.y < 32)
             canvas->actors.append({loc.x, loc.y, npcs.sprite(mp.settlement, npc), npc});
     }
     {
         int hours[4]{-1, -1, -1, -1};
         bool consistent = true;
-        for (int actor = 0; actor < 32; ++actor) {
+        for (int actor = 0; actor < npcs.count(mp.settlement); ++actor) {
             bool onMap = false;
             for (int change = 0; change < 4; ++change) {
                 auto loc = npcs.location(mp.settlement, actor, change);
@@ -2717,7 +2760,7 @@ void MapWorkspace::refreshNpcs() {
     }
     int npc = canvas->selectedNpc;
     npcList->setCurrentIndex(npc);
-    if (npc < 0 || npc >= 32) {
+    if (npc < 0 || npc >= npcs.count(mp.settlement)) {
         npcInfo->setText("No NPC selected");
         npcSprite->clear();
         npcStartHour->setEnabled(false);
@@ -2797,7 +2840,7 @@ void MapWorkspace::selectNpc(int npc) {
 }
 bool MapWorkspace::moveNpcTo(int npc, int x, int y, int floor) {
     try {
-        require(npc >= 0 && npc < 32, "Select an NPC before moving");
+        require(npc > 0, "Select an NPC before moving");
         int settlement = document.pages[currentPage()].settlement;
         bool available = false;
         for (auto mp : document.pages)
@@ -3646,19 +3689,20 @@ void MapWorkspace::deleteSelectedItem() {
 }
 void MapWorkspace::editNpcProperties() {
     int slot = canvas->selectedNpc;
-    if (slot <= 0 || slot >= 32)
+    if (slot <= 0)
         return;
-    int start = document.pages[currentPage()].settlement * 576;
+    int town = document.pages[currentPage()].settlement;
+    MapNpcDocument npcs(project, npcResource);
     auto bytes = project->data(npcResource);
     if (npcAppearance->currentIndex() >= 0)
-        bytes[start + 512 + slot] =
+        bytes[npcs.shapeOffset(town, slot)] =
             char(npcAppearance->currentData().toUInt() >= 512
                      ? CustomTiles::definition(*project, npcAppearance->currentData().toUInt()).base
                      : npcAppearance->currentData().toUInt());
     if (npcDialogue->currentIndex() >= 0)
-        bytes[start + 544 + slot] = char(npcDialogue->currentData().toInt());
+        bytes[npcs.dialogueOffset(town, slot)] = char(npcDialogue->currentData().toInt());
     if (npcBehavior->currentIndex() >= 0)
-        bytes[start + slot * 16 + MapNpcDocument::locationIndex(schedule->currentIndex())] =
+        bytes[npcs.offset(town, slot) + MapNpcDocument::locationIndex(schedule->currentIndex())] =
             char(npcBehavior->currentData().toInt());
     auto changes =
         CustomTiles::assignActor(*project, resource, document.pages[currentPage()], currentPage(),

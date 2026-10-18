@@ -11,6 +11,11 @@
 #include "mod/contents_game.h"
 #include "mod/discoveries.h"
 #include "npc.h"
+#include "town.h"
+#include "mod/actors.h"
+#include "mod/types.h"
+#include "text/dialogue_game.h"
+#include <stdlib.h>
 #include "savegame.h"
 #include "vars.h"
 
@@ -154,6 +159,97 @@ int main(int argc, char** argv)
             assert(D_5f5e[npc]._a == expected[0x220 + npc]);
     }
 
+    /* Extra NPCs keep full IDs through entry, targeting, schedules and save/load. */
+    const unsigned extra = 226, length = IMPERA_NPC_EXTRA_START + extra * 24;
+    unsigned char *extended = calloc(1, length);
+    assert(extended);
+    memcpy(extended + 4608, "INPC0001", 8);
+    TYPES_Put32(extended + 4616, extra);
+    for (unsigned n = 0; n < extra; n++) {
+        unsigned slot = 32 + n, off = IMPERA_NPC_EXTRA_START + n * 24;
+        extended[off] = 4;
+        extended[off + 2] = slot;
+        extended[off + 3] = slot >> 8;
+        for (unsigned j = 0; j < 3; j++) {
+            extended[off + 4 + 3 + j] = slot == 257 ? 11 : 10;
+            extended[off + 4 + 6 + j] = 10;
+        }
+        for (unsigned j = 0; j < 4; j++)
+            extended[off + 4 + 12 + j] = j * 6;
+        if (slot == 32 || slot == 257) {
+            extended[off + 20] = 0x50;
+            extended[off + 21] = 3;
+        }
+    }
+    assert(NPCS_Validate(extended, length));
+    extended[IMPERA_NPC_EXTRA_START + 2] = 33;
+    assert(!NPCS_Validate(extended, length));
+    extended[IMPERA_NPC_EXTRA_START + 2] = 32;
+    stream = fopen("EXTRA.NPC", "wb");
+    assert(stream);
+    assert(fwrite(extended, 1, length, stream) == length);
+    fclose(stream);
+    free(extended);
+    NPC_ResetExtra();
+    D_5893_map_id = 13;
+    D_5895_map_level = 0;
+    D_587f = 12;
+    memset(D_659e, 0, 32);
+    memset(D_5c5a, 0, 32 * sizeof(*D_5c5a));
+    NPC_LoadExtra("EXTRA.NPC", 4);
+    assert(LOCATION_NPC_COUNT == 258 && D_5f5e[257]._a == 3);
+    NPC_00d6(D_587f);
+    TOWN_1694();
+    assert(D_5f5e[32]._c == 32 && D_5f5e[257]._c == 257);
+    assert(ULTIMA_368e_FindActorTileAtPos(11, 10, 0) == 0x50 && D_5876 == 257);
+    assert(TOWN_011e(257) == 257 && ACTORS_Contains(257, 11, 10));
+    assert(!TOWN_0000_CheckNpcKilled(257));
+    TOWN_0052_SetNpcKilled(257);
+    assert(TOWN_0000_CheckNpcKilled(257));
+    assert(!TOWN_0000_CheckNpcKilled(32));
+    D_659e[32] = 0x70;
+    TOWN_0052_SetNpcKilled(32);
+    assert(!TOWN_0000_CheckNpcKilled(32));
+    D_659e[32] = 144;
+    TOWN_0052_SetNpcKilled(32);
+    assert(!TOWN_0000_CheckNpcKilled(32));
+    D_659e[32] = 80;
+    ImperaDialogueGame game = {0};
+    game.map = &D_5893_map_id;
+    game.npc = 257;
+    game.npcCount = 258;
+    game.met = D_5bda;
+    game.killed = D_5b5a;
+    game.extraMet = D_5bda + 128;
+    game.extraKilled = D_5b5a + 128;
+    assert(!IMPERA_GameMet(&game));
+    IMPERA_GameIntroduce(&game);
+    assert(IMPERA_GameMet(&game));
+    D_65c2[257] = 300;
+    D_655e[257] = -1;
+    assert(FILE_WriteSavegameFile("SAVED.GAM") == 0);
+    NPC_ResetExtra();
+    assert(LOCATION_NPC_COUNT == 32);
+    assert(FILE_ReadSavegameFile("SAVED.GAM") == 0);
+    assert(LOCATION_NPC_COUNT == 258 && D_5f5e[257]._c == 257 && D_5c5a[257]._2_x == 11);
+    assert(D_65c2[257] == 300 && D_655e[257] == -1 && IMPERA_GameMet(&game));
+    assert(TOWN_0000_CheckNpcKilled(257) && !TOWN_0000_CheckNpcKilled(32));
+    NPC_LoadExtra("EXTRA.NPC", 4);
+    assert(!D_659e[257] && D_659e[32]);
+    /* Corruption rejects the entire save before touching live state. */
+    stream = fopen("SAVEGAME/SAVED.GAM", "r+b");
+    assert(stream);
+    assert(!fseek(stream, 0x1060 + 24, SEEK_SET));
+    int savedByte = fgetc(stream);
+    assert(!fseek(stream, -1, SEEK_CUR));
+    fputc(savedByte ^ 1, stream);
+    fclose(stream);
+    D_55a6 = 4321;
+    assert(FILE_ReadSavegameFile("SAVED.GAM") == -1 && D_55a6 == 4321);
+    remove("SAVEGAME/SAVED.GAM");
+    remove("EXTRA.NPC");
+    NPC_ResetExtra();
+    puts("PASS Extended NPC entry, IDs above 255, killed/met flags and transactional saves");
     puts("Settings, save/load, and NPC town-entry tests passed.");
     return 0;
 }

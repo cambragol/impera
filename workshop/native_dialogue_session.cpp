@@ -17,6 +17,7 @@ struct Execution {
     NativeResult result;
     QVector<QByteArray> names;
     ImperaDialogueGame game{};
+    QByteArray extraKilled, extraMet;
     NativeRandom random;
     uint8_t dirty = 0, frameFlag = 0;
     uint64_t elapsed = 0;
@@ -86,8 +87,10 @@ struct Execution {
             setup.scheduleRecords = QByteArray(512, char(0));
         if (setup.shapes.isEmpty())
             setup.shapes = QByteArray(32, char(0));
-        U5::require(setup.actorRecords.size() == 256 && setup.npcRecords.size() == 512 &&
-                        setup.scheduleRecords.size() == 512 && setup.shapes.size() == 32,
+        U5::require(setup.shapes.size() >= 32 && setup.shapes.size() <= 32768 &&
+                        setup.actorRecords.size() == setup.shapes.size() * 8 &&
+                        setup.npcRecords.size() == setup.shapes.size() * 16 &&
+                        setup.scheduleRecords.size() == setup.shapes.size() * 16,
                     "Invalid Playtest NPC context");
         auto *state = reinterpret_cast<uint8_t *>(setup.gameState.data());
         for (int i = 0; i < std::min(names.size(), qsizetype(16)); ++i) {
@@ -117,6 +120,12 @@ struct Execution {
         game.schedules = reinterpret_cast<uint8_t *>(setup.scheduleRecords.data());
         game.shapes = reinterpret_cast<uint8_t *>(setup.shapes.data());
         game.npc = setup.hasNpc ? setup.npc : -1;
+        game.npcCount = setup.shapes.size();
+        game.actorCount = setup.actorRecords.size() / 8;
+        extraKilled = QByteArray(32 * 4096, 0);
+        extraMet = extraKilled;
+        game.extraKilled = reinterpret_cast<uint8_t *>(extraKilled.data());
+        game.extraMet = reinterpret_cast<uint8_t *>(extraMet.data());
         game.dirty = &dirty;
         game.host = this;
         game.vitals = [](void *h) { self(h).updateVitals(); };
@@ -125,9 +134,11 @@ struct Execution {
         vitalsWindow.setSleeper([this](int ms) { delay(ms); });
         animate = state[0x2eb];
         if (setup.hasNpc) {
-            U5::require(game.npc >= 1 && game.npc < 32 && *game.map >= 1 && *game.map <= 32,
+            U5::require(game.npc >= 1 && game.npc < int(game.npcCount) && *game.map >= 1 &&
+                            *game.map <= 32,
                         "Invalid Playtest NPC identity");
-            auto *flag = game.met + (*game.map - 1) * 4 + game.npc / 8;
+            auto *flag = game.npc < 32 ? game.met + (*game.map - 1) * 4 + game.npc / 8
+                                       : game.extraMet + (*game.map - 1) * 4096 + game.npc / 8;
             *flag = uint8_t((*flag & ~(1 << (game.npc % 8))) |
                             (s.state.introduced ? 1 << (game.npc % 8) : 0));
         }
@@ -361,10 +372,10 @@ struct Execution {
         result.partySize = *game.partyCount;
         result.introduced = setup.hasNpc ? IMPERA_GameMet(&game) != 0 : setup.state.introduced;
         setup.gameState[0x2eb] = char(animate);
-        setup.gameState.replace(0x6b4, 256, setup.actorRecords);
-        setup.gameState.replace(0x7b8, 512, setup.scheduleRecords);
-        setup.gameState.replace(0x9b8, 512, setup.npcRecords);
-        setup.gameState.replace(0xff8, 32, setup.shapes);
+        setup.gameState.replace(0x6b4, 256, setup.actorRecords.left(256));
+        setup.gameState.replace(0x7b8, 512, setup.scheduleRecords.left(512));
+        setup.gameState.replace(0x9b8, 512, setup.npcRecords.left(512));
+        setup.gameState.replace(0xff8, 32, setup.shapes.left(32));
         result.gameState = setup.gameState;
         result.npcRecords = setup.npcRecords;
         result.scheduleRecords = setup.scheduleRecords;
@@ -458,7 +469,7 @@ void NativeDialogueSession::start() {
                                .arg(result.keys);
                 if (!setup.scheduleRecords.isEmpty()) {
                     int changed = 0;
-                    for (int i = 0; i < 32; ++i)
+                    for (int i = 0; i < setup.scheduleRecords.size() / 16; ++i)
                         if (result.scheduleRecords.mid(i * 16, 16) !=
                             setup.scheduleRecords.mid(i * 16, 16))
                             ++changed;
