@@ -196,7 +196,9 @@ int main(int argc, char **argv) {
                 if (b->property("rgba").isValid())
                     actual.insert(b->property("rgba").toUInt());
             CHECK(actual.size() == expected.size() + 1);
-            CHECK(colors->findChild<QToolButton *>("customPaletteAddColor")->parentWidget()->isHidden());
+            CHECK(colors->findChild<QToolButton *>("customPaletteAddColor")
+                      ->parentWidget()
+                      ->isHidden());
             if (i == 4) {
                 CHECK(expected.size() == 8);
                 for (int rgb = 0; rgb < 8; rgb++)
@@ -372,6 +374,22 @@ int main(int argc, char **argv) {
                 auto before =
                     U5::readGraphics(nativeSheets[variant], p.data(nativeSheets[variant]));
                 int index = int(nativeId) - before.tileOffset;
+                // Untouched source pixels, including DOS black and Sharp gray, remain opaque.
+                const auto source = before.images[index + 3];
+                const auto thumbnail =
+                    nativeFrames->item(3)->icon().pixmap(source.size()).toImage();
+                CHECK(thumbnail.size() == source.size());
+                for (int y = 0; y < source.height(); ++y)
+                    for (int x = 0; x < source.width(); ++x)
+                        CHECK(thumbnail.pixelColor(x, y) == source.pixelColor(x, y));
+                if (variant == 0)
+                    for (int frame = 0; frame < 4; ++frame) {
+                        auto original = CustomTiles::image(p, nativeId + frame);
+                        for (int y = 0; y < original.height(); ++y)
+                            for (int x = 0; x < original.width(); ++x)
+                                CHECK(original.pixelColor(x, y) ==
+                                      before.images[index + frame].pixelColor(x, y));
+                    }
                 auto color = qRgb(0, 0, 0);
                 auto nativePalette = nativeUi->findChild<QWidget *>("customTilePalette");
                 bool picked = false;
@@ -388,6 +406,17 @@ int main(int argc, char **argv) {
                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
                 QMouseEvent up(QEvent::MouseButtonRelease, QPointF(1, 1), QPointF(1, 1),
                                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                // Change an existing pixel, then paint opaque black back over it.
+                for (auto swatch : nativePalette->findChildren<QToolButton *>())
+                    if (swatch->property("rgba").isValid() &&
+                        swatch->property("rgba").toUInt() == qRgb(255, 255, 255))
+                        swatch->click();
+                QApplication::sendEvent(nativeCanvas, &down);
+                QApplication::sendEvent(nativeCanvas, &up);
+                for (auto swatch : nativePalette->findChildren<QToolButton *>())
+                    if (swatch->property("rgba").isValid() &&
+                        swatch->property("rgba").toUInt() == color)
+                        swatch->click();
                 QApplication::sendEvent(nativeCanvas, &down);
                 QApplication::sendEvent(nativeCanvas, &up);
                 auto after = U5::readGraphics(nativeSheets[variant], p.data(nativeSheets[variant]));

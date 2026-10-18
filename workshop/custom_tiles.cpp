@@ -177,11 +177,6 @@ QImage image(const Project &p, unsigned id, unsigned variant, quint64 ms) {
     auto tiles = U5::readGraphics("TILES.16", p.data("TILES.16")).images;
     auto d = definition(p, id);
     auto art = tiles.value(d.kind ? 256 + d.base : d.base).convertToFormat(QImage::Format_RGBA8888);
-    if ((d.render & TYPES_SPRITE) || (id >= 256 && id < 512))
-        for (int y = 0; y < art.height(); y++)
-            for (int x = 0; x < art.width(); x++)
-                if ((art.pixel(x, y) & 0xffffff) == 0)
-                    art.setPixelColor(x, y, Qt::transparent);
     return art;
 }
 TypeCell cell(const QString &resource, const U5::MapPage &mp, int page, int x, int y) {
@@ -441,11 +436,6 @@ static QVector<Frame> originalActorFrames(const Project &p, unsigned id) {
             auto art = graphics.images.value(int(id + frame) - graphics.tileOffset)
                            .convertToFormat(QImage::Format_RGBA8888);
             require(!art.isNull(), "Original creature animation is missing artwork");
-            const QRgb mask = variant == 4 ? qRgb(128, 128, 128) : qRgb(0, 0, 0);
-            for (int y = 0; y < art.height(); ++y)
-                for (int x = 0; x < art.width(); ++x)
-                    if (art.pixelColor(x, y).rgb() == mask)
-                        art.setPixelColor(x, y, Qt::transparent);
             auto override = overrides.value(id + frame);
             unsigned side = 0;
             auto rgba =
