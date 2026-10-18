@@ -174,7 +174,8 @@ int main(int argc, char **argv) {
         auto variants = ui->findChild<QComboBox *>("customTileVariant");
         auto colors = ui->findChild<QWidget *>("customTilePalette");
         CHECK(variants && colors);
-        for (int i = 0; i < 4; i++) {
+        CHECK(!ui->findChild<QToolButton *>("customTileTool1"));
+        for (int i : {0, 2, 3}) {
             auto tool = ui->findChild<QToolButton *>(QString("customTileTool%1").arg(i));
             CHECK(tool && !tool->icon().isNull() && !tool->toolTip().isEmpty());
             tool->click();
@@ -195,7 +196,7 @@ int main(int argc, char **argv) {
                 if (b->property("rgba").isValid())
                     actual.insert(b->property("rgba").toUInt());
             CHECK(actual.size() == expected.size() + 1);
-            CHECK(colors->findChildren<QToolButton *>().size() == actual.size());
+            CHECK(colors->findChild<QToolButton *>("customPaletteAddColor")->parentWidget()->isHidden());
             if (i == 4) {
                 CHECK(expected.size() == 8);
                 for (int rgb = 0; rgb < 8; rgb++)
@@ -207,6 +208,50 @@ int main(int argc, char **argv) {
             auto strip = ui->findChild<QListWidget *>("customTileFrames");
             CHECK(strip->count() == 2); // Empty slots expose the DOS animation.
         }
+        variants->setCurrentIndex(5);
+        auto customPalette = dynamic_cast<Workshop::ColorPalette *>(colors);
+        CHECK(customPalette &&
+              !customPalette->findChild<QToolButton *>("customPaletteAddColor")->isHidden());
+        customPalette->addCustomColor(qRgb(13, 72, 123));
+        // Picking a new custom swatch drives the brush just like an imported swatch.
+        for (auto swatch : customPalette->findChildren<QToolButton *>())
+            if (swatch->property("rgba").isValid() &&
+                swatch->property("rgba").toUInt() == qRgb(13, 72, 123))
+                swatch->click();
+        auto customCanvas = ui->findChild<QWidget *>("customTileCanvas");
+        QMouseEvent customDown(QEvent::MouseButtonPress, QPointF(1, 1), QPointF(1, 1),
+                               Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QMouseEvent customUp(QEvent::MouseButtonRelease, QPointF(1, 1), QPointF(1, 1),
+                             Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(customCanvas, &customDown);
+        QApplication::sendEvent(customCanvas, &customUp);
+        CHECK(CustomTiles::image(p, 40000, 5).pixelColor(0, 0) == QColor(13, 72, 123));
+        QTemporaryDir palettes;
+        QImage palettePng(2, 1, QImage::Format_ARGB32);
+        palettePng.setPixel(0, 0, qRgb(1, 2, 3));
+        palettePng.setPixel(1, 0, qRgb(4, 5, 6));
+        CHECK(palettePng.save(palettes.path() + "/test.png"));
+        customPalette->importPalette(palettes.path() + "/test.png");
+        CHECK(CustomTiles::image(p, 40000, 5).pixelColor(0, 0) == QColor(13, 72, 123));
+        CHECK(Workshop::readPalette(palettes.path() + "/test.png") ==
+              QVector<QRgb>({qRgb(1, 2, 3), qRgb(4, 5, 6)}));
+        const QMap<QString, QByteArray> paletteFiles{
+            {"test.gpl",
+             "GIMP Palette\nName: Test\nColumns: 2\n# Colors\n1 2 3 First\n4 5 6 Second\n"},
+            {"test.pal", "JASC-PAL\n0100\n2\n1 2 3\n4 5 6\n"},
+            {"test.hex", "#010203\n040506\n"}};
+        for (auto it = paletteFiles.begin(); it != paletteFiles.end(); ++it) {
+            QFile f(palettes.path() + "/" + it.key());
+            CHECK(f.open(QIODevice::WriteOnly));
+            f.write(it.value());
+            f.close();
+            CHECK(Workshop::readPalette(f.fileName()) ==
+                  Workshop::readPalette(palettes.path() + "/test.png"));
+        }
+        variants->setCurrentIndex(4);
+        CHECK(customPalette->findChild<QToolButton *>("customPaletteAddColor")
+                  ->parentWidget()
+                  ->isHidden());
         // Editing an empty Sharp slot copies DOS frames without changing DOS artwork.
         auto dosBefore = CustomTiles::image(p, 40000);
         auto paintCanvas = ui->findChild<QWidget *>("customTileCanvas");
@@ -238,7 +283,7 @@ int main(int argc, char **argv) {
         QApplication::sendEvent(paintCanvas, &pixelRelease);
         CHECK(CustomTiles::image(p, 40000, 2).size() == QSize(14, 16));
         auto appleFrames = CustomTiles::frames(CustomTiles::records(p).value(40000));
-        CHECK(appleFrames.size() == 4);
+        CHECK(appleFrames.size() == 6); // DOS, Apple II and Custom each retain two frames.
         CHECK(appleFrames[2].image.size() == QSize(14, 16));
         CHECK(appleFrames[3].image.size() == QSize(14, 16));
         CHECK(CustomTiles::image(p, 40000) == dosBefore);
@@ -327,9 +372,7 @@ int main(int argc, char **argv) {
                 auto before =
                     U5::readGraphics(nativeSheets[variant], p.data(nativeSheets[variant]));
                 int index = int(nativeId) - before.tileOffset;
-                auto color = before.images[index + 2].pixelColor(0, 0) == QColor(Qt::white)
-                                 ? qRgb(0, 0, 0)
-                                 : qRgb(255, 255, 255);
+                auto color = qRgb(0, 0, 0);
                 auto nativePalette = nativeUi->findChild<QWidget *>("customTilePalette");
                 bool picked = false;
                 for (auto swatch : nativePalette->findChildren<QToolButton *>())
@@ -348,19 +391,44 @@ int main(int argc, char **argv) {
                 QApplication::sendEvent(nativeCanvas, &down);
                 QApplication::sendEvent(nativeCanvas, &up);
                 auto after = U5::readGraphics(nativeSheets[variant], p.data(nativeSheets[variant]));
-                CHECK(after.images[index + 2].pixelColor(0, 0).rgb() == color);
+                auto authored = CustomTiles::image(p, nativeId + 2, variant);
+                CHECK(authored.pixelColor(0, 0).rgba() == color);
                 for (int i = 0; i < before.images.size(); ++i)
                     if (i != index + 2)
                         for (int y = 0; y < before.images[i].height(); ++y)
                             for (int x = 0; x < before.images[i].width(); ++x)
                                 CHECK(before.images[i].pixel(x, y) == after.images[i].pixel(x, y));
-                CHECK(CustomTiles::frames(CustomTiles::records(p).value(nativeId)).isEmpty());
+                CHECK(CustomTiles::frames(CustomTiles::records(p).value(nativeId)).size() == 6);
                 CHECK(nativeFrames->count() == 4 && nativeFrames->currentRow() == 2);
             }
+            auto alphaPalette = nativeUi->findChild<QWidget *>("customTilePalette");
+            for (auto swatch : alphaPalette->findChildren<QToolButton *>())
+                if (swatch->property("rgba").isValid() && swatch->property("rgba").toUInt() == 0)
+                    swatch->click();
+            auto alphaCanvas = nativeUi->findChild<QWidget *>("customTileCanvas");
+            QMouseEvent eraseDown(QEvent::MouseButtonPress, QPointF(1, 1), QPointF(1, 1),
+                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QMouseEvent eraseUp(QEvent::MouseButtonRelease, QPointF(1, 1), QPointF(1, 1),
+                                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(alphaCanvas, &eraseDown);
+            QApplication::sendEvent(alphaCanvas, &eraseUp);
+            CHECK(CustomTiles::image(p, nativeId + 2, 5).pixelColor(0, 0).alpha() == 0);
+            auto nativePackage = p.package();
+            Project alphaImported;
+            alphaImported.openGame(TEST_GAME_DIR);
+            alphaImported.importPackage(nativePackage);
+            CHECK(CustomTiles::image(alphaImported, nativeId + 2, 5).pixelColor(0, 0).alpha() == 0);
+            auto runtime = p.data("TYPES.OVR");
+            TYPES_Mount(runtime.constData(), runtime.size(), nullptr, 0);
+            CHECK(TYPES_ActorArt(nativeId, nativeId + 2) == nativeId + 2);
+            unsigned nativeSide = 0;
+            auto rgba = TYPES_Art(nativeId + 2, 5, 1234, &nativeSide);
+            CHECK(rgba && rgba[3] == 0);
+            TYPES_Mount(nullptr, 0, nullptr, 0);
             auto nativeHealth = nativeUi->findChild<QSpinBox *>("actorStat5");
             nativeHealth->setValue(nativeHealth->value() + 1);
             QMetaObject::invokeMethod(nativeHealth, "editingFinished", Qt::DirectConnection);
-            CHECK(CustomTiles::frames(CustomTiles::records(p).value(nativeId)).isEmpty());
+            CHECK(CustomTiles::frames(CustomTiles::records(p).value(nativeId)).size() == 6);
             CHECK(nativeFrames->count() == 4);
             for (auto button : nativeUi->findChildren<QPushButton *>())
                 if (button->text() == "Delete / Reset")

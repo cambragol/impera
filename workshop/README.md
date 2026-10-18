@@ -617,13 +617,13 @@ are unchanged. NPC/monster type authoring follows in phase 5.
 See [the custom-type design and audit](../docs/workshop-custom-types-plan.md) and
 [package compatibility](../docs/mod-packages.md#custom-tile-libraries-package-version-9).
 
-The custom tile editor has Pencil, Eraser, Fill and Eyedropper tool buttons. Its
+The custom tile editor has Pencil, Fill and Eyedropper tool buttons. Its
 Tileset selector switches artwork slots, the onscreen palette, and native pixel
 dimensions: DOS/Amiga/Grayscale 16×16, Apple II 14×16, Sharp 32×32. Empty slots
 show DOS artwork; editing one copies its animation into that slot. The small artwork menu beside the tileset selector offers **Remove artwork for
 this tileset** to clear an alternative slot. The regular tileset editor also shows the
 selected sheet’s full palette, strictly limited to that tileset’s original colors. PNG imports are converted
-to the selected palette; custom RGB colors cannot be painted.
+to the selected standard palette. The Custom artwork slot instead permits arbitrary RGBA colors.
 
 Tile properties are grouped into Interaction, Movement & visibility, Appearance,
 Hazards, and Advanced sections. Collapsed sections summarize their settings.
@@ -641,8 +641,8 @@ companions are edited separately from artwork. Original behavior profiles retain
 special vanilla behavior. Unknown original flag bits are preserved.
 
 Selecting an original NPC or monster type shows all four native artwork frames for
-each tileset. Painting or importing updates those original slots and preserves the
-engine’s animation sequences and timing. Original creatures keep four fixed slots;
+each tileset. Painting or importing preserves opaque black and PNG alpha while
+retaining the engine’s original animation sequences and timing. Original creatures keep four fixed slots;
 copy a type to create an independent animation with a different frame count.
 For custom animations, **Advanced → Frame duration** controls the selected frame’s
 duration. It is hidden for native animations.
@@ -654,3 +654,11 @@ Names, conversations and schedules belong to the placed NPC, so multiple NPCs
 can share a type while having their own dialogue and destinations. Changes use
 normal project Undo and package export. Packages with actor definitions require
 an Impera build supporting package version 10.
+
+Custom artwork has an unrestricted color palette. Select **Custom** in the tileset
+dropdown, then use **+** to choose any color (including alpha) or **Import palette…**
+to load PNG swatches, GIMP `.gpl`, JASC `.pal`, or hex/RGB `.txt` / `.hex` files.
+Imported palettes supply drawing swatches without recoloring artwork or limiting
+which colors you may paint. Custom palette swatches are remembered between sessions.
+The standard DOS, Amiga, Apple II, Grayscale and Sharp palettes remain fixed.
+Use the transparent palette swatch with Pencil or Fill to erase pixels.

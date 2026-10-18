@@ -80,7 +80,7 @@ unsigned ACTORS_Instance(unsigned actor) {
 }
 unsigned ACTORS_Sprite(unsigned actor, unsigned fallback) {
     unsigned type = ACTORS_Instance(actor);
-    return type && D_5c5a[actor]._1_animTile && TYPES_ArtSlot(type) ? type : fallback;
+    return type && D_5c5a[actor]._1_animTile ? TYPES_ActorArt(type, fallback) : fallback;
 }
 unsigned ACTORS_AtCell(int x, int y, unsigned fallback) {
     for (unsigned actor = 0; actor < 32; actor++) {

@@ -583,6 +583,20 @@ unsigned TYPES_ArtSlot(uint32_t id) {
     unsigned i = byId[id] - 1;
     return word(artRecords[i] + 248) ? 512 + i : 0;
 }
+unsigned TYPES_ActorArt(uint32_t type, unsigned nativeTile) {
+    if (type >= 256 && type < 512 && byId[type]) {
+        const unsigned char *r = artRecords[byId[type] - 1];
+        unsigned defaults = 0;
+        size_t off = 256;
+        for (unsigned i = 0; i < word(r + 248); ++i) {
+            defaults += r[off] == 0;
+            off += 4 + (size_t)r[off + 1] * TYPES_FrameHeight(r[off + 1]) * 4;
+        }
+        if (defaults <= 1)
+            return nativeTile; /* Native animation selects among four independently authored slots. */
+    }
+    return TYPES_ArtSlot(type) ? type : nativeTile;
+}
 const unsigned char *TYPES_SampleArt(unsigned slot, unsigned variant, uint64_t ms, unsigned *side) {
     if (slot < 512 || slot >= 512 + artCount || variant > 5)
         return NULL;

@@ -77,6 +77,8 @@ void TYPES_Remove(TypeCell);
 int TYPES_WriteState(FILE *);
 int TYPES_ReadState(FILE *, int apply);
 unsigned TYPES_ArtSlot(uint32_t);
+/* Resolve fixed native actor frame overrides without replacing engine animation. */
+unsigned TYPES_ActorArt(uint32_t type, unsigned nativeTile);
 const unsigned char *TYPES_SampleArt(unsigned slot, unsigned variant, uint64_t ms, unsigned *side);
 const unsigned char *TYPES_Art(uint32_t, unsigned variant, uint64_t ms, unsigned *side);
 #ifdef __cplusplus

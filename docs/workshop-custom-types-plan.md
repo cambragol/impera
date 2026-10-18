@@ -202,7 +202,7 @@ Layout:
 
 * Left: searchable tile grid, All/World/Locations filter, and New tile action.
 * Center: pixel canvas and compact frame strip; add/import/delete/reorder frames,
-  play/stop and frame duration. Pencil, eraser, fill, eyedropper and PNG import
+  play/stop and frame duration. Pencil, fill, eyedropper and PNG import
   reuse the existing graphics editor where possible.
 * Right: name and Look description, followed by Artwork, Movement & Effects,
   Interactions, and Appearance sections. Show controls relevant to the selected

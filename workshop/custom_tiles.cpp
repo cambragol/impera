@@ -433,6 +433,7 @@ static QString actorArtworkResource(unsigned variant) {
 }
 static QVector<Frame> originalActorFrames(const Project &p, unsigned id) {
     QVector<Frame> result;
+    const auto overrides = records(p);
     for (unsigned variant = 0; variant < 6; ++variant) {
         auto resource = actorArtworkResource(variant);
         auto graphics = U5::readGraphics(resource, p.data(resource));
@@ -445,6 +446,16 @@ static QVector<Frame> originalActorFrames(const Project &p, unsigned id) {
                 for (int x = 0; x < art.width(); ++x)
                     if (art.pixelColor(x, y).rgb() == mask)
                         art.setPixelColor(x, y, Qt::transparent);
+            auto override = overrides.value(id + frame);
+            unsigned side = 0;
+            auto rgba =
+                override.isEmpty()
+                    ? nullptr
+                    : TYPES_Frame(reinterpret_cast<const unsigned char *>(override.constData()),
+                                  variant, 0, &side);
+            if (!override.isEmpty() && rgba)
+                art = QImage(rgba, side, TYPES_FrameHeight(side), side * 4, QImage::Format_RGBA8888)
+                          .copy();
             result.append({art, 150, variant});
         }
     }
@@ -501,7 +512,7 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     QStringList toolTips{"Pencil: paint individual pixels.", "Eraser: make pixels transparent.",
                          "Fill: replace a connected area of the same color.",
                          "Eyedropper: pick a color from the tile."};
-    for (int i = 0; i < 4; i++) {
+    for (int i : {0, 2, 3}) {
         auto button = new QToolButton;
         button->setObjectName(QString("customTileTool%1").arg(i));
         button->setCheckable(true);
@@ -510,21 +521,13 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         button->setIcon(MapCanvas::toolIcon(i == 0   ? MapCanvas::Pencil
                                             : i == 3 ? MapCanvas::Eyedropper
                                                      : MapCanvas::Fill));
-        if (i == 1) {
-            QPixmap icon(24, 24);
-            icon.fill(Qt::transparent);
-            QPainter painter(&icon);
-            painter.setPen(QPen(QColor("#e0e8f0"), 2));
-            painter.drawPolygon(QPolygon{{3, 14}, {13, 4}, {22, 13}, {15, 20}, {9, 20}});
-            painter.drawLine(8, 9, 18, 18);
-            painter.end();
-            button->setIcon(QIcon(icon));
-        }
         button->setIconSize({24, 24});
         tools->addButton(button, i);
         toolRow->addWidget(button);
     }
     canvas->tool = qBound(0, state->value("customTiles/tool", 0), 3);
+    if (canvas->tool == 1)
+        canvas->tool = 0;
     tools->button(canvas->tool)->setChecked(true);
     toolRow->addStretch();
     middle->addLayout(toolRow);
@@ -540,6 +543,8 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     canvas->colorChanged = [=] {
         canvas->color = Workshop::paletteColor(canvas->color, *allowedColors);
         (*state)["customTiles/color"] = int(canvas->color);
+        if (variants->currentIndex() == 5)
+            palette->addCustomColor(canvas->color);
         palette->select(canvas->color);
     };
     auto reloadPalette = [=] {
@@ -549,6 +554,13 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
                                     "TILE_GRY.PNG",
                                     actorKind ? "TILE_SHN.PNG" : "TILE_SHW.PNG",
                                     "TILES.16"};
+        const bool custom = variants->currentIndex() == 5;
+        palette->setEditable(custom);
+        if (custom) {
+            allowedColors->clear();
+            canvas->colorChanged();
+            return;
+        }
         auto resource = resources[variants->currentIndex()];
         auto colors = Workshop::artworkColors(
             U5::readGraphics(resource, p->resources.value(resource).original));
@@ -1139,33 +1151,27 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         // Property edits must not replace the original engine animation with a timed override.
         if (draft->frames.isEmpty() && !draft->originalAnimation)
             draft->frames.append({image(*p, draft->id), 150, 0});
-        r[draft->id] =
-            record(draft->def, draft->originalAnimation ? QVector<Frame>{} : draft->frames);
+        r[draft->id] = record(draft->def, draft->originalAnimation ? frames(r.value(draft->id))
+                                                                   : draft->frames);
         return commit({{"TYPES.OVR", library(*p, r)}}, title);
     };
     auto saveArtwork = [=](const QString &title) {
         if (!draft->originalAnimation)
             return save(title);
-        unsigned variant = variants->currentIndex();
-        auto resource = actorArtworkResource(variant);
-        auto graphics = U5::readGraphics(resource, p->data(resource));
-        int index = int(draft->id) - graphics.tileOffset;
-        int count = 0;
-        for (const auto &frame : draft->frames) {
-            if (frame.variant != variant)
-                continue;
-            require(count < 4, "Original creatures need exactly four frames");
-            auto art = frame.image.convertToFormat(QImage::Format_ARGB32);
-            // Original sheets encode transparency with black (Sharp actors use gray).
-            const QRgb mask = variant == 4 ? qRgb(128, 128, 128) : qRgb(0, 0, 0);
-            for (int y = 0; y < art.height(); ++y)
-                for (int x = 0; x < art.width(); ++x)
-                    if (art.pixelColor(x, y).alpha() < 255)
-                        art.setPixel(x, y, mask);
-            graphics.images[index + count++] = art;
+        auto r = records(*p);
+        for (unsigned frame = 0; frame < 4; ++frame) {
+            auto d = frame ? definition(*p, draft->id + frame) : draft->def;
+            d.render |= TYPES_SPRITE;
+            QVector<Frame> artwork;
+            for (unsigned slot = 0; slot < 6; ++slot) {
+                auto f = std::find_if(draft->frames.begin(), draft->frames.end(),
+                                      [=](const Frame &f) { return f.variant == slot; });
+                require(f != draft->frames.end(), "Original creature artwork is incomplete");
+                artwork.append(*(f + frame));
+            }
+            r[d.id] = record(d, artwork);
         }
-        require(count == 4, "Original creatures need exactly four frames");
-        return commit({{resource, U5::writeGraphics(graphics)}}, title);
+        return commit({{"TYPES.OVR", library(*p, r)}}, title);
     };
     const auto referenceArt = U5::readGraphics("TILES.16", p->data("TILES.16")).images;
     if (p->resources.contains("BRIT.CBT")) {
@@ -1256,9 +1262,8 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             button->setEnabled(!draft->originalAnimation);
         palette->setToolTip(
             draft->originalAnimation
-                ? "Choose a color from this tileset’s palette. Original sheets use black as the "
-                  "transparent background (gray for Sharp actors); the crossed swatch paints that "
-                  "background."
+                ? "Choose a drawing color. Black is opaque; only pixels with zero alpha are "
+                  "transparent."
                 : "Choose a drawing color from the selected tileset’s palette. The crossed swatch "
                   "paints transparent pixels; black is a visible color.");
         advanced->form->setRowVisible(ms, !draft->originalAnimation);
@@ -1387,12 +1392,15 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         draft->def = definition(*p, id);
         auto d = draft->def;
         draft->frames = frames(records(*p).value(id));
-        draft->originalAnimation = actorKind && id < 512 && draft->frames.isEmpty();
+        draft->originalAnimation =
+            actorKind && id < 512 &&
+            std::count_if(draft->frames.begin(), draft->frames.end(),
+                          [](const Frame &f) { return f.variant == 0; }) <= 1;
         import->setToolTip(
             draft->originalAnimation
                 ? "Replace this creature’s four original frames for the selected tileset. Import a "
                   "PNG grid containing exactly four frames at the tileset’s native size. PNG "
-                  "transparency becomes the original sheet’s background color. In-game animation "
+                  "alpha and opaque black are preserved. In-game animation "
                   "behavior stays unchanged."
                 : importHelp);
         if (draft->originalAnimation)
@@ -1553,7 +1561,10 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             auto r = records(*p);
             if (actorKind && draft->id < 512) {
                 QMap<QString, QByteArray> changes;
-                if (r.remove(draft->id))
+                bool removed = false;
+                for (unsigned frame = 0; frame < 4; ++frame)
+                    removed |= r.remove(draft->id + frame) != 0;
+                if (removed)
                     changes["TYPES.OVR"] = library(*p, r);
                 for (unsigned variant = 0; variant < 5; ++variant) {
                     auto resource = actorArtworkResource(variant);
