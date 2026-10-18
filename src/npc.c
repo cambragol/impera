@@ -499,7 +499,7 @@ static void NPC_06e4(int param_1, int param_2)
     int local_1a;
     int local_1c;
 
-    CHECK_PARAM_RANGE(param_1, 0, 32);
+    CHECK_PARAM_RANGE(param_1, 0, LOCATION_NPC_COUNT);
     CHECK_PARAM_RANGE(param_2, 0, 3);
 
     local_18 = &D_5c5a[0];
@@ -804,7 +804,7 @@ static int NPC_0adc(int param_1, int param_2, int param_3, int param_4, int para
         {
             local_6 = ((uint)D_367e[local_8 >> 3] & 0x80 >> (local_8 & 7)) == 0;
             if (param_1 >= 0 && param_2 >= 0 && param_1 < 32 && param_2 < 32) {
-                TypeCell key = {3, D_5893_map_id, 0, param_4, 0, 0, 0};
+                TypeCell key = {3, D_5893_map_id, 0, param_4 & 255, (unsigned)param_4 >> 8, 0, 0};
                 unsigned actorType = TYPES_At(key, 0), tileType = TYPES_GAME_At(param_1, param_2);
                 unsigned originalType = 256 + D_659e[param_4];
                 if (!actorType && TYPES_Defined(originalType)) actorType = originalType;

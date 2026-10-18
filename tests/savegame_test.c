@@ -203,6 +203,30 @@ int main(int argc, char** argv)
     assert(D_5f5e[32]._c == 32 && D_5f5e[257]._c == 257);
     assert(ULTIMA_368e_FindActorTileAtPos(11, 10, 0) == 0x50 && D_5876 == 257);
     assert(TOWN_011e(257) == 257 && ACTORS_Contains(257, 11, 10));
+    /* The original pursuit guard still crashed on slot 32 even after entry and
+     * targeting worked. Advance actual turns for both extended index bytes. */
+    ActorFmt before32 = D_5c5a[32], before257 = D_5c5a[257], beforeParty = D_5c5a[0];
+    NpcFmt npc32 = D_5f5e[32], npc257 = D_5f5e[257];
+    NpcScheduleFmt schedule32 = D_5d5e[32], schedule257 = D_5d5e[257];
+    memset(D_6608, 5, 1024);
+    D_5896_map_x = D_5c5a[0]._2_x = 8;
+    D_5897_map_y = D_5c5a[0]._3_y = 10;
+    D_587f = 13;
+    memset(D_5d5e[32].type, 5, 3);
+    memset(D_5d5e[257].type, 5, 3);
+    for (int turn = 0; turn < 4; turn++)
+        NPC_0db4(D_587f);
+    assert(D_5f5e[32]._c == 32 && D_5f5e[257]._c == 257);
+    assert(D_5c5a[32]._2_x != before32._2_x || D_5c5a[32]._3_y != before32._3_y);
+    D_5c5a[32] = before32;
+    D_5c5a[257] = before257;
+    D_5c5a[0] = beforeParty;
+    D_5f5e[32] = npc32;
+    D_5f5e[257] = npc257;
+    D_5d5e[32] = schedule32;
+    D_5d5e[257] = schedule257;
+    D_587f = 12;
+    D_65be = D_65bf = 0;
     assert(!TOWN_0000_CheckNpcKilled(257));
     TOWN_0052_SetNpcKilled(257);
     assert(TOWN_0000_CheckNpcKilled(257));
