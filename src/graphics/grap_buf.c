@@ -490,6 +490,11 @@ byte GRAP_BUF_TilePixel(int tile, int x, int y)
  * black outline, including the one-pixel margin outside the source tile. */
 bool GRAP_BUF_SpriteIsTransparent(int tile)
 {
+    if (TYPES_ArtSlot(tile)) {
+        TypeDef definition;
+        return s_transparentSprites && TYPES_Get(tile, &definition) &&
+               (definition.render & TYPES_SPRITE);
+    }
     /* Furniture and seated poses include their scenery; keep the original
      * pixels and do not generate an outline outside their tile. */
     if ((tile >= TILE_MAP_CHAIR_90 && tile <= TILE_MAP_TABLE_96) ||
@@ -502,25 +507,38 @@ bool GRAP_BUF_SpriteIsTransparent(int tile)
         !(tile >= 256 + 0x64 && tile <= 256 + 0x67); /* occupied manacles */
 }
 
+/* Inspect all native subpixels: Sharp artwork can mix black and color inside
+ * a single logical pixel. Raw tile/editor sampling must retain opaque black. */
+static int CustomSpritePixel(int tile, int x, int y) {
+    int color = TILESET_Pixel(tile, x, y);
+    if (color < 0)
+        return 0;
+    for (int sy = 0; sy < 2; sy++)
+        for (int sx = 0; sx < 2; sx++)
+            if (TILESET_LastSpriteColor(color, sx, sy, IMPERA_TextPalette, true) >> 24)
+                return color;
+    return 0;
+}
 int GRAP_BUF_SpritePixel(int tile, int x, int y)
 {
-    /* Authored RGBA artwork supplies its own edges, including opaque black. */
-    if (TYPES_ArtSlot(tile)) {
-        unsigned w, h;
+    bool authored = TYPES_ArtSlot(tile) != 0;
+    unsigned w = 1, h = 1;
+    if (authored)
         TYPES_ArtSize(tile, D_5893_map_id == 0, &w, &h);
+    if (!GRAP_BUF_SpriteIsTransparent(tile))
         return x < 0 || y < 0 || x >= (int)(16 * w) || y >= (int)(16 * h)
                    ? -1
                    : GRAP_BUF_TilePixel(tile, x, y);
-    }
-    if (!GRAP_BUF_SpriteIsTransparent(tile))
-        return x < 0 || y < 0 || x >= 16 || y >= 16 ? -1 : GRAP_BUF_TilePixel(tile, x, y);
-    byte color = GRAP_BUF_TilePixel(tile, x, y);
+    int color = authored ? CustomSpritePixel(tile, x, y) : GRAP_BUF_TilePixel(tile, x, y);
     if (color) return color;
-    /* Alpha and Sharp cutouts supply their own native sprite edges. */
     if (!TILESET_SpriteOutline()) return -1;
     for (int dy = -1; dy <= 1; dy++)
         for (int dx = -1; dx <= 1; dx++)
-            if (GRAP_BUF_TilePixel(tile, x + dx, y + dy)) {TILESET_SetSample(0);return 0;}
+            if (authored ? CustomSpritePixel(tile, x + dx, y + dy)
+                         : GRAP_BUF_TilePixel(tile, x + dx, y + dy)) {
+                TILESET_SetSample(0);
+                return 0;
+            }
     return -1;
 }
 

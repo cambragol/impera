@@ -214,6 +214,10 @@ static Uint32 sampledColor(int color, int subX, int subY, const Uint32 *ega, boo
             unsigned py = (y * 2 + subY) * height / (32 * fh);
             const unsigned char *p = rgba + (py * width + px) * 4;
             Uint32 value = (Uint32)p[3] << 24 | (Uint32)p[0] << 16 | (Uint32)p[1] << 8 | p[2];
+            /* The engine transparency option keys black in sprite artwork, just
+             * as in native DOS sprites. Raw tiles and editor pixels keep it. */
+            if (transparent && !(value & 0xffffffu))
+                return 0;
             return transparent ? value : over(value, ega[0]);
         }
         return ega[0];

@@ -100,6 +100,9 @@ static void customTypeGame(void) {
     TILESET_Register(&pixel, 1);
     int color = GRAP_BUF_TilePixel(40000, 0, 0);
     assert(color == 16);
+    assert(TILESET_LastColor(color, 0, 0, ega) == 0xff000000u);
+    assert(TILESET_LastSpriteColor(color, 0, 0, ega, true) == 0);
+    assert(TILESET_LastSpriteColor(color, 0, 1, ega, true) >> 24);
     TILESET_RecordSprite(&pixel, color, true);
     pixel = color;
     assert(TILESET_BufferColor(&pixel, 0, 0, ega) == 0xff000000u);
@@ -275,7 +278,9 @@ static void multiTileActors(void) {
     r[257] = 16;
     r[258] = 100;
     for (unsigned pixel = 0; pixel < 32 * 32; ++pixel) {
-        r[260 + pixel * 4] = 255;
+        unsigned x = pixel % 32, y = pixel / 32;
+        bool black = (x <= 10 && y <= 10) || (x >= 12 && x <= 23 && y >= 12 && y <= 23);
+        r[260 + pixel * 4] = black ? 0 : 255;
         r[263 + pixel * 4] = 255;
     }
     unsigned off = 260 + localBytes;
@@ -334,6 +339,38 @@ static void multiTileActors(void) {
     assert(GRAP_BUF_SpritePixel(60000, 32, 31) == -1);
     GRAP_BUF_DrawSprite(g_linearEgaBuffer0, 320, 16, 16, 60000, 8, 8, 184, 184, 0, 0);
     assert(TILESET_BufferColor(g_linearEgaBuffer0 + 47 * 320 + 47, 0, 0, ega) == 0xffff0000u);
+    /* Black-key transparency spans the whole body, including the seams between
+     * its four cells. Ground must remain visible in both black regions. */
+    bool oldTransparency = GRAP_BUF_TransparentSprites();
+    GRAP_BUF_SetTransparentSprites(true);
+    assert(GRAP_BUF_SpriteIsTransparent(60000));
+    assert(GRAP_BUF_SpritePixel(60000, 0, 0) == -1);
+    assert(GRAP_BUF_SpritePixel(60000, 17, 17) == -1);
+    assert(GRAP_BUF_SpritePixel(60000, 10, 5) == 0);  /* Native-style black outline. */
+    assert(GRAP_BUF_SpritePixel(60000, 32, 31) == 0); /* Outer body edge, not cell seams. */
+    int blackPixel = GRAP_BUF_TilePixel(60000, 0, 0);
+    assert(TILESET_LastColor(blackPixel, 0, 0, ega) == 0xff000000u);
+    assert(TILESET_LastSpriteColor(blackPixel, 0, 0, ega, true) == 0);
+    int points[] = {16 * 320 + 16, 33 * 320 + 33};
+    for (unsigned i = 0; i < 2; i++) {
+        byte *p = g_linearEgaBuffer0 + points[i];
+        TILESET_SetSample(0);
+        TILESET_Record(p, 2);
+        *p = 2;
+    }
+    GRAP_BUF_DrawSprite(g_linearEgaBuffer0, 320, 16, 16, 60000, 8, 8, 184, 184, 0, 0);
+    for (unsigned i = 0; i < 2; i++)
+        assert(TILESET_BufferColor(g_linearEgaBuffer0 + points[i], 0, 0, ega) == ega[2]);
+    GRAP_BUF_SetTransparentSprites(false);
+    GRAP_BUF_DrawSprite(g_linearEgaBuffer0, 320, 16, 16, 60000, 8, 8, 184, 184, 0, 0);
+    for (unsigned i = 0; i < 2; i++)
+        assert(TILESET_BufferColor(g_linearEgaBuffer0 + points[i], 0, 0, ega) == 0xff000000u);
+    GRAP_BUF_SetTransparentSprites(true);
+    r[11] = 0; /* The characteristic is required even when the option is enabled. */
+    assert(!GRAP_BUF_SpriteIsTransparent(60000));
+    assert(GRAP_BUF_SpritePixel(60000, 0, 0) >= 0);
+    r[11] = TYPES_SPRITE;
+    GRAP_BUF_SetTransparentSprites(oldTransparency);
     unsigned oldNpcCount = D_imperaNpcCount;
     D_imperaNpcCount = 258;
     TypeCell extendedNpc = {3, 13, 0, 1, 1, 60000, 0};

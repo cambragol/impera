@@ -600,7 +600,11 @@ Open **Graphics → Custom tiles → Tiles**. **New tile…** creates a tile;
 **Copy tile…** starts with an existing tile's settings and artwork. Draw pixels
 or import a PNG frame/sheet, add animation frames, and set frame durations.
 Alternative artwork can be supplied for each supported tileset; missing variants
-use the default artwork. PNG alpha preserves opaque black.
+use the default artwork. PNG imports preserve the original pixels, including black.
+In Impera, enabling **Transparent Sprites** makes black pixels transparent for types
+with the **Transparent sprite** characteristic, using the usual sprite outline.
+This applies across the full footprint of multi-tile actors. Workshop keeps the
+original artwork available for editing.
 
 The property pane defines movement, travel speed, sight, projectiles, damage,
 poison, affected movement modes, transparent sprite composition, masonry and

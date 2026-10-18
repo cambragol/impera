@@ -741,7 +741,8 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         "Include this tile in the Locations filter. Both filters can include the same tile.");
     auto sprite = new QCheckBox("Transparent sprite"), masonry = new QCheckBox("Wall lighting");
     sprite->setToolTip(
-        "Composite PNG alpha over the ground underneath. Opaque black remains visible.");
+        "With Impera’s Transparent Sprites option enabled, show ground through PNG alpha "
+        "and black pixels, using the normal sprite outline.");
     masonry->setToolTip("Keep structural edges crisp when darkness fades around walls.");
     auto ground = new QComboBox;
     ground->setObjectName("customTileGround");
@@ -1058,8 +1059,9 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
                          "be enabled. Original tiles are classified automatically from the maps.");
     speed->setToolTip("How much this terrain slows travel when crossed. This does not change "
                       "animation speed or decide who can enter.");
-    sprite->setToolTip("Show the underlying ground through transparent pixels in the artwork. "
-                       "Opaque black stays black. Choose the ground underneath below.");
+    sprite->setToolTip("With Impera’s Transparent Sprites option enabled, blend PNG alpha over "
+                       "the ground and treat black as transparent, with the normal sprite outline. "
+                       "Choose the ground underneath below.");
     ground->setToolTip("Choose the ground drawn behind transparent pixels. Nearby ground infers it "
                        "from surrounding terrain rather than using a fixed floor.");
     masonry->setToolTip(
