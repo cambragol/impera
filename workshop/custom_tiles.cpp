@@ -707,7 +707,24 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     ms->setObjectName("customTileFrameDuration");
     auto import = new QPushButton("Import PNG…");
     import->setObjectName("customTileImport");
-    middle->addWidget(import);
+    auto exportPng = new QToolButton;
+    exportPng->setText("Export PNG…");
+    exportPng->setObjectName("customTileExport");
+    exportPng->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    exportPng->setPopupMode(QToolButton::InstantPopup);
+    exportPng->setToolTip("Export the selected frame or all frames for the current tileset and "
+                          "artwork view, at native pixel size with transparency preserved.");
+    auto exportMenu = new QMenu(exportPng);
+    auto exportFrame = exportMenu->addAction("Selected frame…");
+    auto exportSheet = exportMenu->addAction("Animation sheet…");
+    exportFrame->setToolTip("Save the selected frame as a PNG at its original pixel dimensions.");
+    exportSheet->setToolTip(
+        "Save all displayed frames in a horizontal PNG sheet, in animation order.");
+    exportPng->setMenu(exportMenu);
+    auto fileRow = new QHBoxLayout;
+    fileRow->addWidget(import);
+    fileRow->addWidget(exportPng);
+    middle->addLayout(fileRow);
     middle->addStretch();
     layout->addLayout(middle, 1);
     auto scroll = new QScrollArea;
@@ -2043,6 +2060,39 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
                 frameList->setCurrentRow(next);
             });
         });
+    auto exportArtwork = [=](bool sheet) {
+        report([&] {
+            require(!canvas->pixels.isNull(), "Select artwork to export");
+            const QSize size = selectedSize();
+            const int count = sheet ? qMax(1, frameList->count()) : 1;
+            QImage output(size.width() * count, size.height(), QImage::Format_RGBA8888);
+            require(!output.isNull(), "Cannot allocate the exported image");
+            output.fill(Qt::transparent);
+            {
+                QPainter painter(&output);
+                painter.setCompositionMode(QPainter::CompositionMode_Source);
+                for (int i = 0; i < count; ++i) {
+                    auto item = sheet ? frameList->item(i) : frameList->currentItem();
+                    const auto pixels = item ? draft->frames[item->data(Qt::UserRole).toInt()].image
+                                             : canvas->pixels;
+                    painter.drawImage(
+                        i * size.width(), 0,
+                        pixels.scaled(size, Qt::IgnoreAspectRatio, Qt::FastTransformation));
+                }
+            }
+            auto path = QFileDialog::getSaveFileName(
+                w, sheet ? "Export animation sheet" : "Export frame",
+                QString::fromUtf8(draft->def.name) + (sheet ? "-animation.png" : "-frame.png"),
+                "PNG images (*.png)");
+            if (path.isEmpty())
+                return;
+            if (!path.endsWith(".png", Qt::CaseInsensitive))
+                path += ".png";
+            require(output.save(path, "PNG"), "Cannot save PNG to the selected file");
+        });
+    };
+    QObject::connect(exportFrame, &QAction::triggered, w, [=] { exportArtwork(false); });
+    QObject::connect(exportSheet, &QAction::triggered, w, [=] { exportArtwork(true); });
     QObject::connect(import, &QPushButton::clicked, w, [=] {
         report([&] {
             auto path =

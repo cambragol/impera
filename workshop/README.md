@@ -649,6 +649,8 @@ a PNG grid replaces the animation. When a DOS grid changes the frame count,
 other supplied tilesets trim or repeat their last frames to match. Local and
 world animations remain independent. The **Copy frame** and **Paste frame** icon
 buttons copy artwork between frame slots while preserving the destination timing.
+**Export PNG…** saves either the selected frame or a horizontal animation sheet
+for the current tileset and artwork view, preserving native dimensions and transparency.
 Pasted images must match the selected frame’s pixel dimensions and are converted
 to the selected tileset’s palette.
 
