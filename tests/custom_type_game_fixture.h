@@ -443,6 +443,52 @@ static void multiTileActors(void) {
     D_5c5a[13]._2_x = 5;
     D_5c5a[13]._3_y = 4;
     assert(COMSUBS_0748(4, 4) == 6 && COMSUBS_04d4(6, 7) == 1);
+    /* Corpses under the lower-right footprint cell must not cover living art
+     * or cause the same 2x2 actor to be redrawn from the corpse's anchor. */
+    byte savedActorMap[sizeof(D_ac64)];
+    memcpy(savedActorMap, D_ac64, sizeof(savedActorMap));
+    byte savedSelection = D_589e, savedMapActive = D_58a4;
+    byte savedX = D_5896_map_x, savedY = D_5897_map_y;
+    D_5896_map_x = D_5897_map_y = 5;
+    D_589e = 255;
+    D_58a4 = 1;
+    for (int transparent = 0; transparent < 2; ++transparent) {
+        GRAP_BUF_SetTransparentSprites(transparent != 0);
+        for (int slot = 0; slot <= 31; slot += 31)
+            for (int dead = 0; dead < 2; ++dead) {
+                D_5c5a[slot] = (ActorFmt){0};
+                D_5c5a[slot]._0_tile = D_5c5a[slot]._1_animTile =
+                    dead ? TILE_ACTOR_DEAD : TILE_ACTOR_SLEEP;
+                D_5c5a[slot]._2_x = D_5c5a[slot]._3_y = 4;
+                memcpy(D_ab02, D_ad14, sizeof(D_ab02));
+                ULTIMA_5394();
+                assert(GetActorMap(4, 4) == (dead ? TILE_ACTOR_DEAD : TILE_ACTOR_SLEEP));
+                ULTIMA_56ac_DrawMap();
+                assert(TILESET_BufferColor(g_linearEgaBuffer0 + 80 * 320 + 80, 0, 0, ega) ==
+                       0xffff0000u);
+                assert(TILESET_BufferColor(g_linearEgaBuffer0 + 100 * 320 + 100, 0, 0, ega) ==
+                       ega[5]);
+                WideLayout combatLayout = WIDE_Layout(1600, 900);
+                byte *combatPixels = calloc(combatLayout.width * combatLayout.height, 1);
+                assert(combatPixels);
+                TILESET_Register(combatPixels, combatLayout.width * combatLayout.height);
+                assert(WIDE_Compose(combatPixels, combatLayout));
+                int left = combatLayout.mapX + (combatLayout.columns / 2 - 5) * 16;
+                int top = combatLayout.mapY + (combatLayout.rows / 2 - 5) * 16;
+                assert(TILESET_BufferColor(combatPixels + (top + 72) * combatLayout.width + left + 72,
+                                          0, 0, ega) == 0xffff0000u);
+                TILESET_Unregister(combatPixels);
+                free(combatPixels);
+                D_5c5a[slot] = (ActorFmt){0};
+            }
+    }
+    GRAP_BUF_SetTransparentSprites(oldTransparency);
+    D_589e = savedSelection;
+    D_58a4 = savedMapActive;
+    D_5896_map_x = savedX;
+    D_5897_map_y = savedY;
+    memcpy(D_ac64, savedActorMap, sizeof(savedActorMap));
+
     assert(!ACTORS_CanMove(12, 4, 3) && ACTORS_CanMove(12, 2, 3));
     int ax, ay, bx, by;
     ACTORS_AttackCells(6, 7, &ax, &ay, &bx, &by);

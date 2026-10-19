@@ -360,37 +360,44 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
     /* Redraw central actors too: large artwork can cross the original viewport
      * seam. Keep every footprint in north-to-south anchor order, rather than
      * painting large actors over the already completed southern sprites. */
-    for (int row = -1; row < l.rows; ++row) {
-        if (largeVisible)
-            for (unsigned actor = 0; actor < (unsigned)MAP_ACTOR_COUNT; ++actor) {
-                ActorFmt *a = &D_5c5a[actor];
-                if (!a->_0_tile || !a->_1_animTile || a->_4_z != D_5895_map_level)
+    for (int layer = 0; layer < 2; ++layer)
+        for (int row = -1; row < l.rows; ++row) {
+            if (largeVisible && layer == 1)
+                for (unsigned actor = 0; actor < (unsigned)MAP_ACTOR_COUNT; ++actor) {
+                    ActorFmt *a = &D_5c5a[actor];
+                    if (!a->_0_tile || !a->_1_animTile || a->_4_z != D_5895_map_level)
+                        continue;
+                    int dx = a->_2_x - D_5896_map_x, dy = a->_3_y - D_5897_map_y;
+                    if (cy + dy != row)
+                        continue;
+                    unsigned w, h;
+                    ACTORS_Size(actor, &w, &h);
+                    if ((w > 1 || h > 1) && WIDE_FootprintVisible(dx, dy, w, h))
+                        GRAP_BUF_DrawSprite(pixels, l.width, l.mapX + (cx + dx) * 16,
+                                            l.mapY + row * 16,
+                                            ACTORS_Sprite(actor, 256 + a->_1_animTile), l.mapX, 8,
+                                            l.mapX + l.columns * 16, l.height - 8, dx, dy);
+                }
+            if (row < 0)
+                continue;
+            for (int col = 0; col < l.columns; col++) {
+                int dx = col - cx, dy = row - cy;
+                int sprite = sprites[row * l.columns + col];
+                if (largeVisible && abs(dx) <= 5 && abs(dy) <= 5 &&
+                    GetMapViewport(dx + 5, dy + 5) == 0 && GetActorMap(dx + 5, dy + 5) != 0x16)
+                    sprite = 256 + GetActorMap(dx + 5, dy + 5);
+                bool body = sprite == 256 + TILE_ACTOR_SLEEP || sprite == 256 + TILE_ACTOR_DEAD;
+                if (body != (layer == 0))
                     continue;
-                int dx = a->_2_x - D_5896_map_x, dy = a->_3_y - D_5897_map_y;
-                if (cy + dy != row)
-                    continue;
-                unsigned w, h;
-                ACTORS_Size(actor, &w, &h);
-                if ((w > 1 || h > 1) && WIDE_FootprintVisible(dx, dy, w, h))
-                    GRAP_BUF_DrawSprite(pixels, l.width, l.mapX + (cx + dx) * 16, l.mapY + row * 16,
-                                        ACTORS_Sprite(actor, 256 + a->_1_animTile), l.mapX, 8,
-                                        l.mapX + l.columns * 16, l.height - 8, dx, dy);
+                if (largeVisible && !body && abs(dx) <= 5 && abs(dy) <= 5 &&
+                    GetMapViewport(dx + 5, dy + 5) == 0 && GetActorMap(dx + 5, dy + 5) != 0x16)
+                    sprite = ACTORS_AtCell(D_5896_map_x + dx, D_5897_map_y + dy, sprite);
+                if (sprite >= 0)
+                    GRAP_BUF_DrawSprite(pixels, l.width, l.mapX + col * 16, l.mapY + row * 16,
+                                        sprite, l.mapX, 8, l.mapX + l.columns * 16, l.height - 8,
+                                        dx, dy);
             }
-        if (row < 0)
-            continue;
-        for (int col = 0; col < l.columns; col++) {
-            int dx = col - cx, dy = row - cy;
-            int sprite = sprites[row * l.columns + col];
-            if (largeVisible && abs(dx) <= 5 && abs(dy) <= 5 &&
-                GetMapViewport(dx + 5, dy + 5) == 0 && GetActorMap(dx + 5, dy + 5) != 0x16)
-                sprite = ACTORS_AtCell(D_5893_map_id >= 128 ? dx + 5 : D_5896_map_x + dx,
-                                       D_5893_map_id >= 128 ? dy + 5 : D_5897_map_y + dy,
-                                       256 + GetActorMap(dx + 5, dy + 5));
-            if (sprite >= 0)
-                GRAP_BUF_DrawSprite(pixels, l.width, l.mapX + col * 16, l.mapY + row * 16, sprite,
-                                    l.mapX, 8, l.mapX + l.columns * 16, l.height - 8, dx, dy);
         }
-    }
     free(sprites);
     /* Restore outline margins at the seam after copying central effects. */
     for (int row = 0; row < l.rows; row++)
