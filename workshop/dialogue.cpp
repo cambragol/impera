@@ -58,6 +58,22 @@ QByteArray closeFarewellSpeech(const QByteArray &entry) {
     }
     return entry;
 }
+// Closing speech belongs to its final text, before any trailing actions and
+// their managed spacing. Appending it after an action creates a quote-only box.
+static int closingQuotePosition(const QByteArray &bytes, int before) {
+    int position = 0, result = before;
+    for (const auto &block : blocks(bytes.left(before))) {
+        if (block.opcode < 0 && !plain(block.bytes).remove('"').trimmed().isEmpty()) {
+            result = position + block.bytes.size();
+            while (result > position && U5::byte(bytes, result - 1) == 141)
+                --result;
+        } else if (block.opcode == 129) {
+            result = position + block.bytes.size();
+        }
+        position += block.bytes.size();
+    }
+    return result;
+}
 QByteArray insertTextParagraph(const QByteArray &entry, int offset, ParagraphKind kind,
                                const QString &body, bool implicitQuotes, bool canReturnToTopics) {
     U5::require(offset >= 0 && offset <= entry.size(), "Paragraph position no longer exists");
@@ -89,9 +105,7 @@ QByteArray insertTextParagraph(const QByteArray &entry, int offset, ParagraphKin
             position += block.bytes.size();
         }
         if (open && hasText) {
-            int closeAt = terminal;
-            while (closeAt > 0 && U5::byte(existingBody, closeAt - 1) == 141)
-                --closeAt;
+            int closeAt = closingQuotePosition(existingBody, terminal);
             existingBody.insert(closeAt, char(162));
             if (offset >= prefix + closeAt)
                 ++offset;
@@ -130,10 +144,31 @@ QByteArray insertTextParagraph(const QByteArray &entry, int offset, ParagraphKin
         left.chop(1);
         ++newlines;
     }
+    const auto preceding = blocks(left);
+    const bool followsAction = !preceding.isEmpty() && preceding.last().opcode >= 0 &&
+                               preceding.last().opcode != 129 && preceding.last().opcode != 142;
     if (hasText) {
         if (quoteOpen)
-            left += char(162);
-        left += QByteArray(qMax(2, newlines), char(141));
+            left.insert(closingQuotePosition(left, left.size()), char(162));
+        if (!followsAction)
+            left += QByteArray(qMax(2, newlines), char(141));
+        else {
+            // Keep the paragraph separator with the preceding text rather
+            // than creating a whitespace-only field after a trailing action.
+            int position = 0, textEnd = -1, lines = 0;
+            for (const auto &block : blocks(left)) {
+                position += block.bytes.size();
+                if (block.opcode < 0) {
+                    textEnd = position;
+                    lines = 0;
+                    while (lines < block.bytes.size() &&
+                           U5::byte(block.bytes, block.bytes.size() - 1 - lines) == 141)
+                        ++lines;
+                }
+            }
+            if (textEnd >= 0 && lines < 2)
+                left.insert(textEnd, QByteArray(2 - lines, char(141)));
+        }
     } else {
         left += QByteArray(newlines, char(141));
     }
@@ -472,8 +507,6 @@ QVector<Issue> Document::issues() const {
         out.append({true, -1, structuralError});
         return out;
     }
-    if (bytes().size() > 1024)
-        out.append({true, -1, "Conversation exceeds the 1024-byte engine buffer"});
     for (int e : rawEntries)
         out.append({false, e,
                     "Unpaired/unknown section retained as raw bytes; edit in "

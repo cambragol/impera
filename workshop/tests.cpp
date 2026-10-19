@@ -3167,8 +3167,18 @@ int main(int argc, char **argv) {
             entries[1].id = 1;
             rejects([&] { U5::writeDialogue(entries); });
             entries[1].id = 2;
-            entries[1].bytes = QByteArray(1025, 'x');
-            rejects([&] { U5::writeDialogue(entries); });
+            entries[1].bytes = QByteArray(70000, 'x');
+            auto extended = U5::writeDialogue(entries);
+            check(extended.startsWith("ITLK0001") &&
+                      U5::readDialogue(extended)[1].bytes == entries[1].bytes,
+                  "Extended dialogue bank lost long conversations");
+            auto truncated = extended;
+            truncated.chop(1);
+            rejects([&] { U5::readDialogue(truncated); });
+            auto overlap = extended;
+            overlap[28] = char(1);
+            overlap[29] = overlap[30] = overlap[31] = 0;
+            rejects([&] { U5::readDialogue(overlap); });
         });
         test("Britannia implicit water and shared chunks", [] {
             QByteArray ovl(0x3986, 0);
@@ -5009,6 +5019,81 @@ int main(int argc, char **argv) {
                               .entries[4]
                               .bytes == closed,
                   "Pre-fix Workshop NPC Farewell was not repaired before save/Playtest");
+        });
+        test("Large mod conversations persist, package and playtest beyond DOS offsets", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            auto bytes =
+                Dialogue::text(QString(70000, 'x')) +
+                U5::encodeText("<Entry>A creature.<Entry>Hello.<End "
+                               "Conversation><Entry>Work<Entry>Bye<Entry><Any><Label 15>@");
+            auto bank = U5::writeDialogue({{1, bytes}, {2, bytes}});
+            file(
+                dir.path() + "/TOWNE.TLK",
+                U5::writeDialogue({{1, U5::encodeText("Name<Entry>Description<Entry>Greeting<Entry>"
+                                                      "Work<Entry>Bye<Entry><Any><Label 15>@")}}));
+            p.openGame(dir.path());
+            p.resources["TOWNE.TLK"].edited = bank;
+            check(Dialogue::parse(bytes).issues().isEmpty(),
+                  "Long conversation rejected by editor");
+            auto package = p.package();
+            check(package.startsWith("IMOD0014"), "Long dialogue lacks version protection");
+            Project imported;
+            imported.openGame(dir.path());
+            imported.importPackage(package);
+            check(imported.data("TOWNE.TLK") == bank, "Long dialogue package roundtrip");
+            auto oldEngine = package;
+            oldEngine.replace(0, 8, "IMOD0013");
+            rejects([&] { imported.importPackage(oldEngine); });
+            p.save(dir.path() + "/long.imperaproject");
+            Project reopened;
+            reopened.load(dir.path() + "/long.imperaproject");
+            check(reopened.data("TOWNE.TLK") == bank, "Long dialogue project roundtrip");
+            Dialogue::NativeSetup setup;
+            setup.state.introduced = true;
+            auto result = Dialogue::runNativeVirtual(bytes, QByteArray(1024, char(128)),
+                                                     QByteArray(1024, char(128)), setup, {});
+            check(result.error.isEmpty(), "Native playtest failed beyond 16-bit offsets");
+            QString rendered;
+            for (const auto &glyph : result.boundaries)
+                if (glyph.kind == "glyph" && glyph.entry == 2)
+                    rendered += QChar(glyph.value);
+            check(rendered == "\"Hello.", "Long dialogue selected the wrong response");
+        });
+        test("Speech insertion after actions creates exactly one paragraph", [&] {
+            for (int code : {143, 131, 137}) {
+                QTemporaryDir dir;
+                auto p = fixture(dir.path());
+                auto response =
+                    Dialogue::text(code == 137 ? "First speech." : "First speech.\n\n") +
+                    Dialogue::action(code);
+                auto bytes = U5::encodeText("Name<Entry>Description<Entry>Greeting<Entry>") +
+                             response + U5::encodeText("<Entry>Bye<Entry><Any><Label 15>@");
+                file(dir.path() + "/TOWNE.TLK", U5::writeDialogue({{1, bytes}}));
+                p.openGame(dir.path());
+                ConversationEditor editor(
+                    &p, "TOWNE.TLK",
+                    [&](const QByteArray &data, const QString &) {
+                        p.resources["TOWNE.TLK"].edited = data;
+                    },
+                    {}, 0, 3, [](int, int) {});
+                auto actions = editor.findChild<QListWidget *>("conversationAvailableActions");
+                for (int i = 0; i < actions->count(); ++i)
+                    if (actions->item(i)->text() == "Speech Text") {
+                        actions->itemClicked(actions->item(i));
+                        break;
+                    }
+                auto fields = editor.findChildren<QPlainTextEdit *>("conversationBlockText");
+                check(fields.size() == 2, "Speech action inserted an extra text box");
+                check(fields[0]->toPlainText() == "First speech." &&
+                          fields[1]->toPlainText() == "New speech.",
+                      "Speech insertion changed text or exposed generated quotes/spacing");
+                fields[1]->setPlainText("Second speech.");
+                check(editor.flush(), "Inserted speech cannot be saved");
+                auto saved = Dialogue::parse(U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes);
+                check(saved.entries[3].bytes.contains(Dialogue::text("Second speech.")),
+                      "New speech was not saved");
+            }
         });
         test("Explicit narration and speech preserve native paragraph quotes", [&] {
             const auto speech = Dialogue::text("I speak.");

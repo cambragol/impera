@@ -10,12 +10,14 @@ struct Execution {
     NativeTextWindow vitalsWindow;
     ImperaTalk runtime{};
     ImperaTalkStorage storage{};
+    QByteArray conversation;
     ImperaInput input{};
     uint16_t cycle = 0, numpad = 0, buffering = 0;
     uint8_t animate = 0;
     NativeSetup setup;
     NativeResult result;
     QVector<QByteArray> names;
+    QVector<int> entryStarts;
     ImperaDialogueGame game{};
     QByteArray extraKilled, extraMet;
     NativeRandom random;
@@ -51,15 +53,20 @@ struct Execution {
               const NativeSetup &s)
         : window(normal, runes), vitalsWindow(normal, runes, 0), setup(s) {
         window.setRecordGlyphs(false);
-        U5::require(!bytes.isEmpty() && bytes.size() <= 1024, "Conversation exceeds native bounds");
+        U5::require(!bytes.isEmpty(), "Conversation is empty");
         U5::require(s.state.partySize >= 1 && s.state.partySize <= 6 && s.state.gold >= 0 &&
                         s.state.gold <= 9999 && s.state.karma >= 0 && s.state.karma <= 99,
                     "Invalid Playtest starting state");
         auto doc = parse(bytes);
         for (const auto &issue : doc.issues())
             U5::require(!issue.error, issue.message);
-        IMPERA_TalkBind(&runtime, &storage, size_t(bytes.size()));
-        std::memcpy(storage.data, bytes.constData(), size_t(bytes.size()));
+        for (const auto &entry : doc.entries)
+            entryStarts.append(entry.offset);
+        conversation = bytes;
+        IMPERA_TalkBind(&runtime, &storage, 0);
+        runtime.data = reinterpret_cast<uint8_t *>(conversation.data());
+        runtime.size = size_t(conversation.size());
+        storage.cursor = runtime.data;
         auto party = s.state.partyNames;
         if (party.isEmpty())
             party.append(s.state.avatar);
@@ -253,24 +260,17 @@ struct Execution {
         };
         runtime.observe = [](void *h, const uint8_t *cursor) {
             auto &e = self(h);
-            const int absolute = int(cursor - e.storage.data);
-            int start = 0, entry = 0;
-            for (int i = 0; i < absolute;) {
-                int code = e.storage.data[i];
-                if (!code) {
-                    ++entry;
-                    start = i + 1;
-                }
-                i += 1 + operandCount(code);
-            }
-            e.entry = entry;
-            e.offset = absolute - start;
+            const int absolute = int(cursor - e.runtime.data);
+            const auto following =
+                std::upper_bound(e.entryStarts.cbegin(), e.entryStarts.cend(), absolute);
+            e.entry = int(following - e.entryStarts.cbegin()) - 1;
+            e.offset = absolute - e.entryStarts[e.entry];
             if (e.capture)
                 e.result.opcodes.append({absolute, *cursor});
             if (!*e.runtime.pending && *cursor >= 129 && *cursor <= 159 && *cursor != 141 &&
                 *cursor != 144)
                 if (e.action)
-                    e.action(actionName(*cursor), entry, e.offset);
+                    e.action(actionName(*cursor), e.entry, e.offset);
         };
         input.advance = window.advanceFlag();
         input.cycle = &cycle;

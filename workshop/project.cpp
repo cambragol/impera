@@ -117,6 +117,12 @@ static bool usesExplicitDialogue(const Project &project) {
     }
     return false;
 }
+static bool usesExtendedDialogue(const Project &project) {
+    for (const auto &name : project.changed())
+        if (name.endsWith(".TLK") && project.data(name).startsWith("ITLK0001"))
+            return true;
+    return false;
+}
 QByteArray Project::package() const {
     validate();
     auto list = changed();
@@ -137,7 +143,8 @@ QByteArray Project::package() const {
     for (const auto &cell : CustomTiles::placements(*this))
         extraNpcs |= cell.kind == 3 && (cell.x >= 32 || cell.y);
     QByteArray out(
-        animationOptions                                             ? "IMOD0013"
+        usesExtendedDialogue(*this)                                  ? "IMOD0014"
+        : animationOptions                                           ? "IMOD0013"
         : extraNpcs                                                  ? "IMOD0012"
         : list.contains("TYPES.OVR") || list.contains("TYPEMAP.OVR") ? (largeActors  ? "IMOD0011"
                                                                         : actorTypes ? "IMOD0010"
@@ -268,6 +275,10 @@ void Project::save(const QString &path) {
             actors |= record.size() > 8 && record[8] != 0;
         requirements["customTypes"] = actors ? 2 : 1;
         requirements["packageVersion"] = actors ? 10 : 9;
+    }
+    if (usesExtendedDialogue(*this)) {
+        requirements["extendedDialogue"] = 1;
+        requirements["packageVersion"] = 14;
     }
     if (!requirements.isEmpty())
         root["requires"] = requirements;

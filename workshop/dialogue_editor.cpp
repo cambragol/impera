@@ -39,6 +39,17 @@ static QVector<Block> paragraphBlocks(const QByteArray &bytes) {
     }
     return result;
 }
+static bool hasFollowingParagraph(const QVector<Block> &entryBlocks, int index) {
+    for (; index < entryBlocks.size(); ++index) {
+        const auto &block = entryBlocks[index];
+        if (block.opcode < 0 && !plain(block.bytes).remove('"').trimmed().isEmpty())
+            return true;
+        if (block.opcode == 130 || block.opcode == 255 ||
+            (block.opcode >= 145 && block.opcode <= 159))
+            break;
+    }
+    return false;
+}
 static bool speechAt(const QVector<Block> &entryBlocks, int index, bool implicitQuotes) {
     bool open = implicitQuotes;
     int lastLiteral = implicitQuotes ? 162 : 0;
@@ -1188,7 +1199,7 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
             const int followingAction = actionAfterStateActions(entryBlocks, end);
             if (displayed.last().opcode < 0) {
                 spacing = managedSpacing(displayed.last().bytes, followingAction);
-                if (spacing.isEmpty() && end < entryBlocks.size() && entryBlocks[end].opcode < 0 &&
+                if (spacing.isEmpty() && hasFollowingParagraph(entryBlocks, end) &&
                     displayed.last().bytes.endsWith(QByteArray::fromHex("8d8d")))
                     spacing = QByteArray::fromHex("8d8d");
                 displayed.last().bytes.chop(spacing.size());
@@ -1311,8 +1322,8 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
             QByteArray visible = b.bytes, spacing;
             const int followingAction = actionAfterStateActions(entryBlocks, index + 1);
             spacing = managedSpacing(visible, followingAction);
-            if (spacing.isEmpty() && index + 1 < entryBlocks.size() &&
-                entryBlocks[index + 1].opcode < 0 && visible.endsWith(QByteArray::fromHex("8d8d")))
+            if (spacing.isEmpty() && hasFollowingParagraph(entryBlocks, index + 1) &&
+                visible.endsWith(QByteArray::fromHex("8d8d")))
                 spacing = QByteArray::fromHex("8d8d");
             visible.chop(spacing.size());
             const bool speech = speechAt(entryBlocks, index, entry != 1 && entryPrefix(entry) < 4);
@@ -1698,11 +1709,10 @@ void ConversationEditor::updateDiagnostics() {
         item->setData(Qt::UserRole, i.entry);
         item->setToolTip(QString("Entry %1").arg(i.entry));
     }
-    budget->setText(
-        QString("<a href=\"issues\">%3 issues</a> · %1 / 1024 bytes · %2 / 15 questions")
-            .arg(doc.bytes().size())
-            .arg(doc.questions.size() + (doc.tail >= 0 ? 1 : 0))
-            .arg(issues.size()));
+    budget->setText(QString("<a href=\"issues\">%3 issues</a> · %1 bytes · %2 / 15 questions")
+                        .arg(doc.bytes().size())
+                        .arg(doc.questions.size() + (doc.tail >= 0 ? 1 : 0))
+                        .arg(issues.size()));
 }
 int ConversationEditor::resolveDisplayedBlock(int entry, int block) const {
     if (block < 0 || !readerRanges.contains(entry))

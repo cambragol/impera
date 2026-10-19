@@ -30,7 +30,7 @@ All integers are unsigned little-endian 32-bit values; there is no padding.
 
 | Header | Encoding |
 | --- | --- |
-| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0009` |
+| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0014` |
 | Title length | 1–256 UTF-8 bytes |
 | Resource count | 1–128 |
 | Title | Length bytes; embedded NUL forbidden |
@@ -367,3 +367,24 @@ in the file format for continuous sequences; Workshop exposes no timing numbers
 or animation scripting. Workshop exports custom actor definitions as version 13
 so older engines reject these packages instead of silently ignoring inherited
 animation. Older packages remain readable by the updated engine.
+
+## Extended dialogue banks (version 14)
+
+`IMOD0014` adds `ITLK0001` dialogue banks when a conversation exceeds 1,024 bytes
+or a bank exceeds the original signed DOS offset range. Ordinary conversations
+continue to use the original TLK layout. Workshop chooses the format automatically.
+The extension works with the existing speech/narration controls and NPC identities.
+
+An extended `.TLK` resource starts with eight ASCII bytes `ITLK0001`, a little-endian
+32-bit conversation count, and one `{id, offset, length}` record per conversation.
+All three record fields are unsigned little-endian 32-bit integers. Offsets are
+absolute byte offsets in the bank. IDs are unique and retain the original 16-bit
+identity range; the table retains its 127-conversation capacity. Payloads contain
+unchanged dialogue bytecode. Records must be ordered and non-overlapping, with
+nonempty payloads entirely inside the resource.
+
+Impera loads the selected conversation with its actual byte length instead of
+copying it into the shared 1,024-byte scratch buffer. Workshop's editor and native
+playtest also use the actual conversation length. The existing package resource
+limit of 8 MiB per bank still applies; there is no separate 1,024-byte conversation
+limit. Older engines reject version 14 packages rather than misreading their banks.

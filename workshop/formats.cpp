@@ -1,4 +1,5 @@
 #include "formats.h"
+#include "mod/dialogue_bank.h"
 #include "mod/tileset_resources.h"
 #include <QBuffer>
 #include <QImageReader>
@@ -298,37 +299,58 @@ QByteArray writeGraphics(const Graphics &g) {
     return compress(raw);
 }
 QVector<Conversation> readDialogue(const QByteArray &b) {
-    unsigned count = word(b, 0);
-    require(count <= 127 && 2 + count * 4 <= unsigned(b.size()), "Invalid conversation header");
+    require(DIALOGUE_ValidateBank(b.constData(), b.size()), "Invalid conversation bank");
+    const auto *data = reinterpret_cast<const uint8_t *>(b.constData());
+    unsigned count =
+        DIALOGUE_Extended(data, b.size()) ? DIALOGUE_U32(data + 8) : DIALOGUE_U16(data);
     QVector<Conversation> out;
-    QSet<unsigned> ids;
-    int previous = 2 + count * 4;
-    for (unsigned i = 0; i < count; i++) {
-        unsigned id = word(b, 2 + i * 4);
-        int off = word(b, 4 + i * 4), end = i + 1 < count ? word(b, 8 + i * 4) : b.size();
-        require(off >= previous && off < end && end <= b.size() && !ids.contains(id),
-                "Duplicate NPC or invalid dialogue offset");
-        ids.insert(id);
-        previous = end;
-        out.append({id, b.mid(off, end - off)});
+    for (unsigned i = 0; i < count; ++i) {
+        unsigned id;
+        size_t offset, length;
+        require(DIALOGUE_BankEntry(data, b.size(), i, &id, &offset, &length),
+                "Invalid conversation entry");
+        out.append({id, b.mid(offset, length)});
     }
     return out;
 }
 QByteArray writeDialogue(const QVector<Conversation> &entries) {
     require(entries.size() <= 127, "Conversation table exceeds engine header");
-    QByteArray out;
-    appendWord(out, entries.size());
-    int offset = 2 + entries.size() * 4;
+    size_t offset = 2 + entries.size() * 4;
+    bool extended = false;
     QSet<unsigned> ids;
     for (const auto &e : entries) {
-        require(!ids.contains(e.id) && e.id <= 65535 && offset <= 32767 && !e.bytes.isEmpty() &&
-                    e.bytes.size() <= 1024,
-                "Invalid NPC, conversation size or signed DOS offset");
+        require(!ids.contains(e.id) && e.id <= 65535 && !e.bytes.isEmpty(),
+                "Invalid or duplicate conversation ID or empty conversation");
         ids.insert(e.id);
-        appendWord(out, e.id);
-        appendWord(out, offset);
+        extended |= offset > 32767 || e.bytes.size() > 1024;
+        offset += e.bytes.size();
+        require(offset <= DIALOGUE_BANK_MAX, "Dialogue bank exceeds resource size");
+    }
+    QByteArray out;
+    auto append32 = [&](unsigned value) {
+        for (int i = 0; i < 4; ++i)
+            out.append(char(value >> (8 * i)));
+    };
+    if (extended) {
+        out += DIALOGUE_BANK_MAGIC;
+        append32(entries.size());
+        offset = 12 + entries.size() * 12;
+    } else {
+        appendWord(out, entries.size());
+        offset = 2 + entries.size() * 4;
+    }
+    for (const auto &e : entries) {
+        if (extended) {
+            append32(e.id);
+            append32(offset);
+            append32(e.bytes.size());
+        } else {
+            appendWord(out, e.id);
+            appendWord(out, offset);
+        }
         offset += e.bytes.size();
     }
+    require(offset <= DIALOGUE_BANK_MAX, "Dialogue bank exceeds resource size");
     for (const auto &e : entries)
         out.append(e.bytes);
     return out;
