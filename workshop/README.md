@@ -578,7 +578,7 @@ Select / Move; the View menu does not contain inspector shortcuts.
 
 ### Shop and service dialogue
 
-**NPCs → Shops & Services** uses a response tree, one editable text pane and a
+**Dialogue → Shops & Services** uses a response tree, one editable text pane and a
 right-hand value-insertion pane. Shop values appear as inline labels; compressed
 words appear as readable text. Valid edits save with Undo and use extended mod
 storage automatically when needed. Shop/service templates are shared across
@@ -592,3 +592,122 @@ end a response, or form the entire response, including questions and their answe
 Workshop handles the quotation marks automatically. Narration packages use the
 updated Impera dialogue extension; older engine builds reject them and request an
 update. Playtest uses that same native implementation.
+
+
+### New tiles
+
+Open **Graphics → Custom tiles → Tiles**. **New tile…** creates a tile;
+**Copy tile…** starts with an existing tile's settings and artwork. Draw pixels
+or import a PNG frame/sheet, add animation frames, and set frame durations.
+Alternative artwork can be supplied for each supported tileset; missing variants
+use the default artwork. PNG imports preserve the original pixels, including black.
+In Impera, enabling **Transparent Sprites** makes black pixels transparent for types
+with the **Transparent sprite** characteristic, using the usual sprite outline.
+This applies across the full footprint of multi-tile actors. Workshop keeps the
+original artwork available for editing.
+
+The property pane defines movement, travel speed, sight, projectiles, damage,
+poison, affected movement modes, transparent sprite composition, masonry and
+interaction/state variants. **World** and **Locations** picker memberships can
+overlap. Valid property edits save automatically with Undo support; artwork edits commit as a
+single undoable operation per gesture or import.
+
+New tiles appear in the map picker. Painting, fill, rectangle, copy/paste and
+Undo preserve their full IDs. **Edit tile…** opens the selected tile's definition.
+Place sign text and container contents through Select / Move's usual right pane.
+The package contains artwork, definitions and placements; original game files
+are unchanged. NPC/monster type authoring follows in phase 5.
+
+See [the custom-type design and audit](../docs/workshop-custom-types-plan.md) and
+[package compatibility](../docs/mod-packages.md#custom-tile-libraries-package-version-9).
+
+The custom tile editor has Pencil, Fill and Eyedropper tool buttons. Its
+Tileset selector switches artwork slots, the onscreen palette, and native pixel
+dimensions: DOS/Amiga/Grayscale 16×16, Apple II 14×16, Sharp 32×32. Empty slots
+show DOS artwork; editing one copies its animation into that slot. The small artwork menu beside the tileset selector offers **Remove artwork for
+this tileset** to clear an alternative slot. The regular tileset editor also shows the
+selected sheet’s full palette, strictly limited to that tileset’s original colors. PNG imports are converted
+to the selected standard palette. The Custom artwork slot instead permits arbitrary RGBA colors.
+
+Tile properties are grouped into Interaction, Movement & visibility, Appearance,
+Hazards, and Advanced sections. Collapsed sections summarize their settings.
+Ground, damage and skiff-heading controls appear when relevant; tile-state
+references use searchable thumbnails. Invalid settings show an inline error and
+leave the last valid tile definition unchanged.
+
+## NPC and monster types
+
+Open **Graphics → Custom tiles → NPC types / Monster types** to create or copy independent
+creature types. The shared artwork editor supports each tileset's palette,
+pixel dimensions, PNG import, alpha and animated frames. Combat properties,
+abilities, movement, death transformations, summon/division targets and encounter
+companions are edited separately from artwork. Original behavior profiles retain
+special vanilla behavior. Unknown original flag bits are preserved.
+
+Selecting an original NPC or monster type shows all four native artwork frames for
+each tileset. Painting or importing preserves opaque black and PNG alpha while
+retaining the engine’s original animation sequences and timing. Original creatures keep four fixed slots;
+copy a type to create an independent animation with a different frame count.
+For custom animations, importing a single-frame PNG replaces the selected frame;
+a PNG grid replaces the animation. When a DOS grid changes the frame count,
+other supplied tilesets trim or repeat their last frames to match. Local and
+world animations remain independent. The **Copy frame** and **Paste frame** icon
+buttons copy artwork between frame slots while preserving the destination timing.
+**Export PNG…** saves either the selected frame or a horizontal animation sheet
+for the current tileset and artwork view, preserving native dimensions and transparency.
+Pasted images must match the selected frame’s pixel dimensions and are converted
+to the selected tileset’s palette.
+
+For custom animations, **Advanced → Frame duration** controls the selected frame’s
+duration. It is hidden for native animations.
+
+Choose your type in map **Add… → NPC / Monster**, or select a placed creature
+and change **Type** in its inspector. **Edit type…** opens its shared definition.
+World-object and combat-room inspectors also support custom monster types.
+Names, conversations and schedules belong to the placed NPC, so multiple NPCs
+can share a type while having their own dialogue and destinations. Changes use
+normal project Undo and package export. Packages with actor definitions require
+an Impera build supporting package version 10.
+
+Custom artwork has an unrestricted color palette. Select **Custom** in the tileset
+dropdown, then use **+** to choose any color (including alpha) or **Import palette…**
+to load PNG swatches, GIMP `.gpl`, JASC `.pal`, or hex/RGB `.txt` / `.hex` files.
+Imported palettes supply drawing swatches without recoloring artwork or limiting
+which colors you may paint. Custom palette swatches are remembered between sessions.
+The standard DOS, Amiga, Apple II, Grayscale and Sharp palettes remain fixed.
+Use the transparent palette swatch with Pencil or Fill to erase pixels.
+
+## Multi-tile NPCs and monsters
+
+In **Graphics → Custom tiles → NPC types / Monster types**, create or copy a type
+and choose **Size**: 1×1, 1×2, 2×1 or 2×2. Copy an original type before changing
+its size. The size is width × height, with its position at the top-left cell.
+
+Use **Locations & combat** to draw or import the full-sized animation, then choose
+**World maps** to edit its independent single-tile appearance. Both appearances
+support all tilesets and their own animation frames. Resizing keeps existing
+pixels at the top left and preserves the world artwork. A DOS 2×2 actor uses
+32×32-pixel local frames and 16×16-pixel world frames; Sharp uses 64×64 and 32×32.
+
+Britannia and Underworld always display and move these actors as one tile.
+Locations and combat use their full footprint for movement, collision, selection
+and targeting. The actor still has one conversation, health pool and combat turn.
+Click any occupied cell to select it; dragging keeps the point where you grabbed
+it. The whole body must fit clear terrain without overlapping other actors.
+Combat spawns use the nearest fitting position when an original one-tile spawn
+point cannot accommodate the larger body.
+
+These packages use version 11 and require a compatible Impera build. Existing
+single-tile packages retain their original versions and behavior.
+
+### Additional location NPCs
+
+The map editor’s **Add → NPC** and **Add → Monster** keep working when the
+original location slots are full. Additional NPCs use the same selection,
+schedule, appearance, conversation and deletion controls. Their IDs remain stable
+when another NPC is deleted. Conversations can be shared between NPCs.
+
+These mods require the updated Impera (package version 12). Original NPC files
+retain their first 4608 bytes; extension records hold the additional schedules.
+The extension supports up to 32,767 NPCs per location, across its floors, with
+slot zero reserved for the party. Combat encounter size is unchanged.

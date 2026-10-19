@@ -10,9 +10,15 @@ static void vitals(ImperaDialogueGame *g) {
     if (g->vitals)
         g->vitals(g->host);
 }
+static unsigned npcCount(ImperaDialogueGame *g) { return g->npcCount ? g->npcCount : 32; }
+static unsigned actorCount(ImperaDialogueGame *g) { return g->actorCount ? g->actorCount : 32; }
 static uint8_t *flag(ImperaDialogueGame *g, uint8_t *flags) {
-    if (*g->map < 1 || *g->map > 32 || g->npc < 0 || g->npc > 31)
+    if (*g->map < 1 || *g->map > 32 || g->npc < 0 || (unsigned)g->npc >= npcCount(g))
         return 0;
+    if (g->npc >= 32) {
+        uint8_t *extra = flags == g->met ? g->extraMet : g->extraKilled;
+        return extra ? extra + (*g->map - 1) * 4096 + g->npc / 8 : 0;
+    }
     return flags + (*g->map - 1) * 4 + g->npc / 8;
 }
 int IMPERA_GameMet(ImperaDialogueGame *g) {
@@ -30,9 +36,9 @@ int IMPERA_GamePay(ImperaDialogueGame *g, int amount) {
         return 1;
     write16(g->gold, gold - amount);
     vitals(g);
-    if (g->npc >= 0 && g->npc < 32) {
+    if (g->npc >= 0 && (unsigned)g->npc < npcCount(g)) {
         unsigned actor = read16(g->npcs + g->npc * 16 + 12);
-        if (actor < 32 && (g->actors[actor * 8] & 0xfc) == 0x6c && *g->turn >= 100) {
+        if (actor < actorCount(g) && (g->actors[actor * 8] & 0xfc) == 0x6c && *g->turn >= 100) {
             *g->turn = 0;
             increment(g->karma, 1, 99);
             if (gold == amount)
@@ -100,7 +106,7 @@ int IMPERA_GameJoin(ImperaDialogueGame *g, ImperaTalk *s) {
     memcpy(g->party + candidate * 32, g->party + *g->partyCount * 32, 32);
     memcpy(g->party + *g->partyCount * 32, swap, 32);
     ++*g->partyCount;
-    if (g->npc >= 0 && g->npc < 32) {
+    if (g->npc >= 0 && (unsigned)g->npc < npcCount(g)) {
         int shape = g->shapes[g->npc] & 0xfc;
         uint8_t *p = flag(g, g->killed);
         if (p && ((shape != 0x70 && shape < 0x80) || shape == 0xb4))
@@ -113,9 +119,11 @@ int IMPERA_GameJoin(ImperaDialogueGame *g, ImperaTalk *s) {
     return 1;
 }
 void IMPERA_GameDespawn(ImperaDialogueGame *g, int slot) {
+    if (slot < 0 || (unsigned)slot >= npcCount(g))
+        return;
     uint8_t *npc = g->npcs + slot * 16;
     unsigned actor = read16(npc + 12);
-    if (actor < 32) {
+    if (actor < actorCount(g)) {
         uint8_t *p = g->actors + actor * 8;
         memset(p, 0, 5);
         p[6] = p[7] = 0;
@@ -128,7 +136,7 @@ void IMPERA_GameDespawn(ImperaDialogueGame *g, int slot) {
 }
 void IMPERA_GameGuards(ImperaDialogueGame *g) {
     int i;
-    for (i = 0; i < 32; ++i) {
+    for (i = 0; i < (int)npcCount(g); ++i) {
         uint8_t *npc = g->npcs + i * 16, *schedule = g->schedules + i * 16;
         int shape = g->shapes[i];
         if (!read16(npc))

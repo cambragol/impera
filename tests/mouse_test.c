@@ -10,6 +10,8 @@
 #include "funcs.h"
 #include "talk.h"
 #include "lookobj.h"
+#include "mod/types.h"
+#include "mod/actors.h"
 #include "sjog.h"
 #include "combat.h"
 #include "comsubs.h"
@@ -52,6 +54,7 @@ static Uint64 ticks = 2000;
 static Uint32 animationDelay,renderCost;
 void __wrap_SDL_Delay(Uint32 ms) { animationDelay += ms; }
 static float cursorX, cursorY;
+static bool sawGuardian;
 static bool sawSleepingNpc, sawFountain, sawDrinkPrompt, sawWell, sawCoinPrompt;
 static int presented;
 static bool confirmAimOnPoll;
@@ -68,6 +71,8 @@ static int lightX,lightY,darkX;
 static SDL_Rect waterMap;
 static int animationRow, playerScreenX, previousMarkerX;
 static bool checkActor;
+static bool checkCombatOrder, orderMovingSouth, orderSelection;
+
 static bool checkCombatMargins;
 static bool transparentSprites;
 static int actorRow, actorStart, actorEnd, actorMarker;
@@ -76,6 +81,21 @@ bool __wrap_SDL_RenderPresent(SDL_Renderer* renderer)
 {
     presented++;
     ticks+=renderCost;
+    if (checkCombatOrder) {
+        SDL_Surface *image = SDL_RenderReadPixels(renderer, NULL);
+        assert(image);
+        WideLayout layout = WIDE_Layout(image->w, image->h);
+        float cellX = orderMovingSouth ? 2 + SDL_min(presented, 8) / 8.0f : 3;
+        int x = (image->w - layout.width * layout.scale) / 2 +
+                (layout.mapX + (layout.columns / 2 - 5 + cellX) * 16 + 4) * layout.scale;
+        int y = SDL_ceilf((image->h - layout.height * layout.scaleY) / 2 +
+                          (layout.mapY + (layout.rows / 2 - 5 + 4) * 16) * layout.scaleY);
+        Uint8 r, g, b, a;
+        assert(SDL_ReadSurfacePixel(image, x, y, &r, &g, &b, &a));
+        assert(orderSelection ? (r == 255 && g == 255 && b == 255)
+                              : (r == 85 && g == 255 && b == 85));
+        SDL_DestroySurface(image);
+    }
     if(checkCombatMargins) {
         SDL_Surface* image=SDL_RenderReadPixels(renderer,NULL);
         assert(image);
@@ -196,6 +216,8 @@ bool __wrap_SDL_RenderPresent(SDL_Renderer* renderer)
 }
 void __wrap_ULTIMA_1850_PrintString(char* text)
 {
+    if (!strcmp(text, "the Guardian"))
+        sawGuardian = true;
     if (strstr(text, "Zzzzzz")) sawSleepingNpc = true;
     if (strstr(text, "gurgling fountain")) sawFountain = true;
     if (strstr(text, "Who will drink")) sawDrinkPrompt = true;
@@ -228,6 +250,19 @@ static void paintActor(int index,int x,int y)
     GetMapViewport(col,row)=0;
     GetActorMap(col,row)=0x44;
     GRAP_BUF_PutMapSprite(col,row,256+0x44);
+}
+static void paintCombatCursor(int x, int y) {
+    /* This fixture initializes SDL directly, without the driver dispatch used
+     * by ULTIMA's line calls. Supply the same native selection bitmap. */
+    GRAP_BUF_SetPenColor(15);
+    x = 8 + x * 16;
+    y = 8 + y * 16;
+    for (int inset = 0; inset < 2; ++inset) {
+        GRAP_BUF_Line(x, y + inset, x + 15, y + inset);
+        GRAP_BUF_Line(x, y + 14 + inset, x + 15, y + 14 + inset);
+        GRAP_BUF_Line(x + inset, y, x + inset, y + 15);
+        GRAP_BUF_Line(x + 14 + inset, y, x + 14 + inset, y + 15);
+    }
 }
 int main(int argc, char** argv)
 {
@@ -651,6 +686,51 @@ int main(int argc, char** argv)
     int goldBefore=D_57aa;
     LOOKOBJ_099c_LookCmd();
     assert(sawWell && !sawCoinPrompt && D_57aa==goldBefore);
+    /* Look resolves a custom NPC from any occupied cell, including extra slots,
+     * and uses the singular type name rather than its vanilla base or plural. */
+    unsigned char typeData[32 + 256 + 4 + 32 * 32 * 4 + 4 + 16 * 16 * 4] = {0};
+    memcpy(typeData, "ITYPES01", 8);
+    typeData[8] = 23;
+    TYPES_Put32(typeData + 24, 1);
+    TypeDef guardian;
+    TYPES_Vanilla(1, 120, &guardian);
+    guardian.id = 60000;
+    guardian.width = guardian.height = 2;
+    guardian.frames = 2;
+    strcpy(guardian.name, "the Guardian");
+    strcpy(guardian.description, "Guardians");
+    TYPES_Encode(typeData + 32, &guardian);
+    TYPES_Put32(typeData + 32, sizeof(typeData) - 32);
+    typeData[32 + 257] = 16;
+    typeData[32 + 258] = 100;
+    const unsigned worldFrame = 32 + 256 + 4 + 32 * 32 * 4;
+    typeData[worldFrame] = 6;
+    typeData[worldFrame + 1] = 16;
+    typeData[worldFrame + 2] = 100;
+    assert(TYPES_Validate(typeData, sizeof(typeData)));
+    TYPES_Mount(typeData, sizeof(typeData), NULL, 0);
+    unsigned oldNpcCount = D_imperaNpcCount;
+    D_imperaNpcCount = 258;
+    D_5f5e[257]._0 = 1;
+    D_5f5e[257]._c = 257;
+    D_5c5a[257] = (ActorFmt){0};
+    D_5c5a[257]._0_tile = D_5c5a[257]._1_animTile = 120;
+    D_5c5a[257]._2_x = 19;
+    D_5c5a[257]._3_y = 15;
+    TypeCell guardianCell = {3, 13, 0, 1, 1, 60000, 0};
+    assert(TYPES_Set(guardianCell, 60000));
+    GetMap(20, 16) = 5;
+    MOUSE_SetCommandInput(true);
+    MOUSE_Button(640, 460.8f, SDL_BUTTON_LEFT, true, 1);
+    ticks += 301;
+    assert(MOUSE_PollCommand() == 'L');
+    MOUSE_SetCommandInput(false);
+    LOOKOBJ_099c_LookCmd();
+    assert(sawGuardian);
+    D_5c5a[257] = (ActorFmt){0};
+    D_5f5e[257] = (NpcFmt){0};
+    D_imperaNpcCount = oldNpcCount;
+    TYPES_Mount(NULL, 0, NULL, 0);
     /* A diagonal fountain still offers drinking. Escape dismisses party selection. */
     GetMap(17,15)=TILE_MAP_FOUNTAIN;
     MOUSE_SetCommandInput(true);
@@ -1224,6 +1304,64 @@ int main(int argc, char** argv)
         assert(COMBAT_0ee4(1)==1);
         assert(abs(D_ba14[1].x-5)+abs(D_ba14[1].y-5)==1);
     }
+    /* Both moving and stationary combat actors participate in depth ordering.
+     * Check every interpolation frame, both slot orders, both movement roles,
+     * and the selection overlay above the same overlap. */
+    D_5893_map_id = 255;
+    D_13b0_brightWhiteColor = 15;
+    D_52ba_vdp._52c8_videoDriverSelection = VDP_VIDEO_EGA;
+    D_52ba_vdp._52c4 = 0;
+    D_5896_map_x = D_5897_map_y = 5;
+    D_58a4 = 1;
+    D_58a5 = 50;
+    D_b11e[1] = 1;
+    memset(D_ad14, 1, sizeof(D_ad14));
+    memset(tiles + (256 + 0x44) * 128, 0xaa, 128);
+    memset(tiles + (256 + 0x48) * 128, 0x44, 128);
+    for (int swap = 0; swap < 2; ++swap)
+        for (int southMoves = 0; southMoves < 2; ++southMoves)
+            for (int selected = 0; selected < 2; ++selected) {
+                int north = swap ? 31 : 0, south = swap ? 0 : 31;
+                GRAP_SDL_SetSmoothMovement(true);
+                memset(D_5c5a, 0, sizeof(D_5c5a));
+                memset(D_ba14, 0, sizeof(D_ba14));
+                D_5c5a[north]._0_tile = D_5c5a[north]._1_animTile = 0x48;
+                D_5c5a[north]._2_x = southMoves ? 3 : 2;
+                D_5c5a[north]._3_y = 3;
+                D_5c5a[south]._0_tile = D_5c5a[south]._1_animTile = 0x44;
+                D_5c5a[south]._2_x = southMoves ? 2 : 3;
+                D_5c5a[south]._3_y = 4;
+                D_ba14[7].flags = COMBAT_FLAGS_PLAYER;
+                D_ba14[7].actorIdx = south;
+                D_ba14[7].entityIdx = 0;
+                D_ba14[7].x = D_5c5a[south]._2_x;
+                D_ba14[7].y = 4;
+                D_589e = selected ? 7 : 255;
+                D_589f = 0;
+                memcpy(D_ab02, D_ad14, sizeof(D_ab02));
+                ULTIMA_5394();
+                ULTIMA_56ac_DrawMap();
+                if (selected)
+                    paintCombatCursor(D_ba14[7].x, 4);
+                GRAP_SDL_FlushFrame();
+                D_5c5a[southMoves ? south : north]._2_x = 3;
+                D_ba14[7].x = 3;
+                D_589f = 0;
+                memcpy(D_ab02, D_ad14, sizeof(D_ab02));
+                ULTIMA_5394();
+                ULTIMA_56ac_DrawMap();
+                if (selected)
+                    paintCombatCursor(3, 4);
+                if (selected)
+                    assert(g_linearEgaBuffer0[72 * 320 + 60] == 15);
+                orderMovingSouth = southMoves;
+                orderSelection = selected;
+                presented = 0;
+                checkCombatOrder = true;
+                GRAP_SDL_FlushFrame();
+                checkCombatOrder = false;
+                assert(presented == 9);
+            }
     MOUSE_SetCommandInput(false);
     remove("BRIT.DAT");
     MOUSE_Cleanup();

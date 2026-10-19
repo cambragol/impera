@@ -593,12 +593,13 @@ static void save_game(const char *directory, const char *name) {
     COPY(0x2ce, D_5874);
     COPY(0x2d7, D_587d);
     COPY(0x2d8, D_587e);
-    COPY(0x5b4, D_5b5a);
-    COPY(0x634, D_5bda);
-    COPY(0x6b4, D_5c5a);
-    COPY(0x7b8, D_5d5e);
-    COPY(0x9b8, D_5f5e);
-    COPY(0xff8, D_659e);
+    /* This oracle artifact is the original DOS record, not the extended runtime capacity. */
+    memcpy(state + 0x5b4, D_5b5a, 128);
+    memcpy(state + 0x634, D_5bda, 128);
+    memcpy(state + 0x6b4, D_5c5a, 256);
+    memcpy(state + 0x7b8, D_5d5e, 512);
+    memcpy(state + 0x9b8, D_5f5e, 512);
+    memcpy(state + 0xff8, D_659e, 32);
 #undef COPY
     save_pixels(directory, name, state, sizeof(state), 1);
 }

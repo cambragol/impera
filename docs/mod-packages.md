@@ -30,7 +30,7 @@ All integers are unsigned little-endian 32-bit values; there is no padding.
 
 | Header | Encoding |
 | --- | --- |
-| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0008` |
+| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0009` |
 | Title length | 1–256 UTF-8 bytes |
 | Resource count | 1–128 |
 | Title | Length bytes; embedded NUL forbidden |
@@ -245,3 +245,125 @@ through native framebuffer copies independently of the selected map tileset. Pla
 UI drawing clears that provenance normally. Package validation checks all counts,
 indices, byte ranges, dimensions, text and flow coordinates before mounting; malformed
 or truncated data rejects the entire package. Older engines reject version 8 explicitly.
+
+## Custom tile libraries (package version 9)
+
+`IMOD0009` adds `TYPES.OVR` and `TYPEMAP.OVR`. Both use an empty original base,
+are validated by the shared C implementation in `src/mod/types.c`, and remain
+subject to the existing package/resource memory limits. Older engines reject
+version 9 rather than reading custom tile IDs as DOS bytes.
+
+`TYPES.OVR` (`ITYPES01`) contains a 16-byte library identity, sorted definitions,
+and embedded RGBA animation frames. IDs 0–255 override original terrain;
+256–511 identify original actor appearances; 512–65535 identify additions.
+Kinds 0/1/2 distinguish terrain, NPC types and monster types. There are at most 1024 definitions,
+64 frames per artwork variant, and 8 MiB per library. Frames are 16×16 or 32×32, with 14×16 also supported for Apple II,
+with durations of 10–60000 milliseconds. Artwork variants fall back to the tile's
+default artwork. Raw artwork preserves explicit alpha and opaque black. When
+Transparent Sprites is enabled, actors marked Transparent also key black and use
+the native outline across their full footprint. Physical properties belong to
+the definition, not to individual animation frames.
+
+`TYPEMAP.OVR` (`ITYMAP01`) contains sparse placements keyed by map, floor, and
+coordinates, or encounter bank and encounter index. Its UUID must match the
+library shipped in the same package. Custom terrain works on Britannia,
+Underworld, location floors, and combat rooms; dungeon feature nibbles retain
+their existing format. There are at most 65536 placement/state records. The
+exact encodings and bounds are documented in `src/mod/types.h`.
+
+Placements preserve the original terrain bytes underneath; custom IDs do not
+consume DOS terrain IDs or Britannia chunk-index capacity. Runtime reads resolve
+the authored native interaction profile and independent movement, sight,
+projectile, travel, hazard, transparency, and masonry properties. Explicit state
+transitions retain custom type identity, including a door's temporary open state
+and automatic close. Container contents and sign text remain separate placed
+instances, edited through their existing contextual map panels. Workshop moves
+custom scenery and its contents together. During gameplay, pushing scenery that
+has explicit contents is prevented, so contents cannot be orphaned at its old cell.
+
+Libraries keep their UUID and local IDs through project and package roundtrips.
+Deleting a referenced type is rejected. The existing first-resource-wins package
+conflict rule applies: two independently exported tile libraries are not silently
+combined. Combine their content in one Workshop project instead.
+
+Mutable custom terrain state is appended to modern saves using `ITYSAV01`, after
+any existing map-contents state. The original 4192-byte party layout is unchanged.
+The extension stores stable library IDs, cell identities, transitions and door
+restore state, with a checksum. Preflight validates it before installing a save
+or changing the active party. Missing libraries, unknown types, corruption and
+trailing data reject the load. Saves without the extension remain supported.
+
+Version 10 (`IMOD0010`) enables independent NPC and monster definitions in
+`TYPES.OVR`. Terrain-only libraries continue to export as version 9. Older
+engines reject actor packages with the normal update diagnostic. Actor records
+use `base` for the original behavior profile, `stats[8]` for native combat stats,
+`actorFlags` for verified abilities (unknown bits are preserved), `moveProfile`,
+`range`, `projectileAppearance` and the original companion fallback. Their
+`result[4]` references mean on-defeat transformation, summoned type, division type,
+and encounter companion; zero keeps the native/default rule. Builtin actor
+references are 320–508 in increments of four; custom actor references use their
+independent IDs. Actor artwork uses the same frame encoding and tileset fallback
+as terrain. Properties, artwork and identity are independent.
+
+`TYPEMAP.OVR` kinds 3/4/5/6 reference location NPC slots, world actor slots,
+BRIT.CBT spawn slots and DUNGEON.CBT spawn slots. For these records `x` is a slot
+and `y` is zero; location slots use map 1–32 and floor zero (their schedules own
+floor changes), world slots use map zero and floor 0/-1, encounter slots use the
+room index and floor zero. Location/world actor references survive encounter
+resets and saves. Encounter references reset with the selected encounter. The
+same library UUID and shared validation protect terrain and actor references.
+
+### Multi-tile actors (package version 11)
+
+`IMOD0011` adds rectangular actor footprints and separate world artwork to
+`TYPES.OVR`. Bytes 253–254 encode width minus one and height minus one (each 0–1);
+byte 255 remains reserved. Non-actor and original-ID records retain a 1×1 footprint.
+Frame variants 0–5 describe local/combat artwork, with pixel dimensions equal to
+cell dimensions multiplied by the footprint. Variants 6–11 describe single-cell
+world artwork in the same tileset order. Each appearance has its own default
+variant and animation length. Larger actors require default world artwork.
+Packages containing any world-artwork variants require version 11, even for 1×1
+actors. Older versions reject these records; ordinary legacy packages remain valid.
+
+Actor instances retain one anchor coordinate, type identity, health pool and turn.
+Footprints derive from the mounted type definition, so saved positions and the
+existing type-state save format do not duplicate geometry. Britannia and Underworld
+always use the single-cell appearance and collision footprint.
+
+### Version 12: additional location NPCs
+
+`IMOD0012` permits extended `.NPC` banks and 16-bit location actor instance IDs.
+The original 4608-byte bank remains unchanged in structure. Optional trailing
+bytes are `INPC0001`, a little-endian 32-bit record count, four reserved zero bytes,
+and sorted 24-byte records: settlement index (0–7), zero byte, slot LE16,
+schedule[16], native appearance byte, conversation byte, two reserved zero bytes.
+Within each settlement, extension slots start at 32 and are contiguous; deletion
+clears a record instead of renumbering later NPCs. Slots below 32 remain in the
+original bank. Slots 1–32767 represent NPCs; slot zero is reserved.
+
+For `TYPEMAP.OVR` kind 3, x and y are now the low and high bytes of the stable NPC
+slot. Other placement kinds retain their existing coordinate semantics. Version
+12 is required for any binding beyond slot 31. Unsupported older engines reject
+the package before mounting it.
+
+Saved games retain the original 4192-byte base. An optional `INPSAV01` prefix
+before the contents/type trailers stores additional killed/met flags and current
+NPC/actor/schedule/movement state, with explicit little-endian words and a CRC.
+The entire trailer is validated before the active game is modified. Vanilla saves
+without this prefix reset extension state normally.
+
+`IMOD0013` adds the custom actor animation choice in definition byte 255:
+0 follows the vanilla base creature’s pose pattern; 1 plays a continuous loop.
+Original actor overrides and terrain retain zero in this byte. Inherited actors
+use the engine’s native animation state, random holds, resting poses and delays,
+independently for each placed actor. The same interpreter drives Workshop’s
+preview at the normal idle update cadence. One to four artwork poses map to the
+native four pose slots, repeating when fewer are supplied. Animations longer
+than four poses use continuous playback so every frame is displayed; Workshop
+selects that mode when adding/importing a longer sequence. Existing longer
+sequences retain continuous playback. World artwork and alternative tilesets
+retain the selected actor pose, including DOS fallback. Frame durations remain
+in the file format for continuous sequences; Workshop exposes no timing numbers
+or animation scripting. Workshop exports custom actor definitions as version 13
+so older engines reject these packages instead of silently ignoring inherited
+animation. Older packages remain readable by the updated engine.

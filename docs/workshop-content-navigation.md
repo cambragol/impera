@@ -2,7 +2,7 @@
 
 Phases 1–6 of the overarching UI redesign replace file-first navigation with a persistent content navigator.
 
-Choose World, NPCs, Cutscenes, Graphics, Game Rules, or Mod Overview in the workspace selector. Search filters the current workspace by content name or category. World lists settlements once; selecting a settlement opens its main floor. Other floors remain in the editor's floor selector. Combat encounters use numbered labels where their purpose has not been verified.
+Choose World, Dialogue, Cutscenes, Graphics, Game Rules, or Mod Overview in the workspace selector. Search filters the current workspace by content name or category. World lists settlements once; selecting a settlement opens its main floor. Other floors remain in the editor's floor selector. Combat encounters use numbered labels where their purpose has not been verified.
 
 The navigator stays available beside every editor. Tools → Find Content (Ctrl+L) focuses its search without replacing the editor or discarding drafts. Back and Forward (Alt+Left / Alt+Right) navigate independently of Undo and Redo. Validated drafts are committed before changing destinations; invalid drafts keep the current editor open. Returning through history restores editor selections and map views.
 
@@ -27,9 +27,9 @@ Switching modes or floors commits valid pending sign text first. Invalid text ke
 
 The standalone text and starting-object collections remain accessible for project-wide editing. Dungeon level/room editing remains its specialized workspace.
 
-## NPCs (phase 4)
+## Dialogue (phase 4)
 
-The NPCs workspace lists individual scheduled NPCs across all four conversation banks, grouped and filtered by top-level location. Search matches NPC names and locations. NPC identity includes its bank, location and schedule slot; equal conversation numbers in different banks do not refer to the same conversation. Empty appearance slots are excluded. Unassigned conversations remain available in a separate group; they may still be referenced by special game logic.
+The Dialogue workspace lists individual scheduled NPCs across all four conversation banks, grouped and filtered by top-level location. Search matches NPC names and locations. NPC identity includes its bank, location and schedule slot; equal conversation numbers in different banks do not refer to the same conversation. Empty appearance slots are excluded. Unassigned conversations remain available in a separate group; they may still be referenced by special game logic.
 
 Selecting an NPC opens its conversation directly, with a compact NPC/location heading and **Show NPC on map**. Shared-dialogue assignments are available in the heading tooltip. The duplicate schedule tab and full-width dialogue-users button are removed. NPCs without editable dialogue are excluded from this browser; their schedules remain editable in the map’s NPCs / Schedules mode.
 
@@ -45,7 +45,7 @@ Graphics lists Tilesets first, followed by Illustrations and Fonts. Artwork coll
 
 Cutscenes lists the Blackthorn, Shrine, Codex and Final rescue scenes separately. Each route opens its matching scene and includes its message source in the tooltip. Character creation lives in Game Rules, with its backgrounds, questions and sequence in one editor. When scene data is absent, standalone message/creation-text routes remain available. Introduction, ending and virtue text remain dedicated destinations.
 
-Game Rules groups prices and stock; entrances are edited on the map. Shop/service dialogue lives in NPCs under Shops & Services. The developer overlay coverage report is not exposed in the Workshop. Game Rules also groups starting party/world state and Look descriptions; starting objects are edited through Select / Move on the world maps; the effective Underworld object list combines initial and override sources. Direct resource access remains available for diagnostics. Change markers aggregate related content at the destination level. Resource serializers and mod package formats are unchanged.
+Game Rules groups prices and stock; entrances are edited on the map. Shop/service dialogue lives in Dialogue under Shops & Services. The developer overlay coverage report is not exposed in the Workshop. Game Rules also groups starting party/world state and Look descriptions; starting objects are edited through Select / Move on the world maps; the effective Underworld object list combines initial and override sources. Direct resource access remains available for diagnostics. Change markers aggregate related content at the destination level. Resource serializers and mod package formats are unchanged.
 
 ## Mod Overview and aggregate changes (phase 6)
 
@@ -86,7 +86,7 @@ bundled artwork remain untouched.
 
 ## Shop and service dialogue
 
-In **NPCs → Shops & Services**, choose a service and then its greeting, refusal,
+In **Dialogue → Shops & Services**, choose a service and then its greeting, refusal,
 farewell, item description or service response. These are shared templates, not
 individual NPC conversations. Shared variants remain one response; the compact
 scope label and its tooltip identify that shared use. The NPC filter offers top-level locations and **Shops & Services**; selecting

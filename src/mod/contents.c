@@ -1,6 +1,7 @@
 #include "contents.h"
 #include "discoveries.h"
 #include "package.h"
+#include "types.h"
 #include <string.h>
 static ContentsDef defs[CONTENTS_MAX], suppressed;
 static ContentsState states[CONTENTS_MAX], encounter[CONTENTS_MAX];
@@ -189,6 +190,7 @@ void CONTENTS_Reset(void) {
     CONTENTS_EndEncounter();
 }
 void CONTENTS_BeginEncounter(unsigned kind, unsigned map) {
+    TYPES_BeginEncounter(kind, map);
     battleKind = kind;
     battleMap = map;
     memset(encounter, 0, sizeof(encounter));
@@ -292,7 +294,7 @@ int CONTENTS_PendingShape(unsigned kind, unsigned map, int floor, int x, int y) 
 }
 int CONTENTS_WriteState(FILE *f) {
     if (!stateCount)
-        return 1;
+        return TYPES_WriteState(f);
     unsigned char data[CONTENTS_SAVE_MAX] = {0};
     memcpy(data, "ICSAVE01", 8);
     CONTENTS_PutDword(data + 8, stateCount);
@@ -308,21 +310,36 @@ int CONTENTS_WriteState(FILE *f) {
     }
     size_t len = 16 + 64 * stateCount;
     CONTENTS_PutDword(data + 12, MOD_Crc32(data + 16, len - 16));
-    return fwrite(data, 1, len, f) == len;
+    return fwrite(data, 1, len, f) == len && TYPES_WriteState(f);
 }
 int CONTENTS_ReadState(FILE *f, int apply) {
     unsigned char data[CONTENTS_SAVE_MAX];
-    size_t n = fread(data, 1, sizeof(data), f);
+    size_t n = fread(data, 1, 16, f);
+    if (n == 16 && !memcmp(data, "ITYSAV01", 8)) {
+        long pos = ftell(f) - 16;
+        if (pos < 0 || fseek(f, pos, SEEK_SET) || !TYPES_ReadState(f, 0))
+            return 0;
+        if (apply) {
+            if (fseek(f, pos, SEEK_SET) || !TYPES_ReadState(f, 1))
+                return 0;
+            CONTENTS_Reset();
+        }
+        return 1;
+    }
+    if (n == 16 && !memcmp(data, "ICSAVE01", 8) && CONTENTS_Dword(data + 8) <= CONTENTS_MAX)
+        n += fread(data + 16, 1, 64 * CONTENTS_Dword(data + 8), f);
     if (!n) {
         if (ferror(f))
             return 0;
         if (apply)
             CONTENTS_Reset();
+        if (apply)
+            TYPES_Reset();
         return 1;
     }
     if (n < 16 || memcmp(data, "ICSAVE01", 8) || CONTENTS_Dword(data + 8) > CONTENTS_MAX ||
         n != 16 + 64 * CONTENTS_Dword(data + 8) ||
-        MOD_Crc32(data + 16, n - 16) != CONTENTS_Dword(data + 12) || fgetc(f) != EOF)
+        MOD_Crc32(data + 16, n - 16) != CONTENTS_Dword(data + 12))
         return 0;
     unsigned num = CONTENTS_Dword(data + 8);
     ContentsState next[CONTENTS_MAX];
@@ -353,6 +370,11 @@ int CONTENTS_ReadState(FILE *f, int apply) {
             if (s->id == next[j].id && !memcmp(s->space, next[j].space, 16))
                 return 0;
     }
+    long typeOffset = ftell(f);
+    if (typeOffset < 0 || !TYPES_ReadState(f, 0))
+        return 0;
+    if (apply && (fseek(f, typeOffset, SEEK_SET) || !TYPES_ReadState(f, 1)))
+        return 0;
     if (apply) {
         memcpy(states, next, sizeof(states));
         stateCount = num;

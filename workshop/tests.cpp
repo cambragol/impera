@@ -806,7 +806,7 @@ int main(int argc, char **argv) {
                 }
                 if (d.resource == "UNDER.OOL" || d.resource == "INIT.OOL") ++underworld;
                 if (d.resource == "SHOPPE.DAT")
-                    check(d.workspace == "NPCs", "Shop dialogue misplaced");
+                    check(d.workspace == "Dialogue", "Shop dialogue misplaced");
                 if (d.resource == "DATA.OVL") check(d.workspace == "Mod Overview", "Overlay coverage is not a rule editor");
             }
             check(scenes == 5 && underworld == 1, "Scene or effective-world routes missing");
@@ -914,10 +914,21 @@ int main(int argc, char **argv) {
                 const auto navigation = Workshop::contentDestinations(p);
                 int dialogueEntries = 0;
                 for (const auto &d : navigation)
-                    if (d.workspace == "NPCs") {
+                    if (d.workspace == "Dialogue") {
                         check(d.conversation >= 0, "Schedule-only NPC cluttered dialogue navigation");
                         ++dialogueEntries;
                     }
+                int typeLibraries = 0;
+                for (const auto &d : navigation)
+                    if (d.workspace == "Graphics" && d.group == "Custom tiles" &&
+                        d.selection.value("customTiles/kind") > 0) {
+                        check(d.resource == "TYPES.OVR" &&
+                                  d.selection.value("customTiles/kind") > 0,
+                              "Type library lost its semantic navigation route");
+                        ++typeLibraries;
+                    }
+                check(typeLibraries == 2,
+                      "NPC and monster type libraries must be under Graphics / Custom tiles");
                 check(dialogueEntries == 6,
                       "Dialogue navigation lost shared NPCs or unassigned conversations");
                 check(p.data("TOWNE.NPC") == p.resources["TOWNE.NPC"].original,
@@ -926,14 +937,14 @@ int main(int argc, char **argv) {
                 check(w.openGame(dir.path()), "Character UI fixture failed");
                 w.show();
                 auto selector = w.findChild<QComboBox *>("contentWorkspace");
-                selector->setCurrentText("NPCs");
+                selector->setCurrentText("Dialogue");
                 auto filter = w.findChild<QComboBox *>("characterLocationFilter");
                 check(filter && filter->findText("Moonglow") >= 0 &&
                           filter->findText("Unassigned conversations") >= 0,
                       "Cross-bank location filters missing");
                 auto tree = w.findChild<QWidget *>("resourceLibrary")->findChild<QTreeWidget *>();
                 auto choose = [&](const QString &id) {
-                    selector->setCurrentText("NPCs");
+                    selector->setCurrentText("Dialogue");
                     filter->setCurrentIndex(0);
                     QTreeWidgetItemIterator it(tree);
                     while (*it) {
@@ -1436,7 +1447,7 @@ int main(int argc, char **argv) {
                       !editor->findChild<QCheckBox *>("narrativeExtended") &&
                       !editor->findChild<QPushButton *>("narrativeApply"),
                   "Shop editor still exposes preview or format controls");
-            check(window.findChild<QComboBox *>("contentWorkspace")->currentText() == "NPCs",
+            check(window.findChild<QComboBox *>("contentWorkspace")->currentText() == "Dialogue",
                   "Shop dialogue is not in NPCs");
             auto serviceFilter = window.findChild<QComboBox *>("characterLocationFilter");
             check(serviceFilter && !serviceFilter->isHidden() &&
@@ -2583,6 +2594,21 @@ int main(int argc, char **argv) {
             check(records.location(0, monster.slot, 0).ai == 5 &&
                       records.dialogue(0, monster.slot) == 0,
                   "Settlement monster did not receive attack behavior");
+            auto linked = Workshop::createNpcConversation(p, "TOWNE.NPC", 0, monster.slot,
+                                                          "Friendly monster");
+            const auto oldNpc = p.data("TOWNE.NPC");
+            for (auto it = linked.begin(); it != linked.end(); ++it)
+                p.resources[it.key()].edited = it.value();
+            const int monsterConversation = records.dialogue(0, monster.slot);
+            check(monsterConversation > 0 && monsterConversation != conversation &&
+                      U5::readDialogue(p.data("TOWNE.TLK")).size() == 2,
+                  "Monster conversation was not created with a free ID");
+            auto expectedNpc = oldNpc;
+            expectedNpc[records.dialogueOffset(0, monster.slot)] = char(monsterConversation);
+            check(p.data("TOWNE.NPC") == expectedNpc,
+                  "Creating dialogue changed monster behavior or appearance");
+            p.resources["TOWNE.NPC"].edited = oldNpc;
+            p.resources["TOWNE.TLK"].edited = tlk;
             auto sign =
                 Workshop::addMapItem(p, "TOWNE.DAT", 0, {10, 11}, Workshop::MapItemKind::Sign);
             install(sign);
@@ -2629,10 +2655,30 @@ int main(int argc, char **argv) {
             for (int i = 1; i < 32; i++)
                 p.resources["TOWNE.NPC"].edited[512 + i] = 80;
             auto before = p.data("TOWNE.NPC");
-            rejects([&] {
+            auto additional =
                 Workshop::addMapItem(p, "TOWNE.DAT", 0, {1, 1}, Workshop::MapItemKind::Npc);
-            });
-            check(p.data("TOWNE.NPC") == before, "Failed placement changed existing NPCs");
+            check(additional.slot == 32 && additional.changes["TOWNE.NPC"].left(4608) == before,
+                  "Extended placement changed original NPC records");
+            check(p.data("TOWNE.NPC") == before, "Placement preview committed its changes");
+            install(additional);
+            check(records.count(0) == 33 && records.location(0, 32, 0).x == 1 &&
+                      records.location(0, 32, 0).y == 1,
+                  "Extended NPC was not initialized");
+            auto extraMonster = Workshop::addMapItem(p, "TOWNE.DAT", 0, {2, 1},
+                                                     Workshop::MapItemKind::Monster, 216);
+            install(extraMonster);
+            check(extraMonster.slot == 33, "Expected extended monster slot");
+            auto extraDialogue =
+                Workshop::createNpcConversation(p, "TOWNE.NPC", 0, extraMonster.slot, "Daemon");
+            for (auto it = extraDialogue.begin(); it != extraDialogue.end(); ++it)
+                p.resources[it.key()].edited = it.value();
+            check(records.dialogue(0, 33) > 0 &&
+                      records.dialogue(0, 33) != records.dialogue(0, 32) &&
+                      records.location(0, 33, 0).ai == 5,
+                  "Extended monster dialogue changed another NPC or its behavior");
+            rejects([&] { Workshop::createNpcConversation(p, "TOWNE.NPC", 0, 33, "Duplicate"); });
+            p.validate();
+            check(p.package().startsWith("IMOD0012"), "Extended NPC package lacks version gate");
         });
         test("Map positions preserve bytes, floors, entrance pairs, packages and native placement",
              [&] {
@@ -3981,7 +4027,9 @@ int main(int argc, char **argv) {
                                                       : npcs[i]),
                       "Cross-floor movement changed unrelated record bytes");
             active()->findChild<QComboBox *>("mapNpcList")->setCurrentIndex(2);
-            check(!active()->findChild<QPushButton *>("mapNpcConversation")->isEnabled() &&
+            check(active()->findChild<QPushButton *>("mapNpcConversation")->isEnabled() &&
+                      active()->findChild<QPushButton *>("mapNpcConversation")->text() ==
+                          "Create conversation" &&
                       active()->findChild<QSpinBox *>("mapNpcX")->value() == 255,
                   "Missing conversation or unusual position was rewritten");
             auto scheduleBefore = window.projectForTests().data("TOWNE.NPC");
@@ -4001,6 +4049,18 @@ int main(int argc, char **argv) {
             history("Undo");
             check(window.projectForTests().data("TOWNE.NPC") == scheduleBefore,
                   "Start hour undo did not restore exact schedule bytes");
+            auto createButton = active()->findChild<QPushButton *>("mapNpcConversation");
+            auto talkBefore = window.projectForTests().data("TOWNE.TLK");
+            createButton->click();
+            app.processEvents();
+            check(active()->findChild<QWidget *>("conversationEditor"),
+                  "Create conversation did not open dialogue editor");
+            check(window.projectForTests().data("TOWNE.TLK") != talkBefore,
+                  "Create conversation did not save dialogue");
+            history("Undo");
+            check(window.projectForTests().data("TOWNE.NPC") == scheduleBefore &&
+                      window.projectForTests().data("TOWNE.TLK") == talkBefore,
+                  "Conversation creation did not undo atomically");
         });
         test("Native widgets are read-only until an edit", [&] {
             QTemporaryDir dir;
@@ -5928,7 +5988,7 @@ int main(int argc, char **argv) {
                     app.processEvents();
                 }
                 w.show();
-                w.findChild<QComboBox *>("contentWorkspace")->setCurrentText("NPCs");
+                w.findChild<QComboBox *>("contentWorkspace")->setCurrentText("Dialogue");
                 auto characterTree =
                     w.findChild<QWidget *>("resourceLibrary")->findChild<QTreeWidget *>();
                 const auto originalCharacters = Workshop::characterDestinations(p);

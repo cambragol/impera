@@ -2,6 +2,7 @@
 #include "funcs.h"
 #include "macros.h"
 #include "mod/runtime.h"
+#include "mod/types_game.h"
 #include "mod/world_resources.h"
 #include "tiles.h"
 #include "vars.h"
@@ -105,14 +106,14 @@ static void OUTSUBS_0098(char* param_1/*file_name*/, int param_2/*layer?*/, int 
                 // 012c
                 if (OUTSUBS_0000(param_3) != 0)
                 {
-                    *ULTIMA_4402_GetTileAddr(local_a + local_6, local_c + local_8) = TILE_MAP_DF;
+                    TYPES_GAME_Write(local_a + local_6, local_c + local_8, TILE_MAP_DF);
                 }
                 break;
             case 0x19:
                 // 017d
                 if (OUTSUBS_004a(param_3) != 0)
                 {
-                    *ULTIMA_4402_GetTileAddr(local_a + local_6, local_c + local_8) = TILE_MAP_RUINS;
+                    TYPES_GAME_Write(local_a + local_6, local_c + local_8, TILE_MAP_RUINS);
                 }
                 break;
             }

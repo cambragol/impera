@@ -1,10 +1,12 @@
+#include "mod/actors.h"
 #include "common/common.h"
 #include "common/movement.h"
 #include "common/signs.h"
 #include "funcs.h"
-#include "vars.h"
 #include "macros.h"
+#include "mod/types_game.h"
 #include "tiles.h"
+#include "vars.h"
 
 #include <string.h>
 
@@ -330,7 +332,8 @@ static void LOOKOBJ_0502(int param_1, int param_2, int param_3, bool allowAction
     }
     else
     {
-        LOOKOBJ_0000(param_1);
+        if (!TYPES_GAME_Look(param_2, param_3))
+            LOOKOBJ_0000(param_1);
         if ((param_1 & 0xfe) == TILE_MAP_CLOCK)
         {
             local_4 = D_587f % 0xc;
@@ -655,6 +658,18 @@ void LOOKOBJ_099c_LookCmd(void)
     ULTIMA_1850_PrintString(_TEXT(0x751c, "\nThou dost see\n"));
     if (local_6 != 0)
     {
+        for (unsigned actor = 0; actor < (unsigned)MAP_ACTOR_COUNT; actor++) {
+            ActorFmt *a = &D_5c5a[actor];
+            if (!a->_0_tile || !a->_1_animTile || a->_4_z != D_5895_map_level ||
+                !ACTORS_Contains(actor, local_8, local_a))
+                continue;
+            unsigned type = ACTORS_Instance(actor);
+            if (type && TYPES_Defined(type)) {
+                ULTIMA_1850_PrintString(ACTORS_Name(type, 0));
+                ULTIMA_16ba_PrintChar('\n');
+                return;
+            }
+        }
         LOOKOBJ_06a4(local_6);
         return;
     }

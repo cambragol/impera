@@ -1,16 +1,51 @@
-#include "map_positions.h"
-#include "inventory_names.h"
+#include "mod/npcs.h"
 #include "map_entities.h"
 #include "actor_names.h"
 #include "contents_editor.h"
+#include "custom_tiles.h"
 #include "dialogue.h"
+#include "inventory_names.h"
 #include "location_text.h"
+#include "map_positions.h"
 #include "world_objects.h"
 #include <QRandomGenerator>
 #include <algorithm>
 #include <cstring>
 using U5::require;
 namespace Workshop {
+QMap<QString, QByteArray> createNpcConversation(const Project &p, const QString &npc, int town,
+                                                int slot, const QString &name) {
+    auto bytes = p.data(npc);
+    require(NPCS_Validate(bytes.constData(), bytes.size()), "Invalid NPC resource");
+    require(town >= 0 && town < 8 && slot > 0 &&
+                slot < int(NPCS_Count(bytes.constData(), bytes.size(), town)),
+            "Choose an NPC");
+    auto dialogue = [&](int t, int n) {
+        return U5::byte(bytes, NPCS_DialogueOffset(bytes.constData(), bytes.size(), t, n));
+    };
+    const QString talk = npc.left(npc.size() - 4) + ".TLK";
+    require(p.resources.contains(talk), "Conversation resource unavailable");
+    auto entries = U5::readDialogue(p.data(talk));
+    for (const auto &entry : entries)
+        require(int(entry.id) != dialogue(town, slot), "NPC already has a conversation");
+    QSet<int> used;
+    for (const auto &entry : entries)
+        used.insert(entry.id);
+    for (int t = 0; t < 8; ++t)
+        for (int n = 0; n < int(NPCS_Count(bytes.constData(), bytes.size(), t)); ++n)
+            used.insert(dialogue(t, n));
+    int id = 1;
+    while (id < 128 && used.contains(id))
+        ++id;
+    require(id < 128, "No free conversation numbers remain");
+    auto text = Dialogue::text(name);
+    text += U5::encodeText("<Entry>A traveler.<Entry>Greetings.<Entry>I live "
+                           "here.<Entry>Farewell.\"<End Conversation><Entry><Any><Label 15>@");
+    require(Dialogue::parse(text).structuralError.isEmpty(), "Invalid new conversation");
+    entries.append({unsigned(id), text});
+    bytes[NPCS_DialogueOffset(bytes.constData(), bytes.size(), town, slot)] = char(id);
+    return {{npc, bytes}, {talk, U5::writeDialogue(entries)}};
+}
 QString actorName(int shape) {
     // Combat group names do not always describe the NPC appearance artwork.
     if (shape == 96)
@@ -209,6 +244,11 @@ QMap<QString, QByteArray> moveSignTerrain(const Project &p, const QString &r, in
     MapDocument doc(&p, r);
     require(page >= 0 && page < doc.pages.size(), "Invalid sign floor");
     auto terrain = doc.terrain(page);
+    if (from != to) {
+        auto custom = CustomTiles::moveScenery(p, r, page, from, to);
+        if (!custom.isEmpty())
+            return custom;
+    }
     int side = doc.pages[page].side;
     require(from.x() >= 0 && from.y() >= 0 && from.x() < side && from.y() < side,
             "Sign source outside map");
@@ -242,6 +282,79 @@ static int freeWorldSlot(const Project &p, int world) {
     require(false, "No free world object slots remain");
     return -1;
 }
+void validateActorPlacement(const Project &p, const QString &r, int index, QPoint cell,
+                            unsigned type, int ignoreSlot, int schedule) {
+    MapDocument doc(&p, r);
+    const auto page = doc.pages.at(index);
+    bool world = r == "BRIT.DAT" || r == "UNDER.DAT";
+    auto d = CustomTiles::definition(p, type);
+    QSize size(world ? 1 : TYPES_Width(&d), world ? 1 : TYPES_Height(&d));
+    QRect footprint(cell, size);
+    bool large = size != QSize(1, 1);
+    require(QRect(0, 0, page.side, page.side).contains(footprint),
+            "The whole creature must fit inside the map");
+    if (large) {
+        unsigned shape = d.base;
+        for (unsigned a = 0; a < 256; a += 4) {
+            TypeDef native;
+            TYPES_Vanilla(1, a, &native);
+            if (native.moveProfile == d.moveProfile) {
+                shape = a;
+                break;
+            }
+        }
+        auto terrain = doc.terrain(index);
+        auto expanded = CustomTiles::expanded(p, r, page, index, terrain);
+        for (int y = footprint.top(); y <= footprint.bottom(); ++y)
+            for (int x = footprint.left(); x <= footprint.right(); ++x) {
+                unsigned id = TYPES_U32(expanded.constData() + (y * page.side + x) * 4);
+                if (id) {
+                    auto tile = CustomTiles::definition(p, id);
+                    require(TYPES_DefWalkable(shape, &tile),
+                            "Part of the creature is on blocked terrain");
+                } else
+                    require(TYPES_Walkable(shape, U5::byte(terrain, y * page.side + x)),
+                            "Part of the creature is on blocked terrain");
+            }
+    }
+    auto check = [&](QPoint at, unsigned otherType) {
+        auto other = CustomTiles::definition(p, otherType);
+        QSize otherSize(world ? 1 : TYPES_Width(&other), world ? 1 : TYPES_Height(&other));
+        if (large || otherSize != QSize(1, 1))
+            require(!footprint.intersects(QRect(at, otherSize)), "Creature footprints overlap");
+    };
+    auto npcResource = r.left(r.size() - 4) + ".NPC";
+    if (!world && p.resources.contains(npcResource) && page.settlement >= 0) {
+        Project view = p;
+        MapNpcDocument npcs(&view, npcResource);
+        for (int slot = 1; slot < npcs.count(page.settlement); ++slot) {
+            if (slot == ignoreSlot ||
+                !U5::byte(p.data(npcResource), npcs.shapeOffset(page.settlement, slot)))
+                continue;
+            for (int hour = schedule < 0 ? 0 : schedule; hour < (schedule < 0 ? 4 : schedule + 1);
+                 ++hour) {
+                auto pos = npcs.location(page.settlement, slot, hour);
+                if (pos.floor == page.floor && pos.x < page.side && pos.y < page.side)
+                    check({pos.x, pos.y}, npcs.sprite(page.settlement, slot));
+            }
+        }
+    } else if (r.endsWith(".CBT")) {
+        auto bytes = p.data(r);
+        int base = page.offset;
+        for (int slot = 0; slot < 16; ++slot) {
+            if (slot == ignoreSlot)
+                continue;
+            int x = U5::byte(bytes, base + 6 * 32 + 11 + slot),
+                y = U5::byte(bytes, base + 7 * 32 + 11 + slot);
+            if (x > 10 || y > 10 ||
+                (r == "DUNGEON.CBT" && !U5::byte(bytes, base + 5 * 32 + 11 + slot)))
+                continue;
+            unsigned fallback =
+                r == "DUNGEON.CBT" ? 256 + U5::byte(bytes, base + 5 * 32 + 11 + slot) : 400;
+            check({x, y}, CustomTiles::actorType(p, r, page, index, slot, fallback));
+        }
+    }
+}
 MapItemEdit addMapItem(const Project &p, const QString &r, int index, QPoint cell, MapItemKind kind,
                        int appearance, int conversation, const QString &name) {
     require(availableMapItems(p, r).contains(kind), "This item is not supported on this map");
@@ -250,6 +363,19 @@ MapItemEdit addMapItem(const Project &p, const QString &r, int index, QPoint cel
     const auto page = doc.pages[index];
     require(cell.x() >= 0 && cell.y() >= 0 && cell.x() < page.side && cell.y() < page.side,
             "Placement outside map");
+    unsigned customType = appearance >= 512 ? unsigned(appearance) : 0;
+    if (customType) {
+        auto type = CustomTiles::definition(p, customType);
+        require(type.kind && (kind == MapItemKind::Npc || kind == MapItemKind::Monster),
+                "Choose a creature type");
+        appearance = type.base;
+    }
+    if (kind == MapItemKind::Npc || kind == MapItemKind::Monster)
+        validateActorPlacement(
+            p, r, index, cell,
+            customType
+                ? customType
+                : 256 + (appearance < 0 ? (kind == MapItemKind::Monster ? 144 : 80) : appearance));
     MapItemEdit out;
     auto target = contentsTarget(r, page, index);
     if (kind == MapItemKind::Moonstone) {
@@ -262,15 +388,18 @@ MapItemEdit addMapItem(const Project &p, const QString &r, int index, QPoint cel
                                             p.resources.contains(r.left(r.size() - 4) + ".NPC"))) {
         const auto npc = r.left(r.size() - 4) + ".NPC", talk = r.left(r.size() - 4) + ".TLK";
         auto b = p.data(npc);
-        require(b.size() == 4608 && page.settlement >= 0, "No valid NPC records on this map");
+        require(b.size() >= 4608 && page.settlement >= 0, "No valid NPC records on this map");
         int start = page.settlement * 576;
-        for (int i = 1; i < 32; i++)
-            if (!U5::byte(b, start + 512 + i)) {
+        const int count = NPCS_Count(b.constData(), b.size(), page.settlement);
+        for (int i = 1; i < count; i++)
+            if (!U5::byte(b, NPCS_ShapeOffset(b.constData(), b.size(), page.settlement, i))) {
                 out.slot = i;
                 break;
             }
-        require(out.slot > 0, "This location has no free NPC slots");
-        require(appearance == -1 ||
+        if (out.slot <= 0)
+            out.slot = count;
+        MapNpcDocument::ensureSlot(b, page.settlement, out.slot);
+        require(customType || appearance == -1 ||
                     (kind == MapItemKind::Monster
                          ? monsterShapes().contains(appearance)
                          : (appearance >= 64 && appearance < 128 && appearance % 4 == 0)),
@@ -284,8 +413,8 @@ MapItemEdit addMapItem(const Project &p, const QString &r, int index, QPoint cel
             for (auto e : entries)
                 used.insert(e.id);
             for (int town = 0; town < 8; town++)
-                for (int i = 0; i < 32; i++)
-                    used.insert(U5::byte(b, town * 576 + 544 + i));
+                for (int i = 0; i < int(NPCS_Count(b.constData(), b.size(), town)); i++)
+                    used.insert(U5::byte(b, NPCS_DialogueOffset(b.constData(), b.size(), town, i)));
             for (int id = 1; id < 128; id++)
                 if (!used.contains(id)) {
                     conversation = id;
@@ -306,7 +435,7 @@ MapItemEdit addMapItem(const Project &p, const QString &r, int index, QPoint cel
                 found |= int(e.id) == conversation;
             require(found, "Conversation unavailable");
         }
-        int base = start + out.slot * 16;
+        int base = NPCS_Offset(b.constData(), b.size(), page.settlement, out.slot);
         b.replace(base, 16, QByteArray(16, 0));
         for (int loc = 0; loc < 3; loc++) {
             b[base + loc] = char(kind == MapItemKind::Monster ? 5 : 0);
@@ -316,12 +445,13 @@ MapItemEdit addMapItem(const Project &p, const QString &r, int index, QPoint cel
         }
         for (int h = 0; h < 4; h++)
             b[base + 12 + h] = char(h * 6);
-        b[start + 512 + out.slot] =
+        b[NPCS_ShapeOffset(b.constData(), b.size(), page.settlement, out.slot)] =
             char(appearance < 0 ? (kind == MapItemKind::Monster ? 144 : 80) : appearance);
-        b[start + 544 + out.slot] = char(conversation);
+        b[NPCS_DialogueOffset(b.constData(), b.size(), page.settlement, out.slot)] =
+            char(conversation);
         out.changes[npc] = b;
         out.mode = "NPCs / Schedules";
-        if (p.resources.contains("INIT.GAM")) {
+        if (out.slot < 32 && p.resources.contains("INIT.GAM")) {
             auto initial = p.data("INIT.GAM");
             int flag = 0x5b4 + (target.map - 1) * 4 + out.slot / 8;
             require(flag < initial.size(), "Initial NPC state is truncated");
@@ -415,6 +545,12 @@ MapItemEdit addMapItem(const Project &p, const QString &r, int index, QPoint cel
             WorldObjects::change(p, world, out.slot, record);
         out.mode = "Starting Objects";
     }
+    if (customType) {
+        auto typeChanges = CustomTiles::assignActor(
+            p, r, page, index, r.endsWith(".CBT") ? out.slot - 6 : out.slot, customType);
+        for (auto it = typeChanges.begin(); it != typeChanges.end(); ++it)
+            out.changes[it.key()] = it.value();
+    }
     Project candidate = p;
     for (auto it = out.changes.begin(); it != out.changes.end(); ++it) {
         candidate.resources[it.key()].edited = it.value();
@@ -430,12 +566,14 @@ QMap<QString, QByteArray> deleteMapItem(const Project &p, const QString &r, int 
     const auto page = doc.pages.at(index);
     QMap<QString, QByteArray> out;
     if (mode == "NPCs / Schedules") {
-        require(slot > 0 && slot < 32, "Select an NPC");
+        require(slot > 0, "Select an NPC");
         auto npc = r.left(r.size() - 4) + ".NPC";
         auto b = p.data(npc);
-        int base = page.settlement * 576;
-        b.replace(base + slot * 16, 16, QByteArray(16, 0));
-        b[base + 512 + slot] = b[base + 544 + slot] = 0;
+        int base = NPCS_Offset(b.constData(), b.size(), page.settlement, slot);
+        require(base + 16 <= b.size(), "Invalid NPC slot");
+        b.replace(base, 16, QByteArray(16, 0));
+        b[NPCS_ShapeOffset(b.constData(), b.size(), page.settlement, slot)] = 0;
+        b[NPCS_DialogueOffset(b.constData(), b.size(), page.settlement, slot)] = 0;
         out[npc] = b;
         // Conversations can be shared: deleting an NPC never deletes their
         // conversation.
@@ -506,6 +644,13 @@ QMap<QString, QByteArray> deleteMapItem(const Project &p, const QString &r, int 
         out["CONTENTS.OVR"] = writeContents(defs, p.data("CONTENTS.OVR"));
     } else
         require(false, "Select a map item to delete");
+    if (mode == "NPCs / Schedules" || mode == "Starting Objects" ||
+        (mode == "Encounter" && slot >= 6 && slot < 22)) {
+        auto changes =
+            CustomTiles::assignActor(p, r, page, index, r.endsWith(".CBT") ? slot - 6 : slot, 0);
+        for (auto it = changes.begin(); it != changes.end(); ++it)
+            out[it.key()] = it.value();
+    }
     return out;
 }
 } // namespace Workshop

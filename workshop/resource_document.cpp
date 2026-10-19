@@ -1,6 +1,7 @@
+#include "mod/npcs.h"
 #include "resource_document.h"
-#include "mod/tileset_resources.h"
 #include "contents_editor.h"
+#include "custom_tiles.h"
 #include "dialogue.h"
 #include "dungeon_editor.h"
 #include "engine_tables.h"
@@ -8,6 +9,7 @@
 #include "location_text.h"
 #include "mod/contents.h"
 #include "mod/cutscenes.h"
+#include "mod/tileset_resources.h"
 #include "mod/world_resources.h"
 #include "narrative_editor.h"
 #include "scene_editor.h"
@@ -15,6 +17,8 @@
 using U5::require;
 namespace Workshop {
 Capability capability(const QString &resource) {
+    if (resource == "TYPES.OVR")
+        return {"Custom types", "Types", "Tile and creature artwork and properties", EditorKind::TileTypes};
     const QString n = resource.toUpper();
     if (QStringList{"IBM.CH", "RUNES.CH", "IBM.HCS", "RUNES.HCS"}.contains(n))
         return {n.startsWith("RUNES") ? "Runic font" : "Normal font", "Fonts",
@@ -114,6 +118,18 @@ QVector<Entry> ResourceDocument::entries() const {
                            step.bytes.size()});
         return result;
     }
+    if (resource == "TYPES.OVR") {
+        QVector<Entry> entries;
+        int off = 32;
+        auto records = CustomTiles::records(project);
+        for (auto it = records.begin(); it != records.end(); it++) {
+            auto d = CustomTiles::definition(project, it.key());
+            entries.append(
+                {QString("type/%1").arg(d.id), QString::fromUtf8(d.name), off, it.value().size()});
+            off += it.value().size();
+        }
+        return entries;
+    }
     if (capability(resource).editor == EditorKind::Narrative) {
         QVector<Entry> result;
         for (auto entry : narrativeEntries(resource))
@@ -191,6 +207,10 @@ QMap<QString, QByteArray> ResourceDocument::replace(const Entry &e, const QByteA
 void validateResource(const Project &project, const QString &name) {
     const auto &b = project.data(name);
     const auto kind = capability(name).editor;
+    if (name == "TYPES.OVR" || name == "TYPEMAP.OVR") {
+        CustomTiles::validate(project);
+        return;
+    }
     if (name == "CUTSCENE.OVR") {
         require(U5_ValidateCutscenes(b.constData(), b.size()), "Invalid cutscene pages");
         return;
@@ -289,7 +309,7 @@ void validateResource(const Project &project, const QString &name) {
         }
         U5::writeDialogue(entries);
     } else if (kind == EditorKind::Schedule)
-        require(b.size() == 4608, "NPC schedules must be 4608 bytes");
+        require(NPCS_Validate(b.constData(), b.size()), "Invalid NPC schedules");
     else if (kind == EditorKind::State)
         require(b.size() == 4192, "INIT.GAM must be 4192 bytes");
     else if (kind == EditorKind::WorldObjects)

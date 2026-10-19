@@ -1,23 +1,25 @@
+#include "mod/npcs.h"
 #include "project.h"
-#include "mod/tileset_resources.h"
 #include "contents_editor.h"
+#include "custom_tiles.h"
 #include "dialogue.h"
-#include "text/dialogue_runtime.h"
 #include "dungeon_editor.h"
 #include "mod/contents.h"
 #include "mod/package.h"
+#include "mod/tileset_resources.h"
 #include "mod/world_resources.h"
 #include "resource_document.h"
+#include "text/dialogue_runtime.h"
 #include "world_objects.h"
-#include <QDir>
 #include <QCoreApplication>
-#include <QSettings>
+#include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
 #include <QSet>
+#include <QSettings>
 #include <QTemporaryDir>
 #include <algorithm>
 using U5::require;
@@ -41,7 +43,8 @@ void Project::openGame(const QString &directory) {
     require(dir.exists(), "Game folder does not exist");
     for (const auto &name : dir.entryList(QDir::Files, QDir::Name)) {
         QString upper = name.toUpper();
-        if (upper == "CUTSCENE.OVR" || upper == "TEXT.OVR" || upper == "RULES.TBL" || upper == "CONTENTS.OVR")
+        if (upper == "TYPES.OVR" || upper == "TYPEMAP.OVR" || upper == "CUTSCENE.OVR" ||
+            upper == "TEXT.OVR" || upper == "RULES.TBL" || upper == "CONTENTS.OVR")
             continue; // Companion resources are package-only.
         if (!MOD_AllowedResource(upper.toLatin1().constData()))
             continue;
@@ -58,6 +61,8 @@ void Project::openGame(const QString &directory) {
             readLimited(":/tilesets/" + QString::fromUtf8(sheet.filename), MOD_MAX_RESOURCE);
         next.resources.insert(QString::fromLatin1(sheet.resource), {bytes, bytes});
     }
+    next.resources.insert("TYPES.OVR", {{}, {}});
+    next.resources.insert("TYPEMAP.OVR", {{}, {}});
     next.resources.insert("CUTSCENE.OVR", {{}, {}});
     next.resources.insert("TEXT.OVR", {{}, {}});
     next.resources.insert("RULES.TBL", {{}, {}});
@@ -117,13 +122,36 @@ QByteArray Project::package() const {
     auto list = changed();
     require(!list.isEmpty(), "There are no changes to export");
     require(list.size() <= MOD_MAX_ENTRIES, "Too many modified resources");
-    QByteArray out(list.contains("CUTSCENE.OVR") ? (data("CUTSCENE.OVR").startsWith("ICUT0003") ? "IMOD0008" : (data("CUTSCENE.OVR").startsWith("ICUT0002") ? "IMOD0007" : "IMOD0006"))
-                   : usesExplicitDialogue(*this)     ? "IMOD0005"
-                   : list.contains("CONTENTS.OVR") ? "IMOD0004"
-                   : list.contains("RULES.TBL")    ? "IMOD0003"
-                   : list.contains("TEXT.OVR")     ? "IMOD0002"
-                                                   : "IMOD0001",
-                   8),
+    bool actorTypes = false, largeActors = false, animationOptions = false;
+    for (const auto &record : CustomTiles::records(*this)) {
+        actorTypes |= record.size() > 8 && record[8] != 0;
+        animationOptions |= record.size() >= 256 &&
+                            (record[255] || (record[8] && TYPES_U32(record.constData() + 4) >= 512));
+        largeActors |= record.size() >= 256 && (record[253] || record[254]);
+        for (const auto &frame : CustomTiles::frames(record))
+            largeActors |= frame.variant >= 6;
+    }
+    bool extraNpcs = false;
+    for (const auto &resource : list)
+        extraNpcs |= resource.endsWith(".NPC") && data(resource).size() > 4608;
+    for (const auto &cell : CustomTiles::placements(*this))
+        extraNpcs |= cell.kind == 3 && (cell.x >= 32 || cell.y);
+    QByteArray out(
+        animationOptions                                             ? "IMOD0013"
+        : extraNpcs                                                  ? "IMOD0012"
+        : list.contains("TYPES.OVR") || list.contains("TYPEMAP.OVR") ? (largeActors  ? "IMOD0011"
+                                                                        : actorTypes ? "IMOD0010"
+                                                                                     : "IMOD0009")
+        : list.contains("CUTSCENE.OVR")
+            ? (data("CUTSCENE.OVR").startsWith("ICUT0003")
+                   ? "IMOD0008"
+                   : (data("CUTSCENE.OVR").startsWith("ICUT0002") ? "IMOD0007" : "IMOD0006"))
+        : usesExplicitDialogue(*this)   ? "IMOD0005"
+        : list.contains("CONTENTS.OVR") ? "IMOD0004"
+        : list.contains("RULES.TBL")    ? "IMOD0003"
+        : list.contains("TEXT.OVR")     ? "IMOD0002"
+                                        : "IMOD0001",
+        8),
         nameBytes = title.toUtf8();
     append32(out, nameBytes.size());
     append32(out, list.size());
@@ -234,6 +262,13 @@ void Project::save(const QString &path) {
         requirements["cutscenePages"] = data("CUTSCENE.OVR").startsWith("ICUT0003") ? 3 : (data("CUTSCENE.OVR").startsWith("ICUT0002") ? 2 : 1);
         requirements["packageVersion"] = data("CUTSCENE.OVR").startsWith("ICUT0003") ? 8 : (data("CUTSCENE.OVR").startsWith("ICUT0002") ? 7 : 6);
     }
+    if (changed().contains("TYPES.OVR") || changed().contains("TYPEMAP.OVR")) {
+        bool actors = false;
+        for (const auto &record : CustomTiles::records(*this))
+            actors |= record.size() > 8 && record[8] != 0;
+        requirements["customTypes"] = actors ? 2 : 1;
+        requirements["packageVersion"] = actors ? 10 : 9;
+    }
     if (!requirements.isEmpty())
         root["requires"] = requirements;
     QJsonObject annotations;
@@ -327,7 +362,8 @@ QVector<ModDiagnostic> validateMod(const Project &project, const QString &modsDi
                        "No modified resources; there is no package to export or test."});
     for (const auto &name : changes) {
         try {
-            if (name == "CUTSCENE.OVR" || name == "TEXT.OVR" || name == "RULES.TBL" || name == "CONTENTS.OVR") {
+            if (name == "TYPES.OVR" || name == "TYPEMAP.OVR" || name == "CUTSCENE.OVR" ||
+                name == "TEXT.OVR" || name == "RULES.TBL" || name == "CONTENTS.OVR") {
                 require(project.resources[name].original.isEmpty(),
                         "Companion resource must have an empty original base");
             } else if (!MOD_TilesetSheet(name.toLatin1().constData())) {
@@ -427,11 +463,13 @@ QVector<ModDiagnostic> validateMod(const Project &project, const QString &modsDi
             }
         }
         const auto &bytes = project.data(name);
-        if (name.endsWith(".NPC") && bytes.size() == 4608) {
+        if (name.endsWith(".NPC") && bytes.size() >= 4608) {
             int unusual = 0;
             for (int settlement = 0; settlement < 8; ++settlement)
-                for (int actor = 0; actor < 32; ++actor) {
-                    int base = settlement * 576 + actor * 16;
+                for (int actor = 0;
+                     actor < int(NPCS_Count(bytes.constData(), bytes.size(), settlement));
+                     ++actor) {
+                    int base = NPCS_Offset(bytes.constData(), bytes.size(), settlement, actor);
                     for (int time = 0; time < 4; ++time)
                         unusual += U5::byte(bytes, base + 12 + time) > 23;
                     for (int position = 0; position < 3; ++position)
@@ -638,7 +676,8 @@ QString prepareModTest(const Project &project, const QString &sessionsDirectory)
                 "Cannot make test file writable");
     }
     for (const auto &name : project.resources.keys()) {
-        if (name == "CUTSCENE.OVR" || name == "TEXT.OVR" || name == "RULES.TBL" || name == "CONTENTS.OVR" ||
+        if (name == "TYPES.OVR" || name == "TYPEMAP.OVR" || name == "CUTSCENE.OVR" ||
+            name == "TEXT.OVR" || name == "RULES.TBL" || name == "CONTENTS.OVR" ||
             MOD_TilesetSheet(name.toLatin1().constData()))
             continue; // Virtual companion exists only inside the package.
         auto bytes = readLimited(destination.filePath(name), MOD_MAX_RESOURCE);

@@ -1,3 +1,4 @@
+#include "mod/actors.h"
 #include "mouse.h"
 #include "common/common.h"
 #include "common/movement.h"
@@ -283,7 +284,8 @@ static int s_attackX, s_attackY, s_attackEntity;
 void MOUSE_ClearCombatAttack(void) { s_combatAttack=false; }
 static int CombatRange(int entity)
 {
-    if (!(D_ba14[entity].flags & COMBAT_FLAGS_PLAYER)) return D_159c[D_ba14[entity].entityIdx];
+    if (!(D_ba14[entity].flags & COMBAT_FLAGS_PLAYER))
+        return ACTORS_Range(D_ba14[entity].entityIdx);
     int range=1, party=D_ba14[entity].entityIdx;
     const int slots[3]={0,2,3};
     for (int i=0;i<3;i++) {
@@ -305,11 +307,14 @@ bool MOUSE_CombatAttackTarget(int entity, int range, int* distance)
 {
     if (!s_combatAttack || entity!=s_attackEntity) return false;
     int target=COMSUBS_0748(s_attackX,s_attackY);
-    *distance=COMSUBS_048a(D_ba14[entity].x,D_ba14[entity].y,s_attackX,s_attackY);
-    if (target<0 || ULTIMA_5646(target)==ULTIMA_5646(entity) ||
-        (D_ba14[target].flags & (COMBAT_FLAGS_DEAD|COMBAT_FLAGS_INVISIBLE|COMBAT_FLAGS_4)) ||
-        !MOVEMENT_AttackAllowed(s_attackX-D_ba14[entity].x,s_attackY-D_ba14[entity].y) ||
-        *distance>range) *distance=0;
+    int ax = D_ba14[entity].x, ay = D_ba14[entity].y, bx = s_attackX, by = s_attackY;
+    if (target >= 0)
+        ACTORS_AttackCells(entity, target, &ax, &ay, &bx, &by);
+    *distance = COMSUBS_048a(ax, ay, bx, by);
+    if (target < 0 || ULTIMA_5646(target) == ULTIMA_5646(entity) ||
+        (D_ba14[target].flags & (COMBAT_FLAGS_DEAD | COMBAT_FLAGS_INVISIBLE | COMBAT_FLAGS_4)) ||
+        !MOVEMENT_AttackAllowed(bx - ax, by - ay) || *distance > range)
+        *distance = 0;
     D_5899=s_attackX; D_589a=s_attackY;
     return true;
 }
@@ -380,7 +385,7 @@ int MOUSE_Action(int dx, int dy, bool mainAction)
             int contentsCommand = CONTENTS_GAME_Command(x, y);
             if (contentsCommand)
                 return contentsCommand;
-            for (int i=1;i<32;i++) {
+            for (int i = 1; i < MAP_ACTOR_COUNT; i++) {
                 ActorFmt* a=&D_5c5a[i];
                 if (!a->_0_tile || a->_2_x!=x || a->_3_y!=y) continue;
                 if (a->_0_tile==TILE_ACTOR_CHEST) return 'O';
@@ -388,10 +393,15 @@ int MOUSE_Action(int dx, int dy, bool mainAction)
                     a->_0_tile==TILE_ACTOR_CARPET || (a->_0_tile&0xfc)==TILE_ACTOR_SHARD) return 'G';
             }
         }
-        if (target<0 || target==D_589e || ULTIMA_5646(target)==ULTIMA_5646(D_589e) ||
-            (D_ba14[target].flags & (COMBAT_FLAGS_DEAD|COMBAT_FLAGS_INVISIBLE|COMBAT_FLAGS_4)) ||
-            !MOVEMENT_AttackAllowed(x-D_ba14[D_589e].x,y-D_ba14[D_589e].y) ||
-            COMSUBS_048a(D_ba14[D_589e].x,D_ba14[D_589e].y,x,y)>CombatRange(D_589e)) return 0;
+        int ax = D_ba14[D_589e].x, ay = D_ba14[D_589e].y, bx = x, by = y;
+        if (target >= 0)
+            ACTORS_AttackCells(D_589e, target, &ax, &ay, &bx, &by);
+        if (target < 0 || target == D_589e || ULTIMA_5646(target) == ULTIMA_5646(D_589e) ||
+            (D_ba14[target].flags &
+             (COMBAT_FLAGS_DEAD | COMBAT_FLAGS_INVISIBLE | COMBAT_FLAGS_4)) ||
+            !MOVEMENT_AttackAllowed(bx - ax, by - ay) ||
+            COMSUBS_048a(ax, ay, bx, by) > CombatRange(D_589e))
+            return 0;
         return 'A';
     }
     if (D_5893_map_id > 32) return 0;
@@ -414,7 +424,7 @@ int MOUSE_Action(int dx, int dy, bool mainAction)
         int contentsCommand = CONTENTS_GAME_Command(x, y);
         if (contentsCommand)
             return contentsCommand;
-        for (int i = 1; i < 32; i++) {
+        for (int i = 1; i < MAP_ACTOR_COUNT; i++) {
             ActorFmt* a = &D_5c5a[i];
             if (a->_2_x == x && a->_3_y == y && a->_4_z == D_5895_map_level &&
                 ((a->_0_tile & 0xfc) == TILE_ACTOR_HORSE ||
@@ -441,9 +451,9 @@ int MOUSE_Action(int dx, int dy, bool mainAction)
     int contentsCommand = CONTENTS_GAME_Command(x, y);
     if (contentsCommand)
         return contentsCommand;
-    for (int i = 1; i < 32; i++) {
+    for (int i = 1; i < MAP_ACTOR_COUNT; i++) {
         ActorFmt* a = &D_5c5a[i];
-        if (a->_0_tile && a->_2_x == (byte)x && a->_3_y == (byte)y && a->_4_z == D_5895_map_level) {
+        if (a->_0_tile && ACTORS_Contains(i, (byte)x, (byte)y) && a->_4_z == D_5895_map_level) {
             if (a->_0_tile == TILE_ACTOR_CHEST) return 'O';
             if (a->_0_tile < TILE_ACTOR_HORSE || a->_0_tile == TILE_ACTOR_MOONSTONE ||
                 a->_0_tile == TILE_ACTOR_CARPET || (a->_0_tile & 0xfc) == TILE_ACTOR_SHARD) return 'G';
@@ -516,9 +526,13 @@ void MOUSE_Button(float x, float y, int button, bool down, int clicks)
         if (down && button==SDL_BUTTON_LEFT && s_aimEntity==D_589e && D_5893_map_id>=128 &&
             GRAP_SDL_MouseMapPoint(x,y,&dx,&dy,&rx,&ry)) {
             int tx=dx+5, ty=dy+5;
-            int distance=COMSUBS_048a(D_ba14[s_aimEntity].x,D_ba14[s_aimEntity].y,tx,ty);
-            if (tx>=0 && tx<11 && ty>=0 && ty<11 && distance>0 && distance<=s_aimRange &&
-                MOVEMENT_AttackAllowed(tx-D_ba14[s_aimEntity].x,ty-D_ba14[s_aimEntity].y)) {
+            int ax = D_ba14[s_aimEntity].x, ay = D_ba14[s_aimEntity].y, bx = tx, by = ty;
+            int target = COMSUBS_0748(tx, ty);
+            if (target >= 0)
+                ACTORS_AttackCells(s_aimEntity, target, &ax, &ay, &bx, &by);
+            int distance = COMSUBS_048a(ax, ay, bx, by);
+            if (tx >= 0 && tx < 11 && ty >= 0 && ty < 11 && distance > 0 &&
+                distance <= s_aimRange && MOVEMENT_AttackAllowed(bx - ax, by - ay)) {
                 D_5899=tx; D_589a=ty; s_aimKey=U5_KEY_ENTER;
             }
         }

@@ -1,6 +1,8 @@
+#include "mod/actors.h"
 #include "common/common.h"
-#include "text/text_input.h"
 #include "common/movement.h"
+#include "mod/types_game.h"
+#include "text/text_input.h"
 #if defined(TARGET_SDL)
 #include "key/mouse.h"
 #endif
@@ -40,8 +42,8 @@ int MOVEMENT_MapSlideDirection(int direction)
     int dx = direction == U5_KEY_HOME || direction == U5_KEY_END ? -1 : 1;
     int dy = direction == U5_KEY_HOME || direction == U5_KEY_PGUP ? -1 : 1;
     return MOVEMENT_SlideDirection(direction,
-        ULTIMA_2c4c_IsWalkableTile(D_587c_partyTile, GetMapViewport(5+dx,5)) != 0,
-        ULTIMA_2c4c_IsWalkableTile(D_587c_partyTile, GetMapViewport(5,5+dy)) != 0);
+                                   TYPES_GAME_WalkableView(D_587c_partyTile, 5 + dx, 5) != 0,
+                                   TYPES_GAME_WalkableView(D_587c_partyTile, 5, 5 + dy) != 0);
 }
 bool MOVEMENT_AttackAllowed(int dx, int dy) { return s_diagonalMovement || dx == 0 || dy == 0; }
 bool MOVEMENT_Adjacent(int dx, int dy)
@@ -521,11 +523,11 @@ int ULTIMA_SelectTalkDirection(void) { return SelectDirection(true); }
 // CHECKED
 int ULTIMA_368e_FindActorTileAtPos(int param_1_x, int param_2_y, int param_3_level)
 {
-    for (D_5876 = 1; D_5876 < 32; D_5876++)
-    {
-        if (D_5c5a[D_5876]._2_x == param_1_x && D_5c5a[D_5876]._3_y == param_2_y &&
-            (D_5893_map_id > 0x7f || (D_5893_map_id < 0x80 && D_5c5a[D_5876]._4_z == param_3_level)))
-        {
+    for (int actor = 1; actor < MAP_ACTOR_COUNT; actor++) {
+        D_5876 = actor;
+        if (ACTORS_Contains(D_5876, param_1_x, param_2_y) &&
+            (D_5893_map_id > 0x7f ||
+             (D_5893_map_id < 0x80 && D_5c5a[D_5876]._4_z == param_3_level))) {
             return D_5c5a[D_5876]._0_tile;
         }
     }
@@ -536,11 +538,9 @@ int ULTIMA_368e_FindActorTileAtPos(int param_1_x, int param_2_y, int param_3_lev
 // CHECKED
 int ULTIMA_3702(int param_1, int param_2, int param_3)
 {
-    for (D_5876 = 31; D_5876 >= 0; D_5876--)
-    {
-        if (D_5c5a[D_5876]._2_x == param_1 && D_5c5a[D_5876]._3_y == param_2 &&
-            (D_5893_map_id > 0x7f || (D_5893_map_id < 0x80 && D_5c5a[D_5876]._4_z == param_3)))
-        {
+    for (D_5876 = MAP_ACTOR_COUNT - 1; D_5876 >= 0; D_5876--) {
+        if (ACTORS_Contains(D_5876, param_1, param_2) &&
+            (D_5893_map_id > 0x7f || (D_5893_map_id < 0x80 && D_5c5a[D_5876]._4_z == param_3))) {
             return D_5c5a[D_5876]._0_tile;
         }
     }
@@ -661,7 +661,7 @@ void ULTIMA_39cc_SetTile(byte new_tile_id, byte x, byte y)
 {
     if (D_5893_map_id != 0 && D_5893_map_id < 0x21 && new_tile_id != 0)
     {
-        *ULTIMA_4402_GetTileAddr(x, y) = new_tile_id;
+        TYPES_GAME_Change(x, y, 1, new_tile_id);
     }
 }
 
@@ -700,6 +700,10 @@ int ULTIMA_39fc_GetFirstActivePartyMember(void)
 
 void ULTIMA_3a74(byte a, byte b, byte c, byte d, byte e, byte f, int g)
 {
+    if (!D_5893_map_id && g > 0 && g < 32 && (!D_5c5a[g]._0_tile || !a)) {
+        TypeCell key = {4, 0, (int8_t)D_5895_map_level, g, 0, 0, 0};
+        TYPES_Remove(key);
+    }
     D_5c5a[g]._0_tile = a;
     D_5c5a[g]._1_animTile = b;
     D_5c5a[g]._2_x = c;
@@ -1031,7 +1035,9 @@ void ULTIMA_3f54_DecreaseInt(s16* param_1, int param_2)
 bool ULTIMA_3f6e(int param_1, int param_2)
 {
     int local_4 = GetMapViewport(param_1, param_2);
-    return (0x80 >> (local_4 & 7) & D_6a14[local_4 >> 3]) != 0;
+    return TYPES_GAME_Property(D_5896_map_x + param_1 - (D_5893_map_id >= 128 ? D_5896_map_x : 5),
+                               D_5897_map_y + param_2 - (D_5893_map_id >= 128 ? D_5897_map_y : 5),
+                               1, (0x80 >> (local_4 & 7) & D_6a14[local_4 >> 3]) != 0);
 }
 
 void ULTIMA_3fb4(int param_1, int param_2)

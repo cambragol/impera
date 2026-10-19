@@ -1,8 +1,10 @@
+#include "mod/actors.h"
 #include "common/common.h"
 #include "common/movement.h"
 #include "funcs.h"
 #include "macros.h"
 #include "mod/contents_game.h"
+#include "mod/types_game.h"
 #include "tiles.h"
 #include "vars.h"
 
@@ -761,11 +763,11 @@ void SJOG_095c_SearchCmd(void)
         ULTIMA_1850_PrintString(_TEXT(0x8a48, "a hidden door!\n"));
         if (D_5895_map_level < 0x80)
         {
-            *ULTIMA_4402_GetTileAddr(local_a, local_c) = TILE_MAP_DOOR_B9;
+            TYPES_GAME_Write(local_a, local_c, TILE_MAP_DOOR_B9);
         }
         else
         {
-            *ULTIMA_4402_GetTileAddr(local_a, local_c) = TILE_MAP_DOOR_B8;
+            TYPES_GAME_Write(local_a, local_c, TILE_MAP_DOOR_B8);
         }
         D_24e6 |= 2;
     }
@@ -922,7 +924,7 @@ void SJOG_0d4a_JimmyCmd(void)
             break;
         }
 
-        *ULTIMA_4402_GetTileAddr(local_8, local_a) = local_6 - 1;
+        TYPES_GAME_Write(local_8, local_a, local_6 - 1);
         D_24e6 |= 2;
         ULTIMA_1850_PrintString(_TEXT(0x8ae6, "Unlocked!\n"));
         break;
@@ -990,7 +992,7 @@ void SJOG_0d4a_JimmyCmd(void)
         }
 
         // ce64
-        *ULTIMA_4402_GetTileAddr(local_8, local_a) = TILE_MAP_44;
+        TYPES_GAME_Write(local_8, local_a, TILE_MAP_44);
         D_24e6 |= 2;
         ULTIMA_1850_PrintString(_TEXT(0x8b48, "Unlocked\n"));
         break;
@@ -1287,7 +1289,7 @@ void SJOG_1374_OpenCmd(void)
         D_5952 = 4;
         D_5950 = (u8)local_6;
         D_5951 = (u8)local_8;
-        *ULTIMA_4402_GetTileAddr(local_6, local_8) = TILE_MAP_44;
+        TYPES_GAME_Change(local_6, local_8, 0, TILE_MAP_44);
         D_24e6 = 1;
         ULTIMA_1850_PrintString(_TEXT(0x8be0, "Opened!\n"));
         break;
@@ -1620,7 +1622,7 @@ void SJOG_18ce_GetCmd(void)
     case TILE_MAP_B0:
     case TILE_MAP_B1:
         // 19e8
-        *ULTIMA_4402_GetTileAddr(local_a, local_e) = TILE_MAP_44;
+        TYPES_GAME_Write(local_a, local_e, TILE_MAP_44);
         D_24e6 = 1;
         if (D_5893_map_id < 0x80)
         {
@@ -1634,7 +1636,7 @@ void SJOG_18ce_GetCmd(void)
 
     case TILE_MAP_CROPS:
         // 1a2a
-        *ULTIMA_4402_GetTileAddr(local_a, local_e) = TILE_MAP_CROPS_PICKED;
+        TYPES_GAME_Write(local_a, local_e, TILE_MAP_CROPS_PICKED);
         D_24e6 |= 2;
         ULTIMA_1850_PrintString(_TEXT(0x8df4, "Crops picked!\n"));
 
@@ -1652,7 +1654,7 @@ void SJOG_18ce_GetCmd(void)
         // 1a6a
         if (local_10 == 1)
         {
-            *ULTIMA_4402_GetTileAddr(local_a, local_e) = TILE_MAP_TABLE_95;
+            TYPES_GAME_Write(local_a, local_e, TILE_MAP_TABLE_95);
             D_24e6 |= 2;
             ULTIMA_1850_PrintString(_TEXT(0x8e04, "Mmmmm...!\n"));
 
@@ -1676,7 +1678,7 @@ void SJOG_18ce_GetCmd(void)
         // 1a92
         if (local_10 == -1)
         {
-            *ULTIMA_4402_GetTileAddr(local_a, local_e) = TILE_MAP_TABLE_95;
+            TYPES_GAME_Write(local_a, local_e, TILE_MAP_TABLE_95);
             D_24e6 |= 2;
             ULTIMA_1850_PrintString(_TEXT(0x8e24, "Mmmmm...!\n"));
 
@@ -1703,12 +1705,12 @@ void SJOG_18ce_GetCmd(void)
 
         if (local_10 == 1)
         {
-            *ULTIMA_4402_GetTileAddr(local_a, local_e) = TILE_MAP_TABLE_9B;
+            TYPES_GAME_Write(local_a, local_e, TILE_MAP_TABLE_9B);
         }
 
         if (local_10 == -1)
         {
-            *ULTIMA_4402_GetTileAddr(local_a, local_e) = TILE_MAP_TABLE_9A;
+            TYPES_GAME_Write(local_a, local_e, TILE_MAP_TABLE_9A);
         }
 
         D_24e6 |= 2;
@@ -2138,7 +2140,14 @@ int SJOG_20d8(int param_1, int param_2, int param_3)
 
     if (param_1 > -1 && param_1 < 11 && param_2 > -1 && param_2 < 11)
     {
-        local_6 = COMBAT_0000(D_5c5a[local_4->actorIdx]._0_tile, param_1, param_2);
+        unsigned width, height;
+        ACTORS_Size(local_4->actorIdx, &width, &height);
+        if ((local_4->flags & COMBAT_FLAGS_2) &&
+            (param_1 + (int)width > 11 || param_2 + (int)height > 11))
+            return 0;
+        local_6 = width > 1 || height > 1
+                      ? ACTORS_CanMove(local_4->actorIdx, param_1, param_2)
+                      : COMBAT_0000(D_5c5a[local_4->actorIdx]._0_tile, param_1, param_2);
         local_6 = 1 - local_6;
     }
     else

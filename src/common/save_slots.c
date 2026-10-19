@@ -1,6 +1,7 @@
 #include "save_slots.h"
 #include "mod/contents.h"
 #include "mod/runtime.h"
+#include "mod/types.h"
 #if defined(TARGET_SDL)
 #include "engine_settings.h"
 #include "file.h"
@@ -182,6 +183,7 @@ bool SLOTS_CreateInitial(void)
      * list and SAVED.OOL's world list. */
     if(D_5893_map_id == 0)
         memcpy(D_5c5a, D_b21e + (D_5895_map_level ? 256 : 0), 256);
+    TYPES_Reset();
     if(!NPC_InitializeNewGame()) return false;
     SLOTS_ResetTime();
     char name[sizeof(D_55a8_party[0].name)+1];
@@ -201,7 +203,7 @@ static bool SLOTS_Load_Impl(const char* id)
         bool ok = fseek(f, 0, SEEK_END) == 0 &&
                   (i ? ftell(f) == 512
                      : (ftell(f) >= 0x1060 && fseek(f, 0x1060, SEEK_SET) == 0 &&
-                        CONTENTS_ReadState(f, 0)));
+                        NPC_ReadExtraState(f, 0) && CONTENTS_ReadState(f, 0)));
         fclose(f);
         if (!ok)
             return false;
@@ -367,7 +369,7 @@ static bool validLegacy(void)
         bool ok = fseek(f, 0, SEEK_END) == 0 &&
                   (i ? ftell(f) == 512
                      : (ftell(f) >= 0x1060 && fseek(f, 0x1060, SEEK_SET) == 0 &&
-                        CONTENTS_ReadState(f, 0)));
+                        NPC_ReadExtraState(f, 0) && CONTENTS_ReadState(f, 0)));
         fclose(f);if(!ok) return false;
     }
     return true;
