@@ -380,8 +380,25 @@ void ULTIMA_56ac_DrawMap(void)
             tile == WIDE_MapTile(dx, dy) && WIDE_GroundTile(dx, dy) != tile)
             GRAP_BUF_PutMapSprite(local_6,local_8,D_b11e[tile]);
     }
-    /* All terrain must be complete before outlines spill across cell edges. */
-    for (local_8 = 0; local_8 < 11; local_8++)
+    /* All terrain must be complete before outlines spill across cell edges.
+     * Include offscreen large anchors in the same north-to-south order. */
+    for (local_8 = -1; local_8 < 11; local_8++) {
+        for (unsigned actor = 0; actor < (unsigned)MAP_ACTOR_COUNT; ++actor) {
+            ActorFmt *a = &D_5c5a[actor];
+            if (!a->_0_tile || !a->_1_animTile || a->_4_z != D_5895_map_level)
+                continue;
+            int x = D_5893_map_id >= 128 ? a->_2_x : a->_2_x - D_5896_map_x + 5;
+            int y = D_5893_map_id >= 128 ? a->_3_y : a->_3_y - D_5897_map_y + 5;
+            if (y != local_8 || (x >= 0 && y >= 0 && x < 11 && y < 11))
+                continue;
+            unsigned w, h;
+            ACTORS_Size(actor, &w, &h);
+            if ((w > 1 || h > 1) && x + (int)w > 0 && y + (int)h > 0 && x < 11 &&
+                WIDE_FootprintVisible(x - 5, y - 5, w, h))
+                GRAP_BUF_PutMapSprite(x, y, ACTORS_Sprite(actor, 256 + a->_1_animTile));
+        }
+        if (local_8 < 0)
+            continue;
         for (local_6 = 0; local_6 < 11; local_6++)
             if (GetMapViewport(local_6, local_8) == 0 && GetActorMap(local_6, local_8) != 0x16)
                 GRAP_BUF_PutMapSprite(
@@ -389,18 +406,6 @@ void ULTIMA_56ac_DrawMap(void)
                     ACTORS_AtCell(D_5893_map_id >= 128 ? local_6 : D_5896_map_x + local_6 - 5,
                                   D_5893_map_id >= 128 ? local_8 : D_5897_map_y + local_8 - 5,
                                   256 + GetActorMap(local_6, local_8)));
-    /* A large actor may enter the view before its top-left anchor does. */
-    for (unsigned actor = 0; actor < (unsigned)MAP_ACTOR_COUNT; ++actor) {
-        unsigned w, h;
-        ACTORS_Size(actor, &w, &h);
-        ActorFmt *a = &D_5c5a[actor];
-        if ((w == 1 && h == 1) || !a->_1_animTile || a->_4_z != D_5895_map_level)
-            continue;
-        int x = D_5893_map_id >= 128 ? a->_2_x : a->_2_x - D_5896_map_x + 5;
-        int y = D_5893_map_id >= 128 ? a->_3_y : a->_3_y - D_5897_map_y + 5;
-        if ((x < 0 || y < 0 || x > 10 || y > 10) && x + (int)w > 0 && y + (int)h > 0 && x < 11 &&
-            y < 11 && WIDE_FootprintVisible(x - 5, y - 5, w, h))
-            GRAP_BUF_PutMapSprite(x, y, ACTORS_Sprite(actor, 256 + a->_1_animTile));
     }
 #endif
 

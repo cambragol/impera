@@ -370,6 +370,40 @@ static void multiTileActors(void) {
     assert(!GRAP_BUF_SpriteIsTransparent(60000));
     assert(GRAP_BUF_SpritePixel(60000, 0, 0) >= 0);
     r[11] = TYPES_SPRITE;
+    /* A large northern actor's bottom outline must not cover the Avatar's
+     * first pixel row when widescreen redraws artwork across the central seam. */
+    GRAP_BUF_SetTransparentSprites(true);
+    byte oldActorMap[sizeof(D_ac64)];
+    memcpy(oldActorMap, D_ac64, sizeof(oldActorMap));
+    byte oldActive = D_58a4;
+    D_58a4 = 1;
+    D_5c5a[12]._2_x = 20;
+    D_5c5a[12]._3_y = 18;
+    D_5c5a[0]._0_tile = D_5c5a[0]._1_animTile = 80;
+    D_5c5a[0]._2_x = D_5c5a[0]._3_y = 20;
+    memset(D_ab02, 255, sizeof(oldViewport));
+    GetMapViewport(5, 3) = GetMapViewport(5, 5) = 0;
+    GetActorMap(5, 3) = 144;
+    GetActorMap(5, 5) = 80;
+    GRAP_BUF_PutMapSprite(5, 3, 60000);
+    GRAP_BUF_PutMapSprite(5, 5, 336);
+    WideLayout layout = WIDE_Layout(1600, 900);
+    byte *composed = calloc(layout.width * layout.height, 1);
+    assert(composed && WIDE_Compose(composed, layout));
+    int avatarPixel = (layout.mapY + layout.rows / 2 * 16) * layout.width + layout.mapX +
+                      layout.columns / 2 * 16 + 8;
+    assert(TILESET_BufferColor(composed + avatarPixel, 0, 0, ega) == ega[5]);
+    /* Southern scenery clips the outline below the full two-row footprint. */
+    GetMap(20, 20) = D_6a86[0];
+    assert(WIDE_SpritePixel(60000, 0, -2, 8, 32) == -1);
+    GetMap(20, 20) = 5;
+    TILESET_Copy(composed, NULL, layout.width * layout.height);
+    free(composed);
+    D_58a4 = oldActive;
+    memcpy(D_ac64, oldActorMap, sizeof(oldActorMap));
+    memcpy(D_ab02, oldViewport, sizeof(oldViewport));
+    D_5c5a[0] = (ActorFmt){0};
+    D_5c5a[12]._2_x = D_5c5a[12]._3_y = 3;
     GRAP_BUF_SetTransparentSprites(oldTransparency);
     unsigned oldNpcCount = D_imperaNpcCount;
     D_imperaNpcCount = 258;

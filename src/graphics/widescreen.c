@@ -141,14 +141,14 @@ byte WIDE_GroundTile(int dx, int dy)
 
 int WIDE_SpritePixel(int tile, int dx, int dy, int x, int y)
 {
-    /* Southern foreground scenery owns its pixels. Sprite art is 16x16;
-     * only the outline margin can cross into the following map row. */
+    /* Southern foreground scenery owns its pixels. Only the outline
+     * margin below the complete footprint crosses into the following map row. */
     unsigned fw = 1, fh = 1;
     if (TYPES_ArtSlot(tile))
         TYPES_ArtSize(tile, D_5893_map_id == 0, &fw, &fh);
-    if (GRAP_BUF_TransparentSprites() && fw == 1 && fh == 1 && y >= 16) {
-        int neighbor = x < 0 ? -1 : x >= 16 ? 1 : 0;
-        byte south = WIDE_MapTile(dx + neighbor, dy + 1);
+    if (GRAP_BUF_TransparentSprites() && y >= (int)(16 * fh)) {
+        int neighbor = x < 0 ? -1 : x / 16;
+        byte south = WIDE_MapTile(dx + neighbor, dy + fh);
         if (memchr(D_6a86, south, sizeof(D_6a86))) return -1;
     }
     return GRAP_BUF_SpritePixel(tile,x,y);
@@ -343,27 +343,54 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
             GRAP_BUF_DrawSprite(pixels,l.width,l.mapX+col*16,l.mapY+row*16,
                 D_b11e[tile],l.mapX,8,l.mapX+l.columns*16,l.height-8,dx,dy);
     }
-    for (int row = 0; row < l.rows; row++)
-        for (int col = 0; col < l.columns; col++) {
-            int sprite = sprites[row * l.columns + col];
-            if (sprite >= 0)
-                GRAP_BUF_DrawSprite(pixels, l.width, l.mapX + col * 16, l.mapY + row * 16,
-                    sprite, l.mapX, 8, l.mapX + l.columns * 16, l.height - 8,col-cx,row-cy);
-        }
-    /* Large central actors can cross the seam of the original 11x11 viewport. */
+    bool largeVisible = false;
     if (D_5893_map_id > 0 && D_5893_map_id < 128)
         for (unsigned actor = 0; actor < (unsigned)MAP_ACTOR_COUNT; ++actor) {
             ActorFmt *a = &D_5c5a[actor];
+            if (!a->_0_tile || !a->_1_animTile || a->_4_z != D_5895_map_level)
+                continue;
             unsigned w, h;
             ACTORS_Size(actor, &w, &h);
-            int dx = a->_2_x - D_5896_map_x, dy = a->_3_y - D_5897_map_y;
-            if ((w > 1 || h > 1) && a->_1_animTile && a->_4_z == D_5895_map_level &&
-                WIDE_FootprintVisible(dx, dy, w, h))
-                GRAP_BUF_DrawSprite(pixels, l.width, l.mapX + (cx + dx) * 16,
-                                    l.mapY + (cy + dy) * 16,
-                                    ACTORS_Sprite(actor, 256 + a->_1_animTile), l.mapX, 8,
-                                    l.mapX + l.columns * 16, l.height - 8, dx, dy);
+            if ((w > 1 || h > 1) &&
+                WIDE_FootprintVisible(a->_2_x - D_5896_map_x, a->_3_y - D_5897_map_y, w, h)) {
+                largeVisible = true;
+                break;
+            }
         }
+    /* Redraw central actors too: large artwork can cross the original viewport
+     * seam. Keep every footprint in north-to-south anchor order, rather than
+     * painting large actors over the already completed southern sprites. */
+    for (int row = -1; row < l.rows; ++row) {
+        if (largeVisible)
+            for (unsigned actor = 0; actor < (unsigned)MAP_ACTOR_COUNT; ++actor) {
+                ActorFmt *a = &D_5c5a[actor];
+                if (!a->_0_tile || !a->_1_animTile || a->_4_z != D_5895_map_level)
+                    continue;
+                int dx = a->_2_x - D_5896_map_x, dy = a->_3_y - D_5897_map_y;
+                if (cy + dy != row)
+                    continue;
+                unsigned w, h;
+                ACTORS_Size(actor, &w, &h);
+                if ((w > 1 || h > 1) && WIDE_FootprintVisible(dx, dy, w, h))
+                    GRAP_BUF_DrawSprite(pixels, l.width, l.mapX + (cx + dx) * 16, l.mapY + row * 16,
+                                        ACTORS_Sprite(actor, 256 + a->_1_animTile), l.mapX, 8,
+                                        l.mapX + l.columns * 16, l.height - 8, dx, dy);
+            }
+        if (row < 0)
+            continue;
+        for (int col = 0; col < l.columns; col++) {
+            int dx = col - cx, dy = row - cy;
+            int sprite = sprites[row * l.columns + col];
+            if (largeVisible && abs(dx) <= 5 && abs(dy) <= 5 &&
+                GetMapViewport(dx + 5, dy + 5) == 0 && GetActorMap(dx + 5, dy + 5) != 0x16)
+                sprite = ACTORS_AtCell(D_5893_map_id >= 128 ? dx + 5 : D_5896_map_x + dx,
+                                       D_5893_map_id >= 128 ? dy + 5 : D_5897_map_y + dy,
+                                       256 + GetActorMap(dx + 5, dy + 5));
+            if (sprite >= 0)
+                GRAP_BUF_DrawSprite(pixels, l.width, l.mapX + col * 16, l.mapY + row * 16, sprite,
+                                    l.mapX, 8, l.mapX + l.columns * 16, l.height - 8, dx, dy);
+        }
+    }
     free(sprites);
     /* Restore outline margins at the seam after copying central effects. */
     for (int row = 0; row < l.rows; row++)

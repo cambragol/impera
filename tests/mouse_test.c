@@ -10,6 +10,8 @@
 #include "funcs.h"
 #include "talk.h"
 #include "lookobj.h"
+#include "mod/types.h"
+#include "mod/actors.h"
 #include "sjog.h"
 #include "combat.h"
 #include "comsubs.h"
@@ -52,6 +54,7 @@ static Uint64 ticks = 2000;
 static Uint32 animationDelay,renderCost;
 void __wrap_SDL_Delay(Uint32 ms) { animationDelay += ms; }
 static float cursorX, cursorY;
+static bool sawGuardian;
 static bool sawSleepingNpc, sawFountain, sawDrinkPrompt, sawWell, sawCoinPrompt;
 static int presented;
 static bool confirmAimOnPoll;
@@ -196,6 +199,8 @@ bool __wrap_SDL_RenderPresent(SDL_Renderer* renderer)
 }
 void __wrap_ULTIMA_1850_PrintString(char* text)
 {
+    if (!strcmp(text, "the Guardian"))
+        sawGuardian = true;
     if (strstr(text, "Zzzzzz")) sawSleepingNpc = true;
     if (strstr(text, "gurgling fountain")) sawFountain = true;
     if (strstr(text, "Who will drink")) sawDrinkPrompt = true;
@@ -651,6 +656,51 @@ int main(int argc, char** argv)
     int goldBefore=D_57aa;
     LOOKOBJ_099c_LookCmd();
     assert(sawWell && !sawCoinPrompt && D_57aa==goldBefore);
+    /* Look resolves a custom NPC from any occupied cell, including extra slots,
+     * and uses the singular type name rather than its vanilla base or plural. */
+    unsigned char typeData[32 + 256 + 4 + 32 * 32 * 4 + 4 + 16 * 16 * 4] = {0};
+    memcpy(typeData, "ITYPES01", 8);
+    typeData[8] = 23;
+    TYPES_Put32(typeData + 24, 1);
+    TypeDef guardian;
+    TYPES_Vanilla(1, 120, &guardian);
+    guardian.id = 60000;
+    guardian.width = guardian.height = 2;
+    guardian.frames = 2;
+    strcpy(guardian.name, "the Guardian");
+    strcpy(guardian.description, "Guardians");
+    TYPES_Encode(typeData + 32, &guardian);
+    TYPES_Put32(typeData + 32, sizeof(typeData) - 32);
+    typeData[32 + 257] = 16;
+    typeData[32 + 258] = 100;
+    const unsigned worldFrame = 32 + 256 + 4 + 32 * 32 * 4;
+    typeData[worldFrame] = 6;
+    typeData[worldFrame + 1] = 16;
+    typeData[worldFrame + 2] = 100;
+    assert(TYPES_Validate(typeData, sizeof(typeData)));
+    TYPES_Mount(typeData, sizeof(typeData), NULL, 0);
+    unsigned oldNpcCount = D_imperaNpcCount;
+    D_imperaNpcCount = 258;
+    D_5f5e[257]._0 = 1;
+    D_5f5e[257]._c = 257;
+    D_5c5a[257] = (ActorFmt){0};
+    D_5c5a[257]._0_tile = D_5c5a[257]._1_animTile = 120;
+    D_5c5a[257]._2_x = 19;
+    D_5c5a[257]._3_y = 15;
+    TypeCell guardianCell = {3, 13, 0, 1, 1, 60000, 0};
+    assert(TYPES_Set(guardianCell, 60000));
+    GetMap(20, 16) = 5;
+    MOUSE_SetCommandInput(true);
+    MOUSE_Button(640, 460.8f, SDL_BUTTON_LEFT, true, 1);
+    ticks += 301;
+    assert(MOUSE_PollCommand() == 'L');
+    MOUSE_SetCommandInput(false);
+    LOOKOBJ_099c_LookCmd();
+    assert(sawGuardian);
+    D_5c5a[257] = (ActorFmt){0};
+    D_5f5e[257] = (NpcFmt){0};
+    D_imperaNpcCount = oldNpcCount;
+    TYPES_Mount(NULL, 0, NULL, 0);
     /* A diagonal fountain still offers drinking. Escape dismisses party selection. */
     GetMap(17,15)=TILE_MAP_FOUNTAIN;
     MOUSE_SetCommandInput(true);

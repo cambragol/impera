@@ -658,11 +658,13 @@ void LOOKOBJ_099c_LookCmd(void)
     ULTIMA_1850_PrintString(_TEXT(0x751c, "\nThou dost see\n"));
     if (local_6 != 0)
     {
-        for (unsigned actor = 0; actor < 32; actor++) {
+        for (unsigned actor = 0; actor < (unsigned)MAP_ACTOR_COUNT; actor++) {
             ActorFmt *a = &D_5c5a[actor];
+            if (!a->_0_tile || !a->_1_animTile || a->_4_z != D_5895_map_level ||
+                !ACTORS_Contains(actor, local_8, local_a))
+                continue;
             unsigned type = ACTORS_Instance(actor);
-            if (type >= 512 && a->_2_x == (byte)local_8 && a->_3_y == (byte)local_a &&
-                a->_4_z == D_5895_map_level) {
+            if (type && TYPES_Defined(type)) {
                 ULTIMA_1850_PrintString(ACTORS_Name(type, 0));
                 ULTIMA_16ba_PrintChar('\n');
                 return;
