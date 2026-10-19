@@ -4,6 +4,7 @@
 #include "mod/types_game.h"
 #if defined(TARGET_SDL)
 #include "graphics/grap_sdl.h"
+#include "graphics/sprite_order.h"
 #include "graphics/grap_buf.h"
 #include "graphics/widescreen.h"
 #endif
@@ -13,6 +14,7 @@
 #include "tiles.h"
 
 #include <string.h>
+#include <stdlib.h>
 
 #include "audio/aud_mus.h"
 
@@ -311,6 +313,67 @@ int ULTIMA_5646(int param_1)
     // 56a4
 }
 
+#if defined(TARGET_SDL)
+typedef struct {
+    SpriteOrder order;
+    unsigned tile;
+    int x, y;
+} CombatSprite;
+static void AddCombatSprite(CombatSprite *sprites, int *count, unsigned tile, int x, int y,
+                            int actor) {
+    for (int i = 0; i < *count; ++i)
+        if (sprites[i].x == x && sprites[i].y == y && sprites[i].tile == tile)
+            return;
+    unsigned w = 1, h = 1;
+    if (TYPES_ArtSlot(tile))
+        TYPES_ArtSize(tile, 0, &w, &h);
+    sprites[(*count)++] =
+        (CombatSprite){{SPRITES_Layer(tile), y + (int)h - 1, x, -actor}, tile, x, y};
+}
+static void DrawCombatSprites(void) {
+    CombatSprite sprites[121 + 32 + 121];
+    int count = 0;
+    for (int y = 0; y < 11; ++y)
+        for (int x = 0; x < 11; ++x) {
+            if (GetMapViewport(x, y) != 0 || GetActorMap(x, y) == 0x16)
+                continue;
+            bool owned = false;
+            for (int i = 0; i < 32; ++i) {
+                ActorFmt *a = &D_5c5a[i];
+                if (a->_0_tile && a->_1_animTile && a->_2_x == x && a->_3_y == y) {
+                    owned = true;
+                    break;
+                }
+            }
+            if (!owned)
+                AddCombatSprite(sprites, &count, 256 + GetActorMap(x, y), x, y, 32);
+        }
+    for (int i = 0; i < 32; ++i) {
+        ActorFmt *a = &D_5c5a[i];
+        int x = a->_2_x, y = a->_3_y;
+        if (!a->_0_tile || !a->_1_animTile || x >= 11 || y >= 11 || GetMapViewport(x, y) == 255 ||
+            GetMapViewport(x, y) == TILE_MAP_87 || a->_1_animTile == 0x16)
+            continue;
+        int native = SPRITES_NativeActorTile(a, *ULTIMA_4402_GetTileAddr(x, y),
+                                             y ? *ULTIMA_4402_GetTileAddr(x, y - 1) : 0,
+                                             y < 10 ? *ULTIMA_4402_GetTileAddr(x, y + 1) : 0);
+        if (native >= 0)
+            AddCombatSprite(sprites, &count, ACTORS_Sprite(i, 256 + native), x, y, i);
+    }
+    for (int y = 0; y < 11; ++y)
+        for (int x = 0; x < 11; ++x) {
+            if (GetMapViewport(x, y) == 255 || GetMapViewport(x, y) == TILE_MAP_87)
+                continue;
+            int shape = CONTENTS_GAME_Shape(x, y);
+            if (shape && !SPRITES_Layer(256 + shape))
+                AddCombatSprite(sprites, &count, 256 + shape, x, y, 32);
+        }
+    qsort(sprites, count, sizeof(*sprites), SPRITES_Compare);
+    for (int i = 0; i < count; ++i)
+        GRAP_BUF_PutMapSprite(sprites[i].x, sprites[i].y, sprites[i].tile);
+}
+#endif
+
 void ULTIMA_56ac_DrawMap(void)
 {
     int local_2;
@@ -382,43 +445,47 @@ void ULTIMA_56ac_DrawMap(void)
     }
     /* All terrain must be complete before outlines spill across cell edges.
      * Include offscreen large anchors in the same north-to-south order. */
-    for (int layer = 0; layer < 2; ++layer)
-        for (local_8 = -1; local_8 < 11; local_8++) {
-            if (layer == 1)
-                for (unsigned actor = 0; actor < (unsigned)MAP_ACTOR_COUNT; ++actor) {
-                    ActorFmt *a = &D_5c5a[actor];
-                    if (!a->_0_tile || !a->_1_animTile || a->_4_z != D_5895_map_level)
+    if (D_5893_map_id >= 128)
+        DrawCombatSprites();
+    else
+        for (int layer = 0; layer < 2; ++layer)
+            for (local_8 = -1; local_8 < 11; local_8++) {
+                if (layer == 1)
+                    for (unsigned actor = 0; actor < (unsigned)MAP_ACTOR_COUNT; ++actor) {
+                        ActorFmt *a = &D_5c5a[actor];
+                        if (!a->_0_tile || !a->_1_animTile || a->_4_z != D_5895_map_level)
+                            continue;
+                        int x = D_5893_map_id >= 128 ? a->_2_x : a->_2_x - D_5896_map_x + 5;
+                        int y = D_5893_map_id >= 128 ? a->_3_y : a->_3_y - D_5897_map_y + 5;
+                        if (y != local_8 || (x >= 0 && y >= 0 && x < 11 && y < 11))
+                            continue;
+                        unsigned w, h;
+                        ACTORS_Size(actor, &w, &h);
+                        if ((w > 1 || h > 1) && x + (int)w > 0 && y + (int)h > 0 && x < 11 &&
+                            WIDE_FootprintVisible(x - 5, y - 5, w, h))
+                            GRAP_BUF_PutMapSprite(x, y, ACTORS_Sprite(actor, 256 + a->_1_animTile));
+                    }
+                if (local_8 < 0)
+                    continue;
+                for (local_6 = 0; local_6 < 11; local_6++) {
+                    if (GetMapViewport(local_6, local_8) != 0 ||
+                        GetActorMap(local_6, local_8) == 0x16)
                         continue;
-                    int x = D_5893_map_id >= 128 ? a->_2_x : a->_2_x - D_5896_map_x + 5;
-                    int y = D_5893_map_id >= 128 ? a->_3_y : a->_3_y - D_5897_map_y + 5;
-                    if (y != local_8 || (x >= 0 && y >= 0 && x < 11 && y < 11))
+                    unsigned native = GetActorMap(local_6, local_8);
+                    bool body = native == TILE_ACTOR_SLEEP || native == TILE_ACTOR_DEAD;
+                    if (body != (layer == 0))
                         continue;
-                    unsigned w, h;
-                    ACTORS_Size(actor, &w, &h);
-                    if ((w > 1 || h > 1) && x + (int)w > 0 && y + (int)h > 0 && x < 11 &&
-                        WIDE_FootprintVisible(x - 5, y - 5, w, h))
-                        GRAP_BUF_PutMapSprite(x, y, ACTORS_Sprite(actor, 256 + a->_1_animTile));
+                    /* Bodies occupy the ground beneath a footprint. Resolving their
+                     * cell as a standing actor would redraw a large sprite off-anchor. */
+                    unsigned sprite =
+                        body ? 256 + native
+                             : ACTORS_AtCell(
+                                   D_5893_map_id >= 128 ? local_6 : D_5896_map_x + local_6 - 5,
+                                   D_5893_map_id >= 128 ? local_8 : D_5897_map_y + local_8 - 5,
+                                   256 + native);
+                    GRAP_BUF_PutMapSprite(local_6, local_8, sprite);
                 }
-            if (local_8 < 0)
-                continue;
-            for (local_6 = 0; local_6 < 11; local_6++) {
-                if (GetMapViewport(local_6, local_8) != 0 || GetActorMap(local_6, local_8) == 0x16)
-                    continue;
-                unsigned native = GetActorMap(local_6, local_8);
-                bool body = native == TILE_ACTOR_SLEEP || native == TILE_ACTOR_DEAD;
-                if (body != (layer == 0))
-                    continue;
-                /* Bodies occupy the ground beneath a footprint. Resolving their
-                 * cell as a standing actor would redraw a large sprite off-anchor. */
-                unsigned sprite =
-                    body
-                        ? 256 + native
-                        : ACTORS_AtCell(D_5893_map_id >= 128 ? local_6 : D_5896_map_x + local_6 - 5,
-                                        D_5893_map_id >= 128 ? local_8 : D_5897_map_y + local_8 - 5,
-                                        256 + native);
-                GRAP_BUF_PutMapSprite(local_6, local_8, sprite);
             }
-        }
 #endif
 
     if (0x7f < D_5893_map_id && (D_589f = !D_589f) != 0 && D_589e != 0xff && ULTIMA_5646(D_589e) == 0)

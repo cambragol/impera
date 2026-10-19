@@ -192,6 +192,9 @@ int ACTORS_Distance(unsigned first, unsigned second) {
     return distance;
 }
 unsigned ACTORS_Sprite(unsigned actor, unsigned fallback) {
+    if (actor < (unsigned)MAP_ACTOR_COUNT && D_5c5a[actor]._0_tile >= 64 &&
+        D_5c5a[actor]._1_animTile < 0x20)
+        return fallback; /* Native death/sleep/hit effects are not authored idle poses. */
     unsigned type = ACTORS_Instance(actor);
     return type && D_5c5a[actor]._1_animTile ? TYPES_ActorArt(type, fallback) : fallback;
 }

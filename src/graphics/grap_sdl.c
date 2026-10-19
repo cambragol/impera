@@ -1,4 +1,5 @@
 #include "mod/actors.h"
+#include "mod/contents_game.h"
 #include "crt.h"
 #include "common/common.h"
 #include "common/settings.h"
@@ -10,6 +11,7 @@
 #include "wd.h"
 #include "grap_sdl.h"
 #include "widescreen.h"
+#include "sprite_order.h"
 #include "tileset.h"
 #include "text/text_window.h"
 #include "vars.h"
@@ -69,7 +71,7 @@ static bool s_customMovementSpeed;
 static int s_previousWidth, s_previousHeight, s_previousX, s_previousY, s_previousMap, s_previousLevel;
 typedef struct ActorVisual {
     bool visible, sighted;
-    int x,y,worldX,worldY,kind,level;
+    int x, y, worldX, worldY, kind, level, layer, height;
     Uint32 *sprite, *terrain;
 } ActorVisual;
 static ActorVisual *s_previousActors;
@@ -100,8 +102,35 @@ static void CaptureActors(ActorVisual* actors, const byte* indices, int w,
 {
 
     bool combat=D_5893_map_id>=128;
-    for (int i = combat ? 0 : 1; i < MAP_ACTOR_COUNT; i++) {
-        ActorFmt* a=&D_5c5a[i];
+    for (int i = combat ? 0 : 1; i < MAP_ACTOR_COUNT + (combat ? 121 : 0); i++) {
+        ActorFmt ground = {0};
+        ActorFmt *a;
+        if (i < MAP_ACTOR_COUNT)
+            a = &D_5c5a[i];
+        else {
+            int cell = i - MAP_ACTOR_COUNT, x = cell % 11, y = cell / 11;
+            if (GetMapViewport(x, y) == 255 || GetMapViewport(x, y) == TILE_MAP_87)
+                continue;
+            int shape = CONTENTS_GAME_Shape(x, y);
+            if (!shape && GetMapViewport(x, y) == 0)
+                shape = GetActorMap(x, y);
+            if (!shape || SPRITES_Layer(256 + shape))
+                continue;
+            bool duplicate = false;
+            for (int j = 0; j < MAP_ACTOR_COUNT; ++j)
+                if (D_5c5a[j]._0_tile && D_5c5a[j]._1_animTile == shape && D_5c5a[j]._2_x == x &&
+                    D_5c5a[j]._3_y == y && !SPRITES_Layer(ACTORS_Sprite(j, 256 + shape))) {
+                    duplicate = true;
+                    break;
+                }
+            if (duplicate)
+                continue;
+            ground._0_tile = ground._1_animTile = shape;
+            ground._2_x = x;
+            ground._3_y = y;
+            ground._4_z = D_5895_map_level;
+            a = &ground;
+        }
         if (!a->_0_tile || !a->_1_animTile || (!combat && a->_4_z!=D_5895_map_level)) continue;
         int dx=a->_2_x-(combat?5:D_5896_map_x), dy=a->_3_y-(combat?5:D_5897_map_y);
         if (!D_5893_map_id) { dx=((dx+128)&255)-128; dy=((dy+128)&255)-128; }
@@ -111,9 +140,11 @@ static void CaptureActors(ActorVisual* actors, const byte* indices, int w,
         v->worldX=a->_2_x; v->worldY=a->_3_y;
         v->kind=a->_0_tile<0x30?a->_0_tile:a->_0_tile&0xfc;
         v->level=a->_4_z;
+        v->layer = SPRITES_Layer(256 + a->_1_animTile);
         if (!combat && !dx && !dy) continue;
         unsigned bodyW, bodyH;
         ACTORS_Size(i, &bodyW, &bodyH);
+        v->height = bodyH;
         bool large = bodyW > 1 || bodyH > 1;
         if (large) {
             if (!WIDE_FootprintVisible(dx, dy, bodyW, bodyH))
@@ -133,7 +164,17 @@ static void CaptureActors(ActorVisual* actors, const byte* indices, int w,
         v->terrain = v->sprite + 68 * 68;
         v->visible=true;
         int tile;
-        if (large)
+        if (combat) {
+            int x = a->_2_x, y = a->_3_y;
+            int native = SPRITES_NativeActorTile(a, *ULTIMA_4402_GetTileAddr(x, y),
+                                                 y ? *ULTIMA_4402_GetTileAddr(x, y - 1) : 0,
+                                                 y < 10 ? *ULTIMA_4402_GetTileAddr(x, y + 1) : 0);
+            if (native < 0) {
+                v->visible = v->sighted = false;
+                continue;
+            }
+            tile = 256 + native;
+        } else if (large)
             tile = ACTORS_Sprite(i, 256 + a->_1_animTile);
         else if (abs(dx) <= 5 && abs(dy) <= 5)
             tile = 256 + GetActorMap(dx + 5, dy + 5);
@@ -142,18 +183,15 @@ static void CaptureActors(ActorVisual* actors, const byte* indices, int w,
             if(tile<0) {v->visible=v->sighted=false;continue;}
         }
         tile = ACTORS_Sprite(i, tile);
+        v->layer = SPRITES_Layer(tile);
         unsigned fw = 1, fh = 1;
         if (TYPES_ArtSlot(tile))
             TYPES_ArtSize(tile, D_5893_map_id == 0, &fw, &fh);
+        v->height = fh;
         for (int y = 0; y < (int)(16 * fh + 2); y++)
             for (int x = 0; x < (int)(16 * fw + 2); x++) {
                 int tx = x - 1, ty = y - 1;
-                int nx = dx + (tx < 0     ? -1
-                               : tx >= 16 ? 1
-                                          : 0),
-                    ny = dy + (ty < 0     ? -1
-                               : ty >= 16 ? 1
-                                          : 0);
+                int nx = dx + (tx < 0 ? -1 : tx / 16), ny = dy + (ty < 0 ? -1 : ty / 16);
                 int wx = a->_2_x + nx - dx, wy = a->_3_y + ny - dy;
                 int color = WIDE_SpritePixel(tile, combat ? a->_2_x - D_5896_map_x : dx,
                                              combat ? a->_3_y - D_5897_map_y : dy, tx, ty);
@@ -485,6 +523,7 @@ static void DrawDarkness(SDL_FRect dst,int width,int height,int mapX,int mapY,in
 
 /* Snapshot only completed map redraws, never intermediate text updates. The
  * camera follows the party: terrain slides while the player stays centered. */
+static bool CombatSelectionPixel(int x, int y) { return x < 2 || x >= 14 || y < 2 || y >= 14; }
 static void SmoothFrame(const byte* indices, int w, int h, int mapX, int mapY,
                         int columns, int rows, SDL_Texture* native, int sourceScale, SDL_FRect dst)
 {
@@ -514,7 +553,7 @@ static void SmoothFrame(const byte* indices, int w, int h, int mapX, int mapY,
     int dx = D_5896_map_x - s_previousX, dy = D_5897_map_y - s_previousY;
     if (!D_5893_map_id) { dx = ((dx+128)&255)-128; dy = ((dy+128)&255)-128; }
     if (combat) dx=dy=0;
-    const int actorCount = MAP_ACTOR_COUNT;
+    const int actorCount = MAP_ACTOR_COUNT + (combat ? 121 : 0);
     ActorVisual *actors = calloc(actorCount, sizeof(*actors));
     bool *moving = calloc(actorCount, sizeof(*moving));
     SDL_Texture **actorTextures = calloc(actorCount, sizeof(*actorTextures));
@@ -544,8 +583,9 @@ static void SmoothFrame(const byte* indices, int w, int h, int mapX, int mapY,
             moving[i] = (old->visible || next->visible) && old->sighted && next->sighted &&
                         old->kind == next->kind && old->level == next->level && abs(ax) <= 1 &&
                         abs(ay) <= 1 && (ax || ay);
-            if (moving[i]) {
+            if (moving[i])
                 animate = true;
+            if (moving[i] || combat) {
                 if (next->visible) {
                     for (int y = 0; y < 68; y++)
                         for (int x = 0; x < 68; x++)
@@ -558,6 +598,40 @@ static void SmoothFrame(const byte* indices, int w, int h, int mapX, int mapY,
                 }
             }
         }
+    Uint32 selectionColor =
+        s_egaPalette[D_13b0_brightWhiteColor &
+                     (D_52ba_vdp._52c8_videoDriverSelection == VDP_VIDEO_CGA ? 3 : 15)];
+    bool combatSelection = combat && D_589e < 32 && D_589f && ULTIMA_5646(D_589e) == 0;
+    int selectionX = 0, selectionY = 0;
+    if (combatSelection) {
+        selectionX = mapX + (columns / 2 - 5 + D_ba14[D_589e].x) * 16;
+        selectionY = mapY + (rows / 2 - 5 + D_ba14[D_589e].y) * 16;
+        /* Manual/modal frames may omit the cursor. Preserve what was actually
+         * drawn, rather than introducing one while animating. */
+        for (int y = 0; y < 16 && combatSelection; ++y)
+            for (int x = 0; x < 16; ++x)
+                if (CombatSelectionPixel(x, y) &&
+                    (selectionX + x < 0 || selectionX + x >= w || selectionY + y < 0 ||
+                     selectionY + y >= h ||
+                     TILESET_BufferColor(indices + (selectionY + y) * w + selectionX + x, 0, 0,
+                                         s_egaPalette) != selectionColor)) {
+                    combatSelection = false;
+                    break;
+                }
+        if (combatSelection)
+            for (int y = 0; y < 16; ++y)
+                for (int x = 0; x < 16; ++x)
+                    if (CombatSelectionPixel(x, y)) {
+                        int color = WIDE_TerrainPixel(D_ba14[D_589e].x - D_5896_map_x,
+                                                      D_ba14[D_589e].y - D_5897_map_y, x, y);
+                        for (int sy = 0; sy < 2; ++sy)
+                            for (int sx = 0; sx < 2; ++sx)
+                                ((Uint32 *)((byte *)clean->pixels +
+                                            ((selectionY + y) * 2 + sy) *
+                                                clean->pitch))[(selectionX + x) * 2 + sx] =
+                                    TILESET_LastColor(color, sx, sy, s_egaPalette);
+                    }
+    }
     if (animate) {
         debug("Smooth movement: offset=%d,%d\n", dx, dy);
         /* One padded current map covers all exposed edges, including diagonal
@@ -589,7 +663,7 @@ static void SmoothFrame(const byte* indices, int w, int h, int mapX, int mapY,
             SDL_SetTextureScaleMode(next,SDL_SCALEMODE_NEAREST);
 
             for (int i = 0; i < actorCount; i++)
-                if (moving[i]) {
+                if (moving[i] || (combat && actors[i].visible)) {
                     actorTextures[i] = SDL_CreateTexture(s_sdlRenderer, SDL_PIXELFORMAT_ARGB8888,
                                                          SDL_TEXTUREACCESS_STATIC, 68, 68);
                     if (actorTextures[i]) {
@@ -623,6 +697,21 @@ static void SmoothFrame(const byte* indices, int w, int h, int mapX, int mapY,
                     SDL_SetTextureBlendMode(playerTexture,SDL_BLENDMODE_BLEND);
                 }
             }
+            SDL_Texture *selectionTexture = NULL;
+            if (combatSelection) {
+                Uint32 pixels[32 * 32] = {0};
+                for (int y = 0; y < 32; ++y)
+                    for (int x = 0; x < 32; ++x)
+                        if (CombatSelectionPixel(x / 2, y / 2))
+                            pixels[y * 32 + x] = selectionColor;
+                selectionTexture = SDL_CreateTexture(s_sdlRenderer, SDL_PIXELFORMAT_ARGB8888,
+                                                     SDL_TEXTUREACCESS_STATIC, 32, 32);
+                if (selectionTexture) {
+                    SDL_UpdateTexture(selectionTexture, NULL, pixels, 32 * 4);
+                    SDL_SetTextureScaleMode(selectionTexture, SDL_SCALEMODE_NEAREST);
+                    SDL_SetTextureBlendMode(selectionTexture, SDL_BLENDMODE_BLEND);
+                }
+            }
             for (int frame = 1; frame <= 8; frame++) {
                 Uint64 frameStarted=SDL_GetTicks();
                 float t = frame / 8.0f;
@@ -636,22 +725,51 @@ static void SmoothFrame(const byte* indices, int w, int h, int mapX, int mapY,
                 SDL_FRect b = {mapDst.x-16*sx,mapDst.y-16*sy,(columns+2)*16*sx,(rows+2)*16*sy};
                 b.x += SDL_roundf(dx*16*sx*(1-progress)); b.y += SDL_roundf(dy*16*sy*(1-progress));
                 SDL_RenderTexture(s_sdlRenderer,next,&mapSrc,&b);
-                for (int i = actorCount - 1; i >= 0; i--)
-                    if (moving[i]) {
-                        ActorVisual *a = &s_previousActors[i];
-                        ActorVisual *b = &actors[i];
-                        SDL_FRect rect = {
-                            dst.x + SDL_roundf((a->x + (b->x - a->x) * progress) * sx),
-                            dst.y + SDL_roundf((a->y + (b->y - a->y) * progress) * sy), 34 * sx,
-                            34 * sy};
-                        if (actorTextures[i])
-                            SDL_RenderTexture(s_sdlRenderer, actorTextures[i], NULL, &rect);
-                        else if (b->visible) {
-                            SDL_FRect src = {b->x * sourceScale, b->y * sourceScale,
-                                             16 * sourceScale, 16 * sourceScale};
-                            SDL_RenderTexture(s_sdlRenderer, native, &src, &rect);
-                        }
+                typedef struct {
+                    SpriteOrder order;
+                    int actor;
+                } OrderedActor;
+                OrderedActor combatOrder[32 + 121];
+                int orderCount = 0;
+                if (combat) {
+                    for (int i = 0; i < actorCount; ++i) {
+                        ActorVisual *a = &s_previousActors[i], *b = &actors[i];
+                        if (!b->visible)
+                            continue;
+                        float y = moving[i] ? a->y + (b->y - a->y) * progress : b->y;
+                        float x = moving[i] ? a->x + (b->x - a->x) * progress : b->x;
+                        combatOrder[orderCount++] =
+                            (OrderedActor){{b->layer, y + 16 * (b->height - 1), x, -i}, i};
                     }
+                    qsort(combatOrder, orderCount, sizeof(*combatOrder), SPRITES_Compare);
+                }
+                for (int n = 0; n < (combat ? orderCount : actorCount); ++n) {
+                    int i = combat ? combatOrder[n].actor : actorCount - 1 - n;
+                    if (!combat && !moving[i])
+                        continue;
+                    ActorVisual *a = &s_previousActors[i], *b = &actors[i];
+                    float x = moving[i] ? a->x + (b->x - a->x) * progress : b->x;
+                    float y = moving[i] ? a->y + (b->y - a->y) * progress : b->y;
+                    SDL_FRect rect = {dst.x + SDL_roundf(x * sx), dst.y + SDL_roundf(y * sy),
+                                      34 * sx, 34 * sy};
+                    if (actorTextures[i])
+                        SDL_RenderTexture(s_sdlRenderer, actorTextures[i], NULL, &rect);
+                    else if (b->visible) {
+                        SDL_FRect src = {b->x * sourceScale, b->y * sourceScale, 16 * sourceScale,
+                                         16 * sourceScale};
+                        SDL_RenderTexture(s_sdlRenderer, native, &src, &rect);
+                    }
+                }
+                if (selectionTexture) {
+                    float x = selectionX, y = selectionY;
+                    int actor = D_ba14[D_589e].actorIdx;
+                    if (actor < actorCount && moving[actor]) {
+                        x += (s_previousActors[actor].x - actors[actor].x) * (1 - progress);
+                        y += (s_previousActors[actor].y - actors[actor].y) * (1 - progress);
+                    }
+                    SDL_FRect outline = {dst.x + x * sx, dst.y + y * sy, 16 * sx, 16 * sy};
+                    SDL_RenderTexture(s_sdlRenderer, selectionTexture, NULL, &outline);
+                }
                 if (playerTexture) SDL_RenderTexture(s_sdlRenderer,playerTexture,NULL,&playerDst);
                 /* Cover sprites as well as ground with the authoritative
                  * central visibility and expanded LOS result. */
@@ -676,6 +794,7 @@ static void SmoothFrame(const byte* indices, int w, int h, int mapX, int mapY,
                     if(elapsed<interval) SDL_Delay(interval-(Uint32)elapsed);
                 }
             }
+            SDL_DestroyTexture(selectionTexture);
             SDL_DestroyTexture(playerTexture);
             for (int i = 0; i < actorCount; i++)
                 SDL_DestroyTexture(actorTextures[i]);

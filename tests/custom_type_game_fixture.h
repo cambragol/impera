@@ -454,15 +454,29 @@ static void multiTileActors(void) {
     D_58a4 = 1;
     for (int transparent = 0; transparent < 2; ++transparent) {
         GRAP_BUF_SetTransparentSprites(transparent != 0);
+        const byte groundShapes[] = {1,
+                                     2,
+                                     3,
+                                     4,
+                                     5,
+                                     7,
+                                     0x19,
+                                     0x1a,
+                                     0x1b,
+                                     0xb4,
+                                     0xb5,
+                                     0xb6,
+                                     0xb7,
+                                     TILE_ACTOR_SLEEP,
+                                     TILE_ACTOR_DEAD};
         for (int slot = 0; slot <= 31; slot += 31)
-            for (int dead = 0; dead < 2; ++dead) {
+            for (unsigned kind = 0; kind < sizeof(groundShapes); ++kind) {
                 D_5c5a[slot] = (ActorFmt){0};
-                D_5c5a[slot]._0_tile = D_5c5a[slot]._1_animTile =
-                    dead ? TILE_ACTOR_DEAD : TILE_ACTOR_SLEEP;
+                D_5c5a[slot]._0_tile = D_5c5a[slot]._1_animTile = groundShapes[kind];
                 D_5c5a[slot]._2_x = D_5c5a[slot]._3_y = 4;
                 memcpy(D_ab02, D_ad14, sizeof(D_ab02));
                 ULTIMA_5394();
-                assert(GetActorMap(4, 4) == (dead ? TILE_ACTOR_DEAD : TILE_ACTOR_SLEEP));
+                assert(GetActorMap(4, 4) == groundShapes[kind]);
                 ULTIMA_56ac_DrawMap();
                 assert(TILESET_BufferColor(g_linearEgaBuffer0 + 80 * 320 + 80, 0, 0, ega) ==
                        0xffff0000u);
@@ -479,9 +493,55 @@ static void multiTileActors(void) {
                                           0, 0, ega) == 0xffff0000u);
                 TILESET_Unregister(combatPixels);
                 free(combatPixels);
+                /* A ground object at the actor's anchor must not replace the
+                 * standing actor through the one-byte native actor map. */
+                D_5c5a[slot]._2_x = D_5c5a[slot]._3_y = 3;
+                memcpy(D_ab02, D_ad14, sizeof(D_ab02));
+                ULTIMA_5394();
+                ULTIMA_56ac_DrawMap();
+                assert(TILESET_BufferColor(g_linearEgaBuffer0 + 80 * 320 + 80, 0, 0, ega) ==
+                       0xffff0000u);
                 D_5c5a[slot] = (ActorFmt){0};
             }
     }
+    /* A taller eastern actor sharing the same foot row has priority over the
+     * shorter western actor, even though its top-left cell is farther north. */
+    GRAP_BUF_SetTransparentSprites(true);
+    for (int slot = 0; slot <= 31; slot += 31) {
+        D_5c5a[slot] = (ActorFmt){0};
+        D_5c5a[slot]._0_tile = D_5c5a[slot]._1_animTile = 0x44;
+        D_5c5a[slot]._2_x = 2;
+        D_5c5a[slot]._3_y = 4;
+        memcpy(D_ab02, D_ad14, sizeof(D_ab02));
+        ULTIMA_5394();
+        ULTIMA_56ac_DrawMap();
+        assert(TILESET_BufferColor(g_linearEgaBuffer0 + 80 * 320 + 55, 0, 0, ega) == ega[0]);
+        D_5c5a[slot]._2_x = 4;
+        D_5c5a[slot]._3_y = 5;
+        memcpy(D_ab02, D_ad14, sizeof(D_ab02));
+        ULTIMA_5394();
+        ULTIMA_56ac_DrawMap();
+        assert(TILESET_BufferColor(g_linearEgaBuffer0 + 88 * 320 + 80, 0, 0, ega) == ega[5]);
+        D_5c5a[slot] = (ActorFmt){0};
+    }
+    /* An authored NPC remains an actor even when its vanilla base looks like
+     * an inventory object. Native hit effects must also survive custom art. */
+    r[9] = 0xb4;
+    D_5c5a[12]._0_tile = D_5c5a[12]._1_animTile = 0xb4;
+    TYPES_Mount(defs, size, NULL, 0);
+    D_5c5a[0] = (ActorFmt){0};
+    D_5c5a[0]._0_tile = D_5c5a[0]._1_animTile = TILE_ACTOR_GOLD;
+    D_5c5a[0]._2_x = D_5c5a[0]._3_y = 4;
+    memcpy(D_ab02, D_ad14, sizeof(D_ab02));
+    ULTIMA_5394();
+    ULTIMA_56ac_DrawMap();
+    assert(TILESET_BufferColor(g_linearEgaBuffer0 + 80 * 320 + 80, 0, 0, ega) == 0xffff0000u);
+    D_5c5a[0] = (ActorFmt){0};
+    D_5c5a[12]._1_animTile = TILE_ACTOR_1D;
+    assert(ACTORS_Sprite(12, 256 + TILE_ACTOR_1D) == 256 + TILE_ACTOR_1D);
+    r[9] = 144;
+    D_5c5a[12]._0_tile = D_5c5a[12]._1_animTile = 144;
+    TYPES_Mount(defs, size, NULL, 0);
     GRAP_BUF_SetTransparentSprites(oldTransparency);
     D_589e = savedSelection;
     D_58a4 = savedMapActive;
