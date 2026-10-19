@@ -492,7 +492,7 @@ bool GRAP_BUF_SpriteIsTransparent(int tile)
 {
     if (TYPES_ArtSlot(tile)) {
         TypeDef definition;
-        return s_transparentSprites && TYPES_Get(tile, &definition) &&
+        return s_transparentSprites && TYPES_Get(TYPES_ArtworkType(tile), &definition) &&
                (definition.render & TYPES_SPRITE);
     }
     /* Furniture and seated poses include their scenery; keep the original

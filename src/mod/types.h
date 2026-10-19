@@ -25,23 +25,22 @@ extern "C" {
  * effects:u8, damageMin:u8, damageMax:u8, ground:u32,
  * result[4]:u32 (open,closed,locked,broken), stats[8], actorFlags:u16,
  * moveProfile:u8,range:u8,projectileAppearance:u8,companion:u8, effectModes:u16,
- * name[64],description[128],frames:u16,skiffDirections:u8,humanoidSeat:u8,combatMap:u8,widthMinus1:u8,heightMinus1:u8,reserved:u8.
- * Frames: variant:u8 (0..5 local tilesets,6..11 world tilesets),cellWidth:u8
- * (14/16/32),duration:u16 (10..60000 ms), followed by RGBA pixels. Local frames
- * multiply the cell dimensions by the actor footprint; world frames are one cell.
- * Cell width 14 means Apple II 14x16; 16 and 32 are square cells. Variants in
- * each appearance group share a frame count; the two groups animate independently.
- * ITYMAP01 header: UUID[16], count:u32,reserved[4]. Sorted cells:
- * kind:u8 (0 map,1 BRIT.CBT,2 DUNGEON.CBT), map:u8,floor:i8,x:u8,y:u8,
- * kinds 3 NPC slots, 4 world actor slots, 5/6 encounter actor slots; x=slot,y=0.
- * reserved[3],type:u32,reserved[4]. Save records reuse the final word
- * for a temporary door’s restore type. */
+ * name[64],description[128],frames:u16,skiffDirections:u8,humanoidSeat:u8,combatMap:u8,widthMinus1:u8,heightMinus1:u8,animation:u8
+ * (0 base pattern,1 loop). Frames: variant:u8 (0..5 local tilesets,6..11 world
+ * tilesets),cellWidth:u8 (14/16/32),duration:u16 (10..60000 ms), followed by RGBA pixels. Local
+ * frames multiply the cell dimensions by the actor footprint; world frames are one cell. Cell width
+ * 14 means Apple II 14x16; 16 and 32 are square cells. Variants in each appearance group share a
+ * frame count; the two groups animate independently. ITYMAP01 header: UUID[16],
+ * count:u32,reserved[4]. Sorted cells: kind:u8 (0 map,1 BRIT.CBT,2 DUNGEON.CBT),
+ * map:u8,floor:i8,x:u8,y:u8, kinds 3 NPC slots, 4 world actor slots, 5/6 encounter actor slots;
+ * x=slot,y=0. reserved[3],type:u32,reserved[4]. Save records reuse the final word for a temporary
+ * door’s restore type. */
 typedef struct TypeDef {
     uint32_t id, ground, result[4];
     uint16_t movement, actorFlags, frames, effectModes;
     uint8_t kind, base, filters, render, sight, projectile, travel, effects, damageMin, damageMax;
     uint8_t stats[8], moveProfile, range, projectileAppearance, companion;
-    uint8_t skiffDirections, humanoidSeat, combatMap, width, height;
+    uint8_t skiffDirections, humanoidSeat, combatMap, width, height, animation;
     char name[64], description[128];
 } TypeDef;
 typedef struct TypeCell {
@@ -73,6 +72,13 @@ static inline size_t TYPES_FrameBytes(const unsigned char *p, size_t off) {
     return 4 + (size_t)TYPES_FrameWidth(p, p[off], p[off + 1]) *
                    TYPES_FrameRows(p, p[off], p[off + 1]) * 4;
 }
+/* Shared native animation interpreter. Random callback returns a byte. */
+void TYPES_AdvanceAnimation(unsigned base, unsigned char *tile, unsigned char *state,
+                            unsigned (*randomByte)(void));
+const unsigned char *TYPES_FrameAt(const unsigned char *, unsigned, unsigned, unsigned *,
+                                   unsigned *);
+void TYPES_ArtSlotSize(unsigned slot, int world, unsigned *, unsigned *);
+static inline unsigned TYPES_ArtworkType(unsigned tile) { return tile & 65535u; }
 const unsigned char *TYPES_FrameImage(const unsigned char *, unsigned, uint64_t, unsigned *,
                                       unsigned *);
 const unsigned char *TYPES_ArtImage(uint32_t, unsigned, uint64_t, unsigned *, unsigned *);

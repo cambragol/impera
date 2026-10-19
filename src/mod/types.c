@@ -51,6 +51,7 @@ void TYPES_Decode(const unsigned char *p, TypeDef *d) {
     d->frames = word(p + 248);
     d->width = 1 + p[253];
     d->height = 1 + p[254];
+    d->animation = p[255];
 }
 void TYPES_Encode(unsigned char *p, const TypeDef *d) {
     memset(p, 0, TYPES_RECORD);
@@ -84,6 +85,7 @@ void TYPES_Encode(unsigned char *p, const TypeDef *d) {
     p[252] = d->combatMap;
     p[253] = TYPES_Width(d) - 1;
     p[254] = TYPES_Height(d) - 1;
+    p[255] = d->animation;
     put16(p + 248, d->frames);
 }
 int TYPES_Walkable(unsigned a, unsigned t) {
@@ -247,8 +249,8 @@ int TYPES_Validate(const void *v, size_t size) {
             d.effects > 3 || d.damageMin > d.damageMax || d.moveProfile > 10 ||
             d.projectileAppearance > 7 || !memchr(d.name, 0, 64) || !d.name[0] ||
             !memchr(d.description, 0, 128) || d.effectModes > 2047 || d.skiffDirections > 15 ||
-            d.humanoidSeat > 1 || d.combatMap > 16 || p[253] > 1 || p[254] > 1 || p[255] ||
-            ((!d.kind || d.id < 512) && (p[253] || p[254])))
+            d.humanoidSeat > 1 || d.combatMap > 16 || p[253] > 1 || p[254] > 1 || p[255] > 1 ||
+            ((!d.kind || d.id < 512) && p[255]) || ((!d.kind || d.id < 512) && (p[253] || p[254])))
             return 0;
         if (d.id < 512 && ((d.kind == 0 && d.id > 255) || (d.kind && (d.id < 256 || d.id > 511))))
             return 0;
@@ -395,6 +397,77 @@ int TYPES_ValidateMap(const void *v, size_t size, const void *defs, size_t len) 
     }
     return 1;
 }
+void TYPES_AdvanceAnimation(unsigned base, unsigned char *tile, unsigned char *state,
+                            unsigned (*randomByte)(void)) {
+    unsigned delay = *state & 15, step = *state >> 4, shape = base & 252;
+    if (delay == 15)
+        return;
+    if (delay) {
+        --*state;
+        return;
+    }
+    if (!*tile || *tile == 0x1d || *tile == 0x1e)
+        return;
+    if (shape < 0x34 || shape == 0xe8 || shape == 0xb4)
+        return;
+    if (shape != 0x5c && shape != 0xa8 && randomByte() < 128)
+        return;
+    const unsigned char *pattern = vanilla_D_1b18 + vanilla_D_1b18[0xb0 + (shape - 0x34) / 4] * 16;
+    for (;;) {
+        unsigned command = pattern[step];
+        if (command >= 1 && command <= 4) {
+            *tile = shape + command - 1;
+            ++step;
+        } else if (command == 5) {
+            if (randomByte() < 64) {
+                *tile = base;
+                if (shape == 0x5c)
+                    ++step;
+                else
+                    delay = 6;
+            } else {
+                ++step;
+                continue;
+            }
+        } else if (command == 6) {
+            step = randomByte() >= 192 ? step + 1 : 0;
+            continue;
+        } else if (!command) {
+            step = 0;
+            continue;
+        } else if (command == 7) {
+            step = 2;
+            continue;
+        } else {
+            delay = (command + 128) & 15;
+            ++step;
+        }
+        *state = step * 16 + delay;
+        return;
+    }
+}
+const unsigned char *TYPES_FrameAt(const unsigned char *p, unsigned variant, unsigned index,
+                                   unsigned *width, unsigned *height) {
+    if (!p || variant > 11)
+        return NULL;
+    unsigned count = 0;
+    for (size_t off = 256; off < TYPES_U32(p); off += TYPES_FrameBytes(p, off))
+        count += p[off] == variant;
+    if (!count && variant % 6)
+        return TYPES_FrameAt(p, variant < 6 ? 0 : 6, index, width, height);
+    if (!count && variant >= 6)
+        return TYPES_FrameAt(p, variant - 6, index, width, height);
+    if (!count)
+        return NULL;
+    index %= count;
+    for (size_t off = 256; off < TYPES_U32(p); off += TYPES_FrameBytes(p, off))
+        if (p[off] == variant && !index--) {
+            *width = TYPES_FrameWidth(p, variant, p[off + 1]);
+            *height = TYPES_FrameRows(p, variant, p[off + 1]);
+            return p + off + 4;
+        }
+    return NULL;
+}
 const unsigned char *TYPES_FrameImage(const unsigned char *p, unsigned variant, uint64_t ms,
                                       unsigned *width, unsigned *height) {
     if (!p || variant > 11)
@@ -441,6 +514,8 @@ static const unsigned char *initial;
 static size_t initialSize;
 static const unsigned char *artRecords[TYPES_MAX];
 static unsigned artCount;
+static unsigned char inheritedAnimation[TYPES_MAX];
+static unsigned actorPoseCount(const unsigned char *record);
 static uint16_t byId[TYPES_LAST_CUSTOM + 1];
 typedef struct FrameCache {
     uint64_t tick;
@@ -474,6 +549,8 @@ void TYPES_Mount(const void *defs, size_t len, const void *map, size_t mapLen) {
         artCount = TYPES_U32(mounted + 24);
         for (unsigned i = 0; i < artCount; i++) {
             artRecords[i] = mounted + off;
+            inheritedAnimation[i] = mounted[off + 8] && TYPES_U32(mounted + off + 4) >= 512 &&
+                                    !mounted[off + 255] && actorPoseCount(mounted + off) <= 4;
             byId[TYPES_U32(mounted + off + 4)] = i + 1;
             off += TYPES_U32(mounted + off);
         }
@@ -595,10 +672,19 @@ int TYPES_ReadState(FILE *f, int apply) {
 }
 
 unsigned TYPES_ArtSlot(uint32_t id) {
+    id = TYPES_ArtworkType(id);
     if (id > TYPES_LAST_CUSTOM || !byId[id])
         return 0;
     unsigned i = byId[id] - 1;
     return word(artRecords[i] + 248) ? 512 + i : 0;
+}
+static unsigned actorPoseCount(const unsigned char *record) {
+    unsigned local = 0, world = 0;
+    for (size_t off = 256; off < TYPES_U32(record); off += TYPES_FrameBytes(record, off)) {
+        local += record[off] == 0;
+        world += record[off] == 6;
+    }
+    return local > world ? local : world;
 }
 unsigned TYPES_ActorArt(uint32_t type, unsigned nativeTile) {
     if (type >= 256 && type < 512 && byId[type]) {
@@ -612,12 +698,19 @@ unsigned TYPES_ActorArt(uint32_t type, unsigned nativeTile) {
         if (defaults <= 1)
             return nativeTile; /* Native animation selects among four independently authored slots. */
     }
+    if (type >= 512 && type <= TYPES_LAST_CUSTOM && byId[type]) {
+        const unsigned char *r = artRecords[byId[type] - 1];
+        if (TYPES_ArtworkType(nativeTile) == type)
+            return nativeTile;
+        if (inheritedAnimation[byId[type] - 1])
+            return type | (((nativeTile - 256 - r[9]) & 3) << 16);
+    }
     return TYPES_ArtSlot(type) ? type : nativeTile;
 }
 void TYPES_ArtSize(uint32_t id, int world, unsigned *width, unsigned *height) {
     TypeDef d;
     *width = *height = 1;
-    if (!world && TYPES_Get(id, &d) && d.kind) {
+    if (!world && TYPES_Get(TYPES_ArtworkType(id), &d) && d.kind) {
         *width = TYPES_Width(&d);
         *height = TYPES_Height(&d);
     }
@@ -626,15 +719,31 @@ const unsigned char *TYPES_ArtImage(uint32_t id, unsigned variant, uint64_t ms, 
                                     unsigned *h) {
     return TYPES_FrameImage(TYPES_Find(mounted, mountedSize, id), variant, ms, w, h);
 }
+void TYPES_ArtSlotSize(unsigned slot, int world, unsigned *w, unsigned *h) {
+    *w = *h = 1;
+    if (!world && slot >= 512 && slot < 512 + artCount) {
+        const unsigned char *r = artRecords[slot - 512];
+        if (r[8]) {
+            *w = 1 + r[253];
+            *h = 1 + r[254];
+        }
+    }
+}
 const unsigned char *TYPES_SampleArtImage(unsigned slot, unsigned variant, uint64_t ms, unsigned *w,
                                           unsigned *h) {
+    unsigned phase = slot >> 16;
+    slot &= 65535;
     if (slot < 512 || slot >= 512 + artCount || variant > 11)
         return NULL;
+    const unsigned char *record = artRecords[slot - 512];
+    int inherited = inheritedAnimation[slot - 512];
+    uint64_t key = inherited ? UINT64_MAX - phase : ms;
     FrameCache *cache = &frameCache[slot - 512][variant];
-    if (cache->tick != ms || !cache->rgba) {
-        cache->rgba =
-            TYPES_FrameImage(artRecords[slot - 512], variant, ms, &cache->side, &cache->height);
-        cache->tick = ms;
+    if (cache->tick != key || !cache->rgba) {
+        cache->rgba = inherited
+                          ? TYPES_FrameAt(record, variant, phase, &cache->side, &cache->height)
+                          : TYPES_FrameImage(record, variant, ms, &cache->side, &cache->height);
+        cache->tick = key;
     }
     *w = cache->side;
     *h = cache->height;

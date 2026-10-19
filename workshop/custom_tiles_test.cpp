@@ -26,6 +26,105 @@ int main(int argc, char **argv) {
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settings.path());
     QApplication app(argc, argv);
     try {
+        // Native pose patterns, random idle holds, deliberate guard delays and
+        // independently selected custom artwork all share one interpreter.
+        auto accept = +[]() -> unsigned { return 255; };
+        auto skip = +[]() -> unsigned { return 0; };
+        unsigned char pose = 0x50, animationState = 0;
+        TYPES_AdvanceAnimation(0x50, &pose, &animationState, skip);
+        CHECK(pose == 0x50 && animationState == 0);
+        for (unsigned expected : {0x51u, 0x52u, 0x53u, 0x51u}) {
+            TYPES_AdvanceAnimation(0x50, &pose, &animationState, accept);
+            CHECK(pose == expected);
+        }
+        pose = 0x53;
+        animationState = 3 * 16; // End of the villager's active sequence.
+        auto rest = +[]() -> unsigned {
+            static unsigned calls = 0;
+            return ++calls % 2 ? 255 : 0;
+        };
+        TYPES_AdvanceAnimation(0x50, &pose, &animationState, rest);
+        CHECK(pose == 0x50 && (animationState & 15) == 6);
+        for (int tick = 0; tick < 6; ++tick) {
+            TYPES_AdvanceAnimation(0x50, &pose, &animationState, accept);
+            CHECK(pose == 0x50);
+        }
+        pose = 0x5c;
+        animationState = 0;
+        TYPES_AdvanceAnimation(0x5c, &pose, &animationState, skip);
+        CHECK(pose == 0x5d); // This bard bypasses the ordinary random skip.
+        pose = 0x70;
+        animationState = 0;
+        TYPES_AdvanceAnimation(0x70, &pose, &animationState, accept);
+        CHECK(pose == 0x71);
+        TYPES_AdvanceAnimation(0x70, &pose, &animationState, accept);
+        CHECK(pose == 0x71 && (animationState & 15) == 4);
+        for (int tick = 0; tick < 4; ++tick) {
+            TYPES_AdvanceAnimation(0x70, &pose, &animationState, accept);
+            CHECK(pose == 0x71);
+        }
+        TYPES_AdvanceAnimation(0x70, &pose, &animationState, accept);
+        CHECK(pose == 0x72);
+        pose = 0xd8;
+        animationState = 0;
+        for (unsigned expected : {0xd8u, 0xd9u, 0xdau, 0xdbu, 0xd8u}) {
+            TYPES_AdvanceAnimation(0xd8, &pose, &animationState, accept);
+            CHECK(pose == expected);
+        }
+        {
+            Project animated;
+            animated.openGame(TEST_GAME_DIR);
+            TypeDef actor;
+            TYPES_Vanilla(1, 80, &actor);
+            actor.id = 62000;
+            actor.kind = 1;
+            actor.stats[5] = 20;
+            actor.stats[6] = 1;
+            QVector<CustomTiles::Frame> poses;
+            for (int i = 0; i < 4; ++i) {
+                QImage art(16, 16, QImage::Format_RGBA8888);
+                art.fill(QColor(50 * (i + 1), 0, 0));
+                poses.append({art, 150, 0});
+            }
+            auto library =
+                CustomTiles::library(animated, {{actor.id, CustomTiles::record(actor, poses)}});
+            TYPES_Mount(library.constData(), library.size(), nullptr, 0);
+            unsigned width, height;
+            unsigned slot = TYPES_ArtSlot(actor.id);
+            for (unsigned phase = 0; phase < 4; ++phase) {
+                unsigned handle = TYPES_ActorArt(actor.id, 256 + 80 + phase);
+                CHECK(TYPES_ArtworkType(handle) == actor.id && (handle >> 16) == phase);
+                CHECK(TYPES_ActorArt(actor.id, handle) == handle);
+                const auto *pixels =
+                    TYPES_SampleArtImage(slot | (phase << 16), 0, 0, &width, &height);
+                CHECK(pixels && pixels[0] == 50 * (phase + 1));
+                pixels = TYPES_SampleArtImage(slot | (phase << 16), 3, 9999, &width, &height);
+                CHECK(pixels && pixels[0] == 50 * (phase + 1)); // DOS fallback keeps the pose.
+            }
+            actor.animation = 1;
+            library =
+                CustomTiles::library(animated, {{actor.id, CustomTiles::record(actor, poses)}});
+            TYPES_Mount(library.constData(), library.size(), nullptr, 0);
+            CHECK(TYPES_ActorArt(actor.id, 256 + 83) == actor.id);
+            CHECK(TYPES_SampleArtImage(slot, 0, 0, &width, &height)[0] == 50);
+            CHECK(TYPES_SampleArtImage(slot, 0, 150, &width, &height)[0] == 100);
+            TYPES_Mount(nullptr, 0, nullptr, 0);
+            animated.resources["TYPES.OVR"].edited = library;
+            auto exported = animated.package();
+            CHECK(exported.startsWith("IMOD0013"));
+            Project restored;
+            restored.openGame(TEST_GAME_DIR);
+            restored.importPackage(exported);
+            CHECK(CustomTiles::definition(restored, actor.id).animation == 1);
+            exported.replace(0, 8, "IMOD0012");
+            bool rejected = false;
+            try {
+                restored.importPackage(exported);
+            } catch (const std::exception &) {
+                rejected = true;
+            }
+            CHECK(rejected);
+        }
         Project p;
         p.openGame(TEST_GAME_DIR);
         QImage tile(16, 16, QImage::Format_RGBA8888);
@@ -374,7 +473,7 @@ int main(int argc, char **argv) {
             CHECK(playtest.npcRecords.size() == 258 * 16 &&
                   playtest.actorRecords.size() == 258 * 8);
             auto packaged = crowded.package();
-            CHECK(packaged.startsWith("IMOD0012"));
+            CHECK(packaged.startsWith("IMOD0013"));
             auto oldPackage = packaged;
             oldPackage.replace(0, 8, "IMOD0011");
             bool oldRejected = false;
@@ -409,7 +508,7 @@ int main(int argc, char **argv) {
         applyChanges(CustomTiles::assignActor(p, "DUNGEON.CBT", roomPage, 0, 0, 40011));
         CHECK(CustomTiles::actorType(p, "DUNGEON.CBT", roomPage, 0, 0, 0) == 40011);
         p.validate();
-        CHECK(p.package().startsWith("IMOD0010"));
+        CHECK(p.package().startsWith("IMOD0013"));
         Project actorImported;
         actorImported.openGame(TEST_GAME_DIR);
         actorImported.importPackage(p.package());
@@ -446,7 +545,7 @@ int main(int argc, char **argv) {
             auto nativeFrames = nativeUi->findChild<QListWidget *>("customTileFrames");
             auto nativeVariants = nativeUi->findChild<QComboBox *>("customTileVariant");
             CHECK(nativeFrames && nativeFrames->count() == 4);
-            CHECK(nativeUi->findChild<QSpinBox *>("customTileFrameDuration")->isHidden());
+            CHECK(!nativeUi->findChild<QSpinBox *>("customTileFrameDuration"));
             const QStringList nativeSheets{"TILES.16",     "TILE_AMI.PNG", "TILE_APP.PNG",
                                            "TILE_GRY.PNG", "TILE_SHN.PNG", "TILES.16"};
             for (int variant = 0; variant < nativeSheets.size(); ++variant) {
@@ -581,6 +680,13 @@ int main(int argc, char **argv) {
             };
             QMap<QString, int> largeState{{"customTiles/kind", 1}, {"customTiles/1/id", 61000}};
             std::unique_ptr<QWidget> editor(CustomTiles::editor(&large, commitLarge, &largeState));
+            CHECK(!editor->findChild<QSpinBox *>("customTileFrameDuration"));
+            auto mode = editor->findChild<QComboBox *>("customTileAnimation");
+            CHECK(mode && mode->itemText(0) == "Like villager" && mode->currentIndex() == 0);
+            mode->setCurrentIndex(1);
+            CHECK(CustomTiles::definition(large, 61000).animation == 1);
+            mode->setCurrentIndex(0);
+            CHECK(CustomTiles::definition(large, 61000).animation == 0);
             auto footprint = editor->findChild<QComboBox *>("actorFootprint");
             auto appearance = editor->findChild<QComboBox *>("actorArtworkContext");
             auto tileset = editor->findChild<QComboBox *>("customTileVariant");
@@ -687,7 +793,7 @@ int main(int argc, char **argv) {
             CHECK(worldCanvas && worldCanvas->actorSize(61000) == QSize(1, 1));
             CHECK(worldCanvas->tiles[61000].size() == QSize(16, 16));
             CHECK(worldCanvas->tiles[61000].pixelColor(0, 0) == QColor(0, 0, 170));
-            CHECK(large.package().startsWith("IMOD0011"));
+            CHECK(large.package().startsWith("IMOD0013"));
             Project roundtrip;
             roundtrip.openGame(TEST_GAME_DIR);
             roundtrip.importPackage(large.package());

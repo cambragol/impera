@@ -4,6 +4,7 @@
 #include "map_entities.h"
 #include "mod/package.h"
 #include <QImageReader>
+#include <QRandomGenerator>
 #include <QClipboard>
 #include <QStyle>
 #include <QButtonGroup>
@@ -13,6 +14,14 @@
 #include <cstring>
 using U5::require;
 namespace CustomTiles {
+static unsigned animationPoses(const QVector<Frame> &frames) {
+    unsigned local = 0, world = 0;
+    for (const auto &frame : frames) {
+        local += frame.variant == 0;
+        world += frame.variant == 6;
+    }
+    return std::max(local, world);
+}
 class PropertySection : public QWidget {
     QString title;
     QToolButton *header;
@@ -695,16 +704,12 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         QIcon::fromTheme("edit-paste", w->style()->standardIcon(QStyle::SP_DialogOpenButton)));
     frameCopy->setToolTip("Copy frame: copy the selected frame’s artwork, including transparency.");
     framePaste->setToolTip(
-        "Paste frame: replace the selected frame’s artwork, keeping its duration. "
+        "Paste frame: replace the selected frame’s artwork. "
         "The image must match this frame’s pixel dimensions; colors are converted "
         "to the selected tileset’s palette.");
     row->insertWidget(4, frameCopy);
     row->insertWidget(5, framePaste);
     middle->addLayout(row);
-    auto ms = new QSpinBox;
-    ms->setRange(10, 60000);
-    ms->setSuffix(" ms");
-    ms->setObjectName("customTileFrameDuration");
     auto import = new QPushButton("Import PNG…");
     import->setObjectName("customTileImport");
     auto exportPng = new QToolButton;
@@ -891,7 +896,16 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     advanced->form->addRow(boatGroup);
     advanced->form->addRow(humanoidSeat);
     advanced->form->addRow("Combat background", combatMap);
-    advanced->form->addRow("Frame duration", ms);
+    auto animation = new QComboBox(props);
+    animation->setObjectName("customTileAnimation");
+    animation->addItems({"Like base type", "Continuous loop"});
+    animation->setToolTip("Use the base creature’s four-pose animation, including its pauses and "
+                          "random timing, or repeat every frame continuously. Animations with "
+                          "more than four poses use Continuous loop.");
+    if (actorKind)
+        appearance->form->addRow("Animation", animation);
+    else
+        animation->hide();
     QVector<QSpinBox *> actorStats;
     auto combat = new PropertySection("Combat", true, props);
     combat->setVisible(actorKind != 0);
@@ -1036,13 +1050,10 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     frameRight->setToolTip(
         "Move the selected frame one position later in this tileset’s animation.");
     play->setToolTip(
-        "Start or stop an artwork preview. Custom animations use frame durations; original "
-        "creatures keep their engine-controlled timing and frame choices in-game.");
+        "Preview the selected artwork with its in-game animation pattern, including pauses.");
     for (auto button : {frameAdd, frameDelete, frameLeft, frameRight})
         button->setToolTip(button->toolTip() + " Original creatures have four fixed frame slots; "
                                                "copy the type to create a custom animation.");
-    ms->setToolTip("How long the selected frame stays visible, in milliseconds. 1000 ms is one "
-                   "second. This sets animation timing, not movement speed.");
     import->setToolTip(
         "Import one frame to replace the selected frame, or a grid to replace the animation, read "
         "left to right then top to bottom. Frame sizes must match this tileset. Colors are "
@@ -1238,6 +1249,8 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         QVector<Frame> frames;
         bool loading = false;
         bool originalAnimation = false;
+        unsigned char previewTile = 0, previewState = 0;
+        qint64 previewTick = 0;
     };
     QSet<unsigned> worldTiles, locationTiles;
     for (const auto &resource : p->resources.keys())
@@ -1282,6 +1295,11 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         // Property edits must not replace the original engine animation with a timed override.
         if (draft->frames.isEmpty() && !draft->originalAnimation)
             draft->frames.append({image(*p, draft->id), 150, 0});
+        if (actorKind && draft->id >= 512 && animationPoses(draft->frames) > 4) {
+            draft->def.animation = 1;
+            QSignalBlocker block(animation);
+            animation->setCurrentIndex(1);
+        }
         r[draft->id] = record(draft->def, draft->originalAnimation ? frames(r.value(draft->id))
                                                                    : draft->frames);
         return commit({{"TYPES.OVR", library(*p, r)}}, title);
@@ -1403,7 +1421,7 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
                   "transparent."
                 : "Choose a drawing color from the selected tileset’s palette. The crossed swatch "
                   "paints transparent pixels; black is a visible color.");
-        advanced->form->setRowVisible(ms, !draft->originalAnimation);
+
         unsigned slot = selectedVariant();
         bool supplied = std::any_of(draft->frames.begin(), draft->frames.end(),
                                     [=](const Frame &f) { return f.variant == slot; });
@@ -1419,9 +1437,8 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
                                                 QString::number(frameList->count() + 1), frameList);
                 item->setData(Qt::UserRole, i);
                 item->setToolTip(
-                    QString("Frame %1: %2 ms. %3")
+                    QString("Frame %1. %2")
                         .arg(frameList->count())
-                        .arg(draft->frames[i].duration)
                         .arg(
                             supplied
                                 ? "Select to edit this tileset’s frame."
@@ -1440,7 +1457,7 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             auto f = draft->frames[frameList->currentItem()->data(Qt::UserRole).toInt()];
             canvas->pixels =
                 f.image.scaled(selectedSize(), Qt::IgnoreAspectRatio, Qt::FastTransformation);
-            ms->setValue(f.duration);
+
         } else
             canvas->pixels = image(*p, draft->id, selectedVariant());
         canvas->pixels =
@@ -1556,6 +1573,12 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         if (draft->originalAnimation)
             draft->frames = originalActorFrames(*p, id);
         fillRefs();
+        animation->setItemText(0, "Like " + Workshop::actorName(d.base));
+        animation->setEnabled(id >= 512);
+        int poses = animationPoses(draft->frames);
+        animation->setCurrentIndex(d.animation || (id >= 512 && poses > 4) ||
+                                          (id < 512 && !draft->originalAnimation)
+                                      ? 1 : 0);
         name->setText(QString::fromUtf8(d.name));
         description->setText(QString::fromUtf8(d.description));
         world->setEnabled(id >= 512);
@@ -1766,6 +1789,12 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             if (d.id >= 512)
                 d.filters = (world->isChecked() ? 1 : 0) | (location->isChecked() ? 2 : 0);
             d.render = (sprite->isChecked() ? 1 : 0) | (masonry->isChecked() ? 2 : 0);
+            if (actorKind && d.id >= 512) {
+                unsigned poses = animationPoses(draft->frames);
+                require(animation->currentIndex() || poses <= 4,
+                        "Use Continuous loop for animations with more than four poses");
+                d.animation = animation->currentIndex();
+            }
             d.sight = sight->currentIndex();
             d.projectile = projectile->isChecked();
             d.travel = speed->currentIndex();
@@ -1815,6 +1844,7 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             }
             draft->def = d;
             if (save("Edit " + noun + " settings")) {
+                animation->setItemText(0, "Like " + Workshop::actorName(d.base));
                 error->hide();
                 refresh();
             } else
@@ -1921,8 +1951,6 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
         const auto &f = draft->frames[item->data(Qt::UserRole).toInt()];
         canvas->pixels =
             f.image.scaled(selectedSize(), Qt::IgnoreAspectRatio, Qt::FastTransformation);
-        QSignalBlocker block(ms);
-        ms->setValue(f.duration);
         canvas->update();
     });
     canvas->changed = [=] {
@@ -1998,14 +2026,6 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             }
             reloadFrames();
         });
-    });
-    QObject::connect(ms, &QSpinBox::editingFinished, w, [=] {
-        if (!draft->loading && !draft->originalAnimation && frameList->currentItem())
-            report([&] {
-                draft->frames[editableFrame()].duration = ms->value();
-                save("Change frame duration");
-                reloadFrames();
-            });
     });
     QObject::connect(frameAdd, &QPushButton::clicked, w, [=] {
         report([&] {
@@ -2177,6 +2197,9 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
             play->setText("Play");
             reloadFrames();
         } else {
+            draft->previewTile = draft->def.base;
+            draft->previewState = 0;
+            draft->previewTick = clock->elapsed();
             timer->start();
             play->setText("Stop");
         }
@@ -2184,8 +2207,22 @@ QWidget *editor(Project *p, Workshop::TextCommit commit, QMap<QString, int> *sta
     QObject::connect(timer, &QTimer::timeout, w, [=] {
         auto r = record(draft->def, draft->frames);
         unsigned side = 0, height = 0;
-        auto rgba = TYPES_FrameImage(reinterpret_cast<const unsigned char *>(r.constData()),
-                                     selectedVariant(), clock->elapsed(), &side, &height);
+        const auto *bytes = reinterpret_cast<const unsigned char *>(r.constData());
+        unsigned poses = animationPoses(draft->frames);
+        const unsigned char *rgba;
+        if (actorKind && !draft->def.animation &&
+            (draft->originalAnimation || (draft->id >= 512 && poses <= 4))) {
+            while (clock->elapsed() - draft->previewTick >= 55) {
+                TYPES_AdvanceAnimation(
+                    draft->def.base, &draft->previewTile, &draft->previewState,
+                    +[]() -> unsigned { return QRandomGenerator::global()->bounded(256u); });
+                draft->previewTick += 55;
+            }
+            rgba =
+                TYPES_FrameAt(bytes, selectedVariant(),
+                              (draft->previewTile - (draft->def.base & 252)) & 3, &side, &height);
+        } else
+            rgba = TYPES_FrameImage(bytes, selectedVariant(), clock->elapsed(), &side, &height);
         if (rgba) {
             canvas->pixels =
                 QImage(rgba, side, height, side * 4, QImage::Format_RGBA8888)

@@ -259,9 +259,10 @@ and embedded RGBA animation frames. IDs 0–255 override original terrain;
 Kinds 0/1/2 distinguish terrain, NPC types and monster types. There are at most 1024 definitions,
 64 frames per artwork variant, and 8 MiB per library. Frames are 16×16 or 32×32, with 14×16 also supported for Apple II,
 with durations of 10–60000 milliseconds. Artwork variants fall back to the tile's
-default artwork. Alpha is explicit: opaque black stays opaque, and no synthetic
-black outline is added. Physical properties belong to the definition, not to
-individual animation frames.
+default artwork. Raw artwork preserves explicit alpha and opaque black. When
+Transparent Sprites is enabled, actors marked Transparent also key black and use
+the native outline across their full footprint. Physical properties belong to
+the definition, not to individual animation frames.
 
 `TYPEMAP.OVR` (`ITYMAP01`) contains sparse placements keyed by map, floor, and
 coordinates, or encounter bank and encounter index. Its UUID must match the
@@ -350,3 +351,19 @@ before the contents/type trailers stores additional killed/met flags and current
 NPC/actor/schedule/movement state, with explicit little-endian words and a CRC.
 The entire trailer is validated before the active game is modified. Vanilla saves
 without this prefix reset extension state normally.
+
+`IMOD0013` adds the custom actor animation choice in definition byte 255:
+0 follows the vanilla base creature’s pose pattern; 1 plays a continuous loop.
+Original actor overrides and terrain retain zero in this byte. Inherited actors
+use the engine’s native animation state, random holds, resting poses and delays,
+independently for each placed actor. The same interpreter drives Workshop’s
+preview at the normal idle update cadence. One to four artwork poses map to the
+native four pose slots, repeating when fewer are supplied. Animations longer
+than four poses use continuous playback so every frame is displayed; Workshop
+selects that mode when adding/importing a longer sequence. Existing longer
+sequences retain continuous playback. World artwork and alternative tilesets
+retain the selected actor pose, including DOS fallback. Frame durations remain
+in the file format for continuous sequences; Workshop exposes no timing numbers
+or animation scripting. Workshop exports custom actor definitions as version 13
+so older engines reject these packages instead of silently ignoring inherited
+animation. Older packages remain readable by the updated engine.

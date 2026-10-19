@@ -204,10 +204,11 @@ static Uint32 sampledColor(int color, int subX, int subY, const Uint32 *ega, boo
 {
     if (sample >= TILE_ART_TOKEN && sample != TILE_RGB_TOKEN) {
         unsigned token = sample - TILE_ART_TOKEN - 1, width = 0, height = 0;
-        unsigned fw = 1 + ((token >> 10) & 1), fh = 1 + ((token >> 11) & 1);
-        const unsigned char *rgba =
-            TYPES_SampleArtImage(512 + token / 4096, (unsigned)selected + (!D_5893_map_id ? 6 : 0),
-                                 SDL_GetTicks(), &width, &height);
+        unsigned fw, fh;
+        TYPES_ArtSlotSize(512 + token / 4096, !D_5893_map_id, &fw, &fh);
+        const unsigned char *rgba = TYPES_SampleArtImage(
+            (512 + token / 4096) | (((token >> 10) & 3) << 16),
+            (unsigned)selected + (!D_5893_map_id ? 6 : 0), SDL_GetTicks(), &width, &height);
         if (rgba) {
             unsigned x = token % 32, y = (token % 1024) / 32;
             unsigned px = (x * 2 + subX) * width / (32 * fw);
@@ -507,8 +508,8 @@ int TILESET_Pixel(int tile, int x, int y)
     if (slot)
         TYPES_ArtSize(tile, D_5893_map_id == 0, &fw, &fh);
     if (slot && x >= 0 && y >= 0 && x < (int)(16 * fw) && y < (int)(16 * fh)) {
-        sample = TILE_ART_TOKEN + (slot - 512) * 4096 + (fw - 1) * 1024 + (fh - 1) * 2048 + y * 32 +
-                 x + 1;
+        sample = TILE_ART_TOKEN + (slot - 512) * 4096 + (((unsigned)tile >> 16) & 3) * 1024 +
+                 y * 32 + x + 1;
         return 16;
     }
     if (!selected || tile < 0 || tile >= 512 || x < 0 || y < 0 || x >= 16 || y >= 16 || !available[tile])

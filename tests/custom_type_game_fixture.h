@@ -466,3 +466,56 @@ static void multiTileActors(void) {
     puts("PASS multi-tile occupancy, own-overlap movement, obstacles, targeting, range, large "
          "rendering and single-tile world art");
 }
+
+static void actorAnimationArtwork(void) {
+    const unsigned length = 256 + 4 * (4 + 32 * 32 * 4) + 4 * (4 + 16 * 16 * 4);
+    unsigned char *data = calloc(1, 32 + length);
+    assert(data);
+    memcpy(data, "ITYPES01", 8);
+    data[8] = 19;
+    TYPES_Put32(data + 24, 1);
+    TypeDef definition;
+    TYPES_Vanilla(1, 80, &definition);
+    definition.id = 60001;
+    definition.kind = 1;
+    definition.stats[5] = 20;
+    definition.stats[6] = 1;
+    definition.width = definition.height = 2;
+    definition.frames = 8;
+    definition.render = TYPES_SPRITE;
+    TYPES_Encode(data + 32, &definition);
+    TYPES_Put32(data + 32, length);
+    unsigned offset = 32 + 256;
+    for (unsigned group = 0; group < 2; ++group)
+        for (unsigned pose = 0; pose < 4; ++pose) {
+            unsigned side = group ? 16 : 32;
+            data[offset] = group ? 6 : 0;
+            data[offset + 1] = 16;
+            data[offset + 2] = 150;
+            for (unsigned pixel = 0; pixel < side * side; ++pixel) {
+                data[offset + 4 + pixel * 4 + group] = 50 * (pose + 1);
+                data[offset + 7 + pixel * 4] = 255;
+            }
+            offset += 4 + side * side * 4;
+        }
+    assert(offset == 32 + length && TYPES_Validate(data, offset));
+    TYPES_Mount(data, offset, NULL, 0);
+    byte previousMap = D_5893_map_id;
+    bool previousTransparency = GRAP_BUF_TransparentSprites();
+    GRAP_BUF_SetTransparentSprites(true);
+    assert(TILESET_Select(TILESET_DOS));
+    for (unsigned group = 0; group < 2; ++group) {
+        D_5893_map_id = group ? 0 : 13;
+        for (unsigned pose = 0; pose < 4; ++pose) {
+            unsigned tile = TYPES_ActorArt(60001, 336 + pose);
+            assert(GRAP_BUF_SpriteIsTransparent(tile));
+            int color = GRAP_BUF_SpritePixel(tile, group ? 15 : 31, group ? 15 : 31);
+            unsigned expected = 0xff000000u | (50 * (pose + 1) << (group ? 8 : 16));
+            assert(TILESET_LastSpriteColor(color, 0, 0, ega, true) == expected);
+        }
+    }
+    D_5893_map_id = previousMap;
+    GRAP_BUF_SetTransparentSprites(previousTransparency);
+    TYPES_Mount(NULL, 0, NULL, 0);
+    free(data);
+}

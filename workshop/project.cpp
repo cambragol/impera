@@ -122,9 +122,11 @@ QByteArray Project::package() const {
     auto list = changed();
     require(!list.isEmpty(), "There are no changes to export");
     require(list.size() <= MOD_MAX_ENTRIES, "Too many modified resources");
-    bool actorTypes = false, largeActors = false;
+    bool actorTypes = false, largeActors = false, animationOptions = false;
     for (const auto &record : CustomTiles::records(*this)) {
         actorTypes |= record.size() > 8 && record[8] != 0;
+        animationOptions |= record.size() >= 256 &&
+                            (record[255] || (record[8] && TYPES_U32(record.constData() + 4) >= 512));
         largeActors |= record.size() >= 256 && (record[253] || record[254]);
         for (const auto &frame : CustomTiles::frames(record))
             largeActors |= frame.variant >= 6;
@@ -135,7 +137,8 @@ QByteArray Project::package() const {
     for (const auto &cell : CustomTiles::placements(*this))
         extraNpcs |= cell.kind == 3 && (cell.x >= 32 || cell.y);
     QByteArray out(
-        extraNpcs                                                    ? "IMOD0012"
+        animationOptions                                             ? "IMOD0013"
+        : extraNpcs                                                  ? "IMOD0012"
         : list.contains("TYPES.OVR") || list.contains("TYPEMAP.OVR") ? (largeActors  ? "IMOD0011"
                                                                         : actorTypes ? "IMOD0010"
                                                                                      : "IMOD0009")
