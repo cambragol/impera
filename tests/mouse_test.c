@@ -55,6 +55,7 @@ static Uint32 animationDelay,renderCost;
 void __wrap_SDL_Delay(Uint32 ms) { animationDelay += ms; }
 static float cursorX, cursorY;
 static bool sawGuardian;
+static char actorLook[128];
 static bool sawSleepingNpc, sawFountain, sawDrinkPrompt, sawWell, sawCoinPrompt;
 static int presented;
 static bool confirmAimOnPoll;
@@ -216,6 +217,9 @@ bool __wrap_SDL_RenderPresent(SDL_Renderer* renderer)
 }
 void __wrap_ULTIMA_1850_PrintString(char* text)
 {
+    if (!strcmp(text, "a guard") || !strcmp(text, "a royal guard") ||
+        !strcmp(text, "Guard") || !strcmp(text, "Guards"))
+        snprintf(actorLook, sizeof(actorLook), "%s", text);
     if (!strcmp(text, "the Guardian"))
         sawGuardian = true;
     if (strstr(text, "Zzzzzz")) sawSleepingNpc = true;
@@ -727,6 +731,64 @@ int main(int argc, char** argv)
     MOUSE_SetCommandInput(false);
     LOOKOBJ_099c_LookCmd();
     assert(sawGuardian);
+    D_5c5a[257] = (ActorFmt){0};
+    D_5f5e[257] = (NpcFmt){0};
+    D_imperaNpcCount = oldNpcCount;
+    TYPES_Mount(NULL, 0, NULL, 0);
+    /* Artwork overrides must use the actual vanilla Look text source, not
+     * either the singular or plural combat/type name. */
+    unsigned char guardDefs[32 + 256] = {0};
+    memcpy(guardDefs, "ITYPES01", 8);
+    guardDefs[8] = 29;
+    TYPES_Put32(guardDefs + 24, 1);
+    TypeDef guard;
+    TYPES_Vanilla(1, TILE_ACTOR_GUARD, &guard);
+    strcpy(guard.name, "Guard");
+    strcpy(guard.description, "Guards");
+    TYPES_Encode(guardDefs + 32, &guard);
+    assert(TYPES_Validate(guardDefs, sizeof(guardDefs)));
+    TYPES_Mount(guardDefs, sizeof(guardDefs), NULL, 0);
+    D_imperaNpcCount = 258;
+    D_5f5e[257]._0 = 1;
+    D_5f5e[257]._c = 257;
+    D_5c5a[257] = (ActorFmt){0};
+    D_5c5a[257]._0_tile = D_5c5a[257]._1_animTile = TILE_ACTOR_GUARD;
+    D_5c5a[257]._2_x = 19;
+    D_5c5a[257]._3_y = 16;
+    const char *lookDirectory = transparentSprites ? "guard-look-transparent" : "guard-look-opaque";
+    assert(SDL_CreateDirectory(lookDirectory));
+    char lookPath[128];
+    snprintf(lookPath, sizeof(lookPath), "%s/LOOK2.DAT", lookDirectory);
+    for (int edited = 0; edited < 2; ++edited) {
+        unsigned char lookBytes[1024 + 128] = {0};
+        for (int frame = 0; frame < 4; ++frame) {
+            int offset = (256 + TILE_ACTOR_GUARD + frame) * 2;
+            lookBytes[offset] = 0;
+            lookBytes[offset + 1] = 4;
+        }
+        const char *expected = edited ? "a royal guard" : "a guard";
+        strcpy((char *)lookBytes + 1024, expected);
+        FILE *file = fopen(lookPath, "wb");
+        assert(file && fwrite(lookBytes, 1, sizeof(lookBytes), file) == sizeof(lookBytes));
+        assert(!fclose(file));
+        FILE_SetDataDirectory(lookDirectory);
+        TYPES_Mount(guardDefs, sizeof(guardDefs), NULL, 0);
+        assert(TYPES_Defined(guard.id) && ACTORS_Instance(257) == guard.id);
+        for (int frame = 0; frame < 4; ++frame) {
+            D_5c5a[257]._1_animTile = TILE_ACTOR_GUARD + frame;
+            actorLook[0] = 0;
+            MOUSE_SetCommandInput(true);
+            MOUSE_Button(576, 460.8f, SDL_BUTTON_LEFT, true, 1);
+            ticks += 301;
+            assert(MOUSE_PollCommand() == 'L');
+            MOUSE_SetCommandInput(false);
+            LOOKOBJ_099c_LookCmd();
+            assert(!strcmp(actorLook, expected));
+        }
+    }
+    FILE_SetDataDirectory("");
+    assert(!remove(lookPath));
+    assert(SDL_RemovePath(lookDirectory));
     D_5c5a[257] = (ActorFmt){0};
     D_5f5e[257] = (NpcFmt){0};
     D_imperaNpcCount = oldNpcCount;

@@ -277,7 +277,7 @@ static void vanillaActorOverrideIdentity(void) {
     }
     assert(TYPES_Validate(defs, size));
     TYPES_Mount(defs, size, NULL, 0);
-    /* These are the native type IDs passed by Look, rather than combat indices.
+    /* These are native tile-type IDs, rather than combat indices.
      * Editing artwork must not redirect them to entity zero (Mage). */
     assert(!strcmp(ACTORS_Name(368, 0), "Guard"));
     assert(!strcmp(ACTORS_Name(369, 0), "Guard"));
@@ -294,7 +294,7 @@ static void vanillaActorOverrideIdentity(void) {
     assert(!strcmp(ACTORS_Name(12, 0), "Royal Guard"));
     TYPES_Mount(NULL, 0, NULL, 0);
     free(defs);
-    puts("PASS vanilla actor artwork overrides preserve Look names and combat identity");
+    puts("PASS vanilla actor artwork overrides preserve type names and combat identity");
 }
 
 static void multiTileActors(void) {
