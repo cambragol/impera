@@ -253,6 +253,50 @@ static void customTypeGame(void) {
          "native save/load");
 }
 
+static void vanillaActorOverrideIdentity(void) {
+    const unsigned ids[] = {368, 369, 440};
+    const unsigned recordSize = 256 + 4 + 16 * 16 * 4;
+    const unsigned size = 32 + 3 * recordSize;
+    unsigned char *defs = calloc(1, size);
+    assert(defs);
+    memcpy(defs, "ITYPES01", 8);
+    defs[8] = 17;
+    TYPES_Put32(defs + 24, 3);
+    for (unsigned i = 0; i < 3; ++i) {
+        TypeDef d;
+        TYPES_Vanilla(1, ids[i] - 256, &d);
+        d.kind = i == 2 ? 2 : 1;
+        d.frames = 1;
+        if (i == 2) strcpy(d.name, "Stone Golem");
+        unsigned char *record = defs + 32 + i * recordSize;
+        TYPES_Encode(record, &d);
+        TYPES_Put32(record, recordSize);
+        record[257] = 16;
+        record[258] = 100;
+        memset(record + 260, 255, 16 * 16 * 4);
+    }
+    assert(TYPES_Validate(defs, size));
+    TYPES_Mount(defs, size, NULL, 0);
+    /* These are the native type IDs passed by Look, rather than combat indices.
+     * Editing artwork must not redirect them to entity zero (Mage). */
+    assert(!strcmp(ACTORS_Name(368, 0), "Guard"));
+    assert(!strcmp(ACTORS_Name(369, 0), "Guard"));
+    assert(!strcmp(ACTORS_Name(440, 0), "Stone Golem"));
+    assert(!strcmp(ACTORS_Name(12, 0), "Guard"));
+    assert(!strcmp(ACTORS_Name(30, 0), "Stone Golem"));
+    TypeDef direct = ACTORS_Def(368), combat = ACTORS_Def(12);
+    assert(direct.base == 112 && !memcmp(direct.stats, combat.stats, sizeof(direct.stats)));
+    assert(!strcmp(ACTORS_Name(368, 1), ACTORS_Name(12, 1)));
+    /* Explicitly authored names still take precedence over the vanilla label. */
+    strcpy((char *)defs + 32 + 56, "Royal Guard");
+    TYPES_Mount(defs, size, NULL, 0);
+    assert(!strcmp(ACTORS_Name(368, 0), "Royal Guard"));
+    assert(!strcmp(ACTORS_Name(12, 0), "Royal Guard"));
+    TYPES_Mount(NULL, 0, NULL, 0);
+    free(defs);
+    puts("PASS vanilla actor artwork overrides preserve Look names and combat identity");
+}
+
 static void multiTileActors(void) {
     const unsigned localBytes = 32 * 32 * 4, worldBytes = 16 * 16 * 4;
     const unsigned recordSize = 256 + 4 + localBytes + 4 + worldBytes, size = 32 + recordSize;
