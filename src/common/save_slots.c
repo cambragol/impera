@@ -91,6 +91,11 @@ void SLOTS_LocationName(unsigned int map,unsigned int level,char* out,size_t cap
     else if(map==0x11) raw="Lord British's Castle";
     else if(map==0x12) raw="Blackthorn's Palace";
     else if(map>=1 && map<=40 && D_1e3a[map-1]) raw=D_1e3a[map-1];
+    const char *custom = MOD_LocationName(map == 0 && level != 0 ? 41 : map, NULL);
+    if (custom) {
+        SDL_snprintf(out, capacity, map >= 33 && map <= 40 ? "Dungeon %s" : "%s", custom);
+        return;
+    }
     char name[64];SDL_strlcpy(name,raw,sizeof(name));
     bool word=true;
     for(char* p=name;*p;p++) {

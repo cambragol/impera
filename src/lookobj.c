@@ -1,3 +1,4 @@
+#include "mod/runtime.h"
 #include "mod/actors.h"
 #include "common/common.h"
 #include "common/movement.h"
@@ -374,6 +375,15 @@ static void LOOKOBJ_0502(int param_1, int param_2, int param_3, bool allowAction
         }
         else if (param_1 == TILE_MAP_DF)
         {
+            for (unsigned map = 33; map <= 40; ++map) {
+                if (MOD_LocationName(map, NULL) &&
+                    MOD_TableValue(7, map - 1, D_1e8a[map - 1]) == (unsigned)param_2 &&
+                    MOD_TableValue(8, map - 1, D_1eb2[map - 1]) == (unsigned)param_3) {
+                    ULTIMA_1850_PrintString((char *)MOD_LocationName(map, NULL));
+                    ULTIMA_16ba_PrintChar('\n');
+                    return;
+                }
+            }
             switch (param_2)
             {
             case 0xf0:

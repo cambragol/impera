@@ -1683,12 +1683,20 @@ void DUNGEON_1d08_Exit(void)
     if (D_5895_map_level != 0)
     {
         D_5895_map_level = 0xff;
-        ULTIMA_1850_PrintString(_TEXT(0x6c8e, "Underworld!\n\n"));
+        if (MOD_LocationName(41, NULL)) {
+            ULTIMA_1850_PrintString((char *)MOD_LocationName(41, NULL));
+            ULTIMA_1850_PrintString("!\n\n");
+        } else
+            ULTIMA_1850_PrintString(_TEXT(0x6c8e, "Underworld!\n\n"));
     }
     else
     {
         D_5895_map_level = 0;
-        ULTIMA_1850_PrintString(_TEXT(0x6c9c, "Britannia!\n\n"));
+        if (MOD_LocationName(0, NULL)) {
+            ULTIMA_1850_PrintString((char *)MOD_LocationName(0, NULL));
+            ULTIMA_1850_PrintString("!\n\n");
+        } else
+            ULTIMA_1850_PrintString(_TEXT(0x6c9c, "Britannia!\n\n"));
     }
 
     D_5893_map_id = 0;

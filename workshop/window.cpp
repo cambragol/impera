@@ -740,7 +740,7 @@ void WorkshopWindow::rebuildTree() {
                           (d.conversation < 0 ||
                            editorState.value(current + "/conversation") == d.conversation);
             if (!matches && d.page >= 0) {
-                const auto pages = U5::mapPages(current, project.data(current));
+                const auto pages = project.mapPages(current);
                 matches = selected >= 0 && selected < pages.size() &&
                           pages[d.page].settlement >= 0 &&
                           pages[d.page].settlement == pages[selected].settlement;
@@ -843,7 +843,7 @@ void WorkshopWindow::selectResource(const QString &name) {
                   editorState.value(current + "/conversation") != d.conversation)))
                 continue;
             if (d.page >= 0 && d.page != editorState.value(current + "/map")) {
-                const auto pages = U5::mapPages(current, project.data(current));
+                const auto pages = project.mapPages(current);
                 const int selected = editorState.value(current + "/map");
                 if (selected >= pages.size() || pages[d.page].settlement < 0 ||
                     pages[d.page].settlement != pages[selected].settlement)
@@ -1444,7 +1444,7 @@ QWidget *WorkshopWindow::mapEditor(const QString &name) {
                             }
                             if (slot > 0 && (type >= 512 || !project.resources.value("TYPEMAP.OVR").edited.isEmpty())) {
                                 QString map = floor < 0 ? "UNDER.DAT" : "BRIT.DAT";
-                                auto pages = U5::mapPages(map, project.data(map));
+                                auto pages = project.mapPages(map);
                                 auto typeChanges =
                                     CustomTiles::assignActor(project, map, pages[0], 0, slot, type);
                                 for (auto it = typeChanges.begin(); it != typeChanges.end(); ++it) {
@@ -1725,7 +1725,7 @@ QWidget *WorkshopWindow::characterEditor(const QString &name) {
         connect(show, &QPushButton::clicked, root, [this, map, schedule, town, slot] {
             if (flushDraft && !flushDraft())
                 return;
-            const auto pages = U5::mapPages(map, project.data(map));
+            const auto pages = project.mapPages(map);
             MapNpcDocument doc(&project, schedule);
             const auto destination = doc.location(town, slot, 0);
             for (int i = 0; i < pages.size(); ++i)
@@ -2136,7 +2136,7 @@ QWidget *WorkshopWindow::npcEditor(const QString &name) {
     QString mapName = name.left(name.size() - 4) + ".DAT";
     QStringList labels;
     try {
-        for (auto p : U5::mapPages(mapName, project.data(mapName))) {
+        for (auto p : project.mapPages(mapName)) {
             QString label = p.name.section(" — ", 0, 0);
             if (!labels.contains(label))
                 labels << label;
@@ -2228,7 +2228,7 @@ QWidget *WorkshopWindow::npcEditor(const QString &name) {
     return w;
 }
 QWidget *WorkshopWindow::combatEditor(const QString &name, int pageIndex) {
-    auto pages = U5::mapPages(name, project.data(name));
+    auto pages = project.mapPages(name);
     QVBoxLayout *layout;
     auto w = panel(&layout);
     auto choice = new QComboBox;

@@ -1,3 +1,4 @@
+#include "mod/runtime.h"
 #include "common/common.h"
 #include "funcs.h"
 #include "macros.h"
@@ -387,7 +388,9 @@ static int SHOPPES2_0508(void)
                 ULTIMA_2900_UpdateVitalsDisplay();
 
                 D_ab00 = D_4ca8[local_8];
-                D_ac62 = D_4cf6[D_4cdc[local_8]];
+                unsigned place = D_4cdc[local_8];
+                unsigned map = place < 8 ? place + 1 : place == 11 ? 30 : place == 12 ? 32 : 255;
+                D_ac62 = (char *)MOD_LocationName(map, D_4cf6[place]);
 
                 SHOPPES_017a(D_4d44[ULTIMA_2092_RandomRange(0, 3)]);
 

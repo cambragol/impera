@@ -690,7 +690,7 @@ static int MAINOUT_0790_LoadDungeon(char* param_1)
         {
             ULTIMA_1850_PrintString(_TEXT(0x2a47, "\n\n"));
             ULTIMA_16ba_PrintChar(CTRL_CHAR_CENTER_TEXT);
-            ULTIMA_1850_PrintString(D_1e3a[local_4]);
+            ULTIMA_1850_PrintString((char *)MOD_LocationName(local_4 + 1, D_1e3a[local_4]));
             ULTIMA_16ba_PrintChar(CTRL_CHAR_UNCENTER_TEXT);
         }
 
@@ -800,11 +800,13 @@ int MAINOUT_08de_EnterCmd(void)
         break;
 
     case TILE_MAP_PALACEBT:
-        local_4 = OUTSUBS_0388_EnterTown(_TEXT(0x2ae0, "the palace of Blackthorn!"));
+        local_4 = OUTSUBS_0388_EnterTown(
+            MOD_LocationName(18, NULL) ? "palace" : _TEXT(0x2ae0, "the palace of Blackthorn!"));
         break;
 
     case TILE_MAP_CASTLELB:
-        local_4 = OUTSUBS_0388_EnterTown(_TEXT(0x2afa, "the Castle of Lord British!"));
+        local_4 = OUTSUBS_0388_EnterTown(
+            MOD_LocationName(17, NULL) ? "castle" : _TEXT(0x2afa, "the Castle of Lord British!"));
         break;
 
     default:

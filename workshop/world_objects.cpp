@@ -132,7 +132,7 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
     auto toolbar = new QHBoxLayout;
     auto world = new QComboBox;
     world->setObjectName("objectWorld");
-    world->addItems({"Britannia", "Underworld"});
+    world->addItems({project->locationName(0), project->locationName(41)});
     world->setCurrentIndex(initialWorld);
     world->setToolTip(
         "Edit the effective objects for a fresh game in this world. Existing saves are unchanged.");

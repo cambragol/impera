@@ -17,7 +17,7 @@ bool MapDocument::supported(const QString &r) {
     return Workshop::capability(r).editor == Workshop::EditorKind::Map;
 }
 MapDocument::MapDocument(const Project *p, const QString &r) : project(p), resource(r) {
-    pages = U5::mapPages(resource, project->data(resource));
+    pages = project->mapPages(resource);
 }
 QByteArray MapDocument::rawTerrain(int index, bool original) const {
     const auto &p = pages.at(index);
@@ -1200,7 +1200,7 @@ MapWorkspace::MapWorkspace(
     auto combat = new QTreeWidgetItem(maps, {"Combat maps"});
     for (auto name : project->resources.keys())
         if (MapDocument::supported(name)) {
-            auto pages = U5::mapPages(name, project->data(name));
+            auto pages = project->mapPages(name);
             QMap<QString, QTreeWidgetItem *> locations;
             QTreeWidgetItem *combatGroup = nullptr;
             if (name.endsWith(".CBT"))
@@ -1246,6 +1246,38 @@ MapWorkspace::MapWorkspace(
     locationLabel->setObjectName("mapLocationLabel");
     locationLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
     row->addWidget(locationLabel);
+    if (!resource.endsWith(".CBT")) {
+        auto rename = new QToolButton;
+        rename->setObjectName("renameLocation");
+        rename->setIcon(MapCanvas::toolIcon(MapCanvas::Pencil));
+        rename->setToolTip("Rename location");
+        row->addWidget(rename);
+        connect(rename, &QToolButton::clicked, this, [this] {
+            if (!flushLocationMode())
+                return;
+            const int id = resource == "UNDER.DAT"
+                               ? 41
+                               : Workshop::positionMap(resource, document.pages[currentPage()]);
+            bool ok = false;
+            const QString name = QInputDialog::getText(
+                this, "Rename location", "Name", QLineEdit::Normal, project->locationName(id), &ok);
+            if (!ok || name.trimmed() == project->locationName(id))
+                return;
+            try {
+                if (commitResources({{"LOCATIONS.OVR", project->renameLocation(id, name)}},
+                                    "Rename location")) {
+                    document = MapDocument(project, resource);
+                    populateFloors(currentPage());
+                    if (locationChanged)
+                        locationChanged();
+                }
+            } catch (const std::exception &error) {
+                QMessageBox::warning(this, "Cannot rename location",
+                                     QString::fromUtf8(error.what()));
+            }
+        });
+    }
+
     page = new QComboBox;
     page->setToolTip("Switch floors within the current location. Choose another location in the "
                      "map list; edits and view state are preserved.");

@@ -30,7 +30,7 @@ All integers are unsigned little-endian 32-bit values; there is no padding.
 
 | Header | Encoding |
 | --- | --- |
-| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0016` |
+| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0017` |
 | Title length | 1–256 UTF-8 bytes |
 | Resource count | 1–128 |
 | Title | Length bytes; embedded NUL forbidden |
@@ -412,3 +412,20 @@ The setting is encoded as `FC FD FC F9` at the start of the Description entry.
 It can be combined with the version 15 opening setting, in either order, before
 any explicit-quotation prefix. Workshop hides these metadata bytes from visual
 editing. Banks using gargoyle speech require package version 16.
+
+## Location names (version 17)
+
+`IMOD0017` adds `LOCATIONS.OVR`, an optional package-only companion with an empty
+original base. Its eight-byte magic is `ILOC0001`, followed by 42 fixed 64-byte
+slots. Slots 1–40 use the engine's location IDs (32 locations, then eight
+dungeons); slot 0 is Britannia and slot 41 is the Underworld. Each slot contains
+up to 63 printable ASCII characters, a NUL terminator, and zero padding. Empty
+slots retain the original name. Leading/trailing spaces, control characters,
+nonzero padding, and incorrect resource sizes are rejected.
+
+Workshop's map-header pencil renames the current location across every floor.
+The dungeon header offers the same control. Names participate in undo/redo,
+project persistence, navigation, NPC location filters, and entrance markers.
+Impera uses overrides for entrance announcements and save-slot location names;
+renamed dungeon entrances also use the new name when Look identifies them.
+Authored dialogue, signs, and other prose are not rewritten.

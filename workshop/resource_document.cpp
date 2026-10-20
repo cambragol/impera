@@ -1,3 +1,4 @@
+#include "mod/location_names.h"
 #include "mod/npcs.h"
 #include "resource_document.h"
 #include "contents_editor.h"
@@ -55,6 +56,8 @@ Capability capability(const QString &resource) {
         return {n == "MISCMSG.DAT" ? "Shrine / Codex / Blackthorn messages"
                                    : "Final rescue messages",
                 "Scenes", "Editable runtime message entries", EditorKind::Narrative};
+    if (n == "LOCATIONS.OVR")
+        return {"Location names", "World", "Edited through map headers", EditorKind::Inspector};
     if (n == "TEXT.OVR")
         return {"Extended narrative text", "Narrative",
                 "Versioned companion; edit through its source narrative document",
@@ -211,6 +214,10 @@ void validateResource(const Project &project, const QString &name) {
         CustomTiles::validate(project);
         return;
     }
+    if (name == "LOCATIONS.OVR") {
+        require(LOCATIONS_Validate(b.constData(), b.size()), "Invalid location names");
+        return;
+    }
     if (name == "CUTSCENE.OVR") {
         require(U5_ValidateCutscenes(b.constData(), b.size()), "Invalid cutscene pages");
         return;
@@ -222,7 +229,7 @@ void validateResource(const Project &project, const QString &name) {
                 const QString map = d.kind == 1 ? "BRIT.CBT" : "DUNGEON.CBT";
                 U5::require(project.resources.contains(map),
                             "Contents need the combat map: " + map);
-                U5::require(d.map < U5::mapPages(map, project.data(map)).size(),
+                U5::require(d.map < project.mapPages(map).size(),
                             "Contents reference a missing encounter");
             } else if (d.map >= 33) {
                 U5::require(project.resources.contains("DUNGEON.DAT"),
@@ -237,7 +244,7 @@ void validateResource(const Project &project, const QString &name) {
                 U5::require(project.resources.contains(map),
                             "Contents need the location map: " + map);
                 bool found = false;
-                for (const auto &page : U5::mapPages(map, project.data(map)))
+                for (const auto &page : project.mapPages(map))
                     if ((d.map == 0 || page.settlement == (d.map - 1) % 8) &&
                         (d.map == 0 || page.floor == d.floor))
                         found = true;
@@ -274,7 +281,7 @@ void validateResource(const Project &project, const QString &name) {
                 QString map = maps[(r.map - 1) / 8];
                 require(project.resources.contains(map), "Sign refers to an absent location map");
                 bool found = false;
-                for (const auto &page : U5::mapPages(map, project.data(map)))
+                for (const auto &page : project.mapPages(map))
                     if (page.settlement == (r.map - 1) % 8 && page.floor == r.floor)
                         found = true;
                 require(found, "Sign refers to a floor absent from its location");
