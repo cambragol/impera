@@ -9,7 +9,13 @@ int operandCount(int c) { return c == 133 ? 3 : c == 134 || c == 140 ? 1 : c == 
 QVector<Block> blocks(const QByteArray &b) {
     QVector<Block> out;
     for (int i = 0; i < b.size();) {
-        if ((i == 0 || (i == 2 && U5::byte(b, 0) == 144)) &&
+        if (i == 0 && b.startsWith(IMPERA_TALK_SKIP_OPENING)) {
+            out.append({b.left(IMPERA_TALK_SKIP_OPENING_SIZE), 257});
+            i += IMPERA_TALK_SKIP_OPENING_SIZE;
+            continue;
+        }
+        if ((i == 0 || (i == 2 && U5::byte(b, 0) == 144) ||
+             (i == IMPERA_TALK_SKIP_OPENING_SIZE && b.startsWith(IMPERA_TALK_SKIP_OPENING))) &&
             b.mid(i, IMPERA_TALK_EXPLICIT_QUOTES_SIZE) == IMPERA_TALK_EXPLICIT_QUOTES) {
             out.append({b.mid(i, IMPERA_TALK_EXPLICIT_QUOTES_SIZE), 256});
             i += IMPERA_TALK_EXPLICIT_QUOTES_SIZE;

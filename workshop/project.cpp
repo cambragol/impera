@@ -123,6 +123,16 @@ static bool usesExtendedDialogue(const Project &project) {
             return true;
     return false;
 }
+static bool skipsConversationOpening(const Project &project) {
+    for (const auto &name : project.changed())
+        if (name.endsWith(".TLK"))
+            for (const auto &conversation : U5::readDialogue(project.data(name)))
+                if (Dialogue::parse(conversation.bytes)
+                        .entries.value(1)
+                        .bytes.startsWith(IMPERA_TALK_SKIP_OPENING))
+                    return true;
+    return false;
+}
 QByteArray Project::package() const {
     validate();
     auto list = changed();
@@ -143,7 +153,8 @@ QByteArray Project::package() const {
     for (const auto &cell : CustomTiles::placements(*this))
         extraNpcs |= cell.kind == 3 && (cell.x >= 32 || cell.y);
     QByteArray out(
-        usesExtendedDialogue(*this)                                  ? "IMOD0014"
+        skipsConversationOpening(*this)                              ? "IMOD0015"
+        : usesExtendedDialogue(*this)                                ? "IMOD0014"
         : animationOptions                                           ? "IMOD0013"
         : extraNpcs                                                  ? "IMOD0012"
         : list.contains("TYPES.OVR") || list.contains("TYPEMAP.OVR") ? (largeActors  ? "IMOD0011"
@@ -279,6 +290,10 @@ void Project::save(const QString &path) {
     if (usesExtendedDialogue(*this)) {
         requirements["extendedDialogue"] = 1;
         requirements["packageVersion"] = 14;
+    }
+    if (skipsConversationOpening(*this)) {
+        requirements["conversationOpening"] = 1;
+        requirements["packageVersion"] = 15;
     }
     if (!requirements.isEmpty())
         root["requires"] = requirements;

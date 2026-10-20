@@ -42,7 +42,7 @@ class ConversationEditor : public QWidget {
     QDialog *auxiliary = nullptr;
     QDialog *diagnosticsWindow = nullptr;
     QWidget *keywordChips;
-    QCheckBox *showTrace;
+    QCheckBox *showTrace, *skipOpening;
     QPushButton *replyButton, *deleteButton, *upButton, *downButton, *duplicateButton, *nameButton;
     QComboBox *sourceScope, *locationFilter;
     void filterNpcs();

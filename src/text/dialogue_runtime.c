@@ -73,6 +73,11 @@ static int explicitAt(ImperaTalk *s, const uint8_t *cursor) {
            s->size - (size_t)(cursor - s->data) >= IMPERA_TALK_EXPLICIT_QUOTES_SIZE &&
            !memcmp(cursor, IMPERA_TALK_EXPLICIT_QUOTES, IMPERA_TALK_EXPLICIT_QUOTES_SIZE);
 }
+static int skipOpeningAt(ImperaTalk *s, const uint8_t *cursor) {
+    return cursor >= s->data && cursor <= s->data + s->size &&
+           (size_t)(s->data + s->size - cursor) >= IMPERA_TALK_SKIP_OPENING_SIZE &&
+           !memcmp(cursor, IMPERA_TALK_SKIP_OPENING, IMPERA_TALK_SKIP_OPENING_SIZE);
+}
 static void startResponse(ImperaTalk *s) {
     const uint8_t *cursor = *s->cursor;
     // Aliases use the final response's quotation policy, not the alias keyword.
@@ -184,6 +189,8 @@ static int TALK_0f32_ProcessChar(ImperaTalk *s, uint8_t param_1);
 
 // process talk string
 static int TALK_0788_ProcessTalkString(ImperaTalk *s) {
+    if (!stopped(s) && skipOpeningAt(s, *s->cursor))
+        *s->cursor += IMPERA_TALK_SKIP_OPENING_SIZE;
     if (explicitAt(s, *s->cursor)) {
         s->explicitQuotes = 1;
         *s->cursor += IMPERA_TALK_EXPLICIT_QUOTES_SIZE;
@@ -819,11 +826,15 @@ static int TALK_0f32_ProcessChar(ImperaTalk *s, uint8_t param_1) {
 static int TALK_111c(ImperaTalk *s) {
     s->string(s->host, _TEXT(0x94c4, "You see "));
 
-    if (TALK_07aa_ProcessNthTalkString(s, TALK_KEY_DESC) != 0) {
+    TALK_075a_SelectNthTalkString(s, TALK_KEY_DESC);
+    int skipOpening = !stopped(s) && skipOpeningAt(s, *s->cursor);
+    if (TALK_0788_ProcessTalkString(s) != 0) {
         return 1;
     } else {
         TALK_04d2_PrintCr(s);
         TALK_04d2_PrintCr(s);
+        if (skipOpening)
+            return 0;
         if (TALK_0d7a(s, 0) == 0) {
             s->explicitQuotes = 0;
             if (s->greetingRoll(s->host) != 0) {

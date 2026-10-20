@@ -5020,6 +5020,83 @@ int main(int argc, char **argv) {
                               .bytes == closed,
                   "Pre-fix Workshop NPC Farewell was not repaired before save/Playtest");
         });
+        test("Conversation opening setting persists and skips both introduction states", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            const auto bytes =
+                U5::encodeText("Mariah<Entry>A mage.<Entry>Old "
+                               "friend!<Entry>Magic<Entry>Farewell.<Entry><Any><Label 15>@");
+            file(dir.path() + "/TOWNE.TLK", U5::writeDialogue({{1, bytes}}));
+            QByteArray npcs(4608, 0);
+            npcs[513] = npcs[514] = 64;
+            npcs[545] = npcs[546] = 1;
+            file(dir.path() + "/TOWNE.NPC", npcs);
+            p.openGame(dir.path());
+            ConversationEditor editor(
+                &p, "TOWNE.TLK",
+                [&](const QByteArray &b, const QString &) { p.resources["TOWNE.TLK"].edited = b; },
+                {}, 0, 1, [](int, int) {});
+            auto checkbox = editor.findChild<QCheckBox *>("conversationSkipOpening");
+            check(checkbox && !checkbox->isChecked(), "Opening checkbox missing or defaults on");
+            checkbox->setChecked(true);
+            check(editor.flush(), "Opening setting cannot be saved");
+            auto bank = p.data("TOWNE.TLK");
+            auto flagged = U5::readDialogue(bank)[0].bytes;
+            check(Dialogue::parse(flagged).entries[1].bytes ==
+                      QByteArray(IMPERA_TALK_SKIP_OPENING) + Dialogue::text("A mage."),
+                  "Opening flag changed description text");
+            for (auto field : editor.findChildren<QPlainTextEdit *>("conversationBlockText"))
+                check(field->toPlainText() == "A mage.",
+                      "Opening metadata leaked into description UI");
+            check(p.data("TOWNE.NPC") == npcs, "Conversation setting changed NPC records");
+            auto package = p.package();
+            check(package.startsWith("IMOD0015"), "Opening setting lacks package version gate");
+            Project imported;
+            imported.openGame(dir.path());
+            imported.importPackage(package);
+            check(imported.data("TOWNE.TLK") == bank, "Package lost conversation opening flag");
+            auto old = package;
+            old.replace(0, 8, "IMOD0014");
+            rejects([&] { imported.importPackage(old); });
+            p.save(dir.path() + "/opening.imperaproject");
+            Project reopened;
+            reopened.load(p.projectPath);
+            check(reopened.data("TOWNE.TLK") == bank, "Project lost conversation opening flag");
+            for (int npc : {1, 2})
+                for (bool introduced : {false, true}) {
+                    auto setup =
+                        Dialogue::nativeSetup(p, "TOWNE.TLK", 0, Workshop::npcCharacter(0, npc));
+                    setup.state.introduced = introduced;
+                    auto result = Dialogue::runNativeVirtual(flagged, QByteArray(1024, char(128)),
+                                                             QByteArray(1024, char(128)), setup,
+                                                             {{0, 'n'},
+                                                              {0, 'a'},
+                                                              {0, 'm'},
+                                                              {0, 'e'},
+                                                              {0, 13},
+                                                              {0, 'b'},
+                                                              {0, 'y'},
+                                                              {0, 'e'},
+                                                              {0, 13}});
+                    check(result.error.isEmpty(), "Suppressed opening failed native execution");
+                    QString name, greeting, description;
+                    for (const auto &event : result.boundaries)
+                        if (event.kind == "glyph") {
+                            if (event.entry == 0)
+                                name += QChar(event.value);
+                            if (event.entry == 1)
+                                description += QChar(event.value);
+                            if (event.entry == 2)
+                                greeting += QChar(event.value);
+                        }
+                    check(name.contains("Mariah") && description.contains("A mage.") &&
+                              greeting.isEmpty(),
+                          "Shared opening setting removed Name/description or retained greeting");
+                }
+            checkbox->setChecked(false);
+            check(editor.flush() && U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes == bytes,
+                  "Clearing opening setting did not restore original conversation");
+        });
         test("Large mod conversations persist, package and playtest beyond DOS offsets", [&] {
             QTemporaryDir dir;
             auto p = fixture(dir.path());

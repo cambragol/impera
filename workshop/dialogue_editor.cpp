@@ -229,6 +229,31 @@ ConversationEditor::ConversationEditor(
     search->setPlaceholderText("Search NPC names, topics and dialogue…");
     search->setObjectName("conversationSearch");
     heading->addWidget(search, 1);
+    skipOpening = new QCheckBox("Skip opening dialogue");
+    skipOpening->setObjectName("conversationSkipOpening");
+    skipOpening->setToolTip(
+        "For every NPC using this conversation, show the description then go "
+        "directly to topics, skipping the automatic name introduction and greeting.");
+    heading->addWidget(skipOpening);
+    connect(skipOpening, &QCheckBox::toggled, this, [this](bool skip) {
+        if (loading)
+            return;
+        if (!flush()) {
+            QSignalBlocker block(skipOpening);
+            skipOpening->setChecked(!skip);
+            return;
+        }
+        attempt([&] {
+            auto next = doc;
+            auto &description = next.entries[1].bytes;
+            if (description.startsWith(IMPERA_TALK_SKIP_OPENING))
+                description.remove(0, IMPERA_TALK_SKIP_OPENING_SIZE);
+            if (skip)
+                description.prepend(IMPERA_TALK_SKIP_OPENING);
+            install(next.bytes(),
+                    skip ? "Skip conversation opening" : "Restore conversation opening", selected);
+        });
+    });
     layout->addLayout(heading);
     auto split = new QSplitter;
     layout->addWidget(split, 1);
@@ -717,6 +742,12 @@ void ConversationEditor::loadTestContext() {
 void ConversationEditor::loadNpc(int i, int entry) {
     npcIndex = i;
     doc = parse(conversations[i].bytes);
+    {
+        QSignalBlocker block(skipOpening);
+        skipOpening->setEnabled(doc.structuralError.isEmpty() && doc.entries.size() > 1);
+        skipOpening->setChecked(doc.entries.size() > 1 &&
+                                doc.entries[1].bytes.startsWith(IMPERA_TALK_SKIP_OPENING));
+    }
     stopPlaytest();
     loadTestContext();
     buildOutline(entry);
@@ -864,6 +895,8 @@ int ConversationEditor::entryPrefix(int entry) const {
     for (const auto &question : doc.questions)
         if (question.prompt == entry)
             prefix = 2;
+    if (entry == 1 && doc.entries[entry].bytes.startsWith(IMPERA_TALK_SKIP_OPENING))
+        prefix += IMPERA_TALK_SKIP_OPENING_SIZE;
     if (doc.entries[entry].bytes.mid(prefix, IMPERA_TALK_EXPLICIT_QUOTES_SIZE) ==
         IMPERA_TALK_EXPLICIT_QUOTES)
         prefix += IMPERA_TALK_EXPLICIT_QUOTES_SIZE;
@@ -1701,6 +1734,12 @@ void ConversationEditor::install(const QByteArray &bytes, const QString &descrip
     loadEntry(qBound(0, entry < 0 ? selected : entry, int(doc.entries.size() - 1)));
 }
 void ConversationEditor::updateDiagnostics() {
+    {
+        QSignalBlocker block(skipOpening);
+        skipOpening->setEnabled(doc.structuralError.isEmpty() && doc.entries.size() > 1);
+        skipOpening->setChecked(doc.entries.size() > 1 &&
+                                doc.entries[1].bytes.startsWith(IMPERA_TALK_SKIP_OPENING));
+    }
     issues = doc.issues();
     diagnostics->clear();
     for (auto i : issues) {

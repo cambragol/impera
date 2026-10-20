@@ -30,7 +30,7 @@ All integers are unsigned little-endian 32-bit values; there is no padding.
 
 | Header | Encoding |
 | --- | --- |
-| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0014` |
+| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0015` |
 | Title length | 1–256 UTF-8 bytes |
 | Resource count | 1–128 |
 | Title | Length bytes; embedded NUL forbidden |
@@ -388,3 +388,16 @@ copying it into the shared 1,024-byte scratch buffer. Workshop's editor and nati
 playtest also use the actual conversation length. The existing package resource
 limit of 8 MiB per bank still applies; there is no separate 1,024-byte conversation
 limit. Older engines reject version 14 packages rather than misreading their banks.
+
+## Conversation opening settings (version 15)
+
+`IMOD0015` adds the **Skip opening dialogue** setting, shared by every NPC using
+the conversation. It skips the random “I am called…” introduction and the
+already-introduced greeting, while retaining the description, Name response,
+topics, and introduction-state flag.
+
+The setting is encoded as the four-byte prefix `FC FD FC FA` at the start of the
+conversation's Description entry. It may precede the explicit-quotation prefix.
+Workshop hides the prefix from visual editing and preserves it when editing the
+description. Banks with this setting require package version 15, including banks
+that otherwise fit the original DOS TLK layout.
