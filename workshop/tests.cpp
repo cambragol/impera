@@ -3167,8 +3167,18 @@ int main(int argc, char **argv) {
             entries[1].id = 1;
             rejects([&] { U5::writeDialogue(entries); });
             entries[1].id = 2;
-            entries[1].bytes = QByteArray(1025, 'x');
-            rejects([&] { U5::writeDialogue(entries); });
+            entries[1].bytes = QByteArray(70000, 'x');
+            auto extended = U5::writeDialogue(entries);
+            check(extended.startsWith("ITLK0001") &&
+                      U5::readDialogue(extended)[1].bytes == entries[1].bytes,
+                  "Extended dialogue bank lost long conversations");
+            auto truncated = extended;
+            truncated.chop(1);
+            rejects([&] { U5::readDialogue(truncated); });
+            auto overlap = extended;
+            overlap[28] = char(1);
+            overlap[29] = overlap[30] = overlap[31] = 0;
+            rejects([&] { U5::readDialogue(overlap); });
         });
         test("Britannia implicit water and shared chunks", [] {
             QByteArray ovl(0x3986, 0);
@@ -5009,6 +5019,259 @@ int main(int argc, char **argv) {
                               .entries[4]
                               .bytes == closed,
                   "Pre-fix Workshop NPC Farewell was not repaired before save/Playtest");
+        });
+        test("Conversation opening setting persists and skips both introduction states", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            const auto bytes =
+                U5::encodeText("Mariah<Entry>A mage.<Entry>Old "
+                               "friend!<Entry>Magic<Entry>Farewell.<Entry><Any><Label 15>@");
+            file(dir.path() + "/TOWNE.TLK", U5::writeDialogue({{1, bytes}}));
+            QByteArray npcs(4608, 0);
+            npcs[513] = npcs[514] = 64;
+            npcs[545] = npcs[546] = 1;
+            file(dir.path() + "/TOWNE.NPC", npcs);
+            p.openGame(dir.path());
+            ConversationEditor editor(
+                &p, "TOWNE.TLK",
+                [&](const QByteArray &b, const QString &) { p.resources["TOWNE.TLK"].edited = b; },
+                {}, 0, 1, [](int, int) {});
+            auto checkbox = editor.findChild<QCheckBox *>("conversationSkipOpening");
+            check(checkbox && !checkbox->isChecked(), "Opening checkbox missing or defaults on");
+            checkbox->setChecked(true);
+            check(editor.flush(), "Opening setting cannot be saved");
+            auto bank = p.data("TOWNE.TLK");
+            auto flagged = U5::readDialogue(bank)[0].bytes;
+            check(Dialogue::parse(flagged).entries[1].bytes ==
+                      QByteArray(IMPERA_TALK_SKIP_OPENING) + Dialogue::text("A mage."),
+                  "Opening flag changed description text");
+            for (auto field : editor.findChildren<QPlainTextEdit *>("conversationBlockText"))
+                check(field->toPlainText() == "A mage.",
+                      "Opening metadata leaked into description UI");
+            check(p.data("TOWNE.NPC") == npcs, "Conversation setting changed NPC records");
+            auto package = p.package();
+            check(package.startsWith("IMOD0015"), "Opening setting lacks package version gate");
+            Project imported;
+            imported.openGame(dir.path());
+            imported.importPackage(package);
+            check(imported.data("TOWNE.TLK") == bank, "Package lost conversation opening flag");
+            auto old = package;
+            old.replace(0, 8, "IMOD0014");
+            rejects([&] { imported.importPackage(old); });
+            p.save(dir.path() + "/opening.imperaproject");
+            Project reopened;
+            reopened.load(p.projectPath);
+            check(reopened.data("TOWNE.TLK") == bank, "Project lost conversation opening flag");
+            for (int npc : {1, 2})
+                for (bool introduced : {false, true}) {
+                    auto setup =
+                        Dialogue::nativeSetup(p, "TOWNE.TLK", 0, Workshop::npcCharacter(0, npc));
+                    setup.state.introduced = introduced;
+                    auto result = Dialogue::runNativeVirtual(flagged, QByteArray(1024, char(128)),
+                                                             QByteArray(1024, char(128)), setup,
+                                                             {{0, 'n'},
+                                                              {0, 'a'},
+                                                              {0, 'm'},
+                                                              {0, 'e'},
+                                                              {0, 13},
+                                                              {0, 'b'},
+                                                              {0, 'y'},
+                                                              {0, 'e'},
+                                                              {0, 13}});
+                    check(result.error.isEmpty(), "Suppressed opening failed native execution");
+                    QString name, greeting, description;
+                    for (const auto &event : result.boundaries)
+                        if (event.kind == "glyph") {
+                            if (event.entry == 0)
+                                name += QChar(event.value);
+                            if (event.entry == 1)
+                                description += QChar(event.value);
+                            if (event.entry == 2)
+                                greeting += QChar(event.value);
+                        }
+                    check(name.contains("Mariah") && description.contains("A mage.") &&
+                              greeting.isEmpty(),
+                          "Shared opening setting removed Name/description or retained greeting");
+                }
+            checkbox->setChecked(false);
+            check(editor.flush() && U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes == bytes,
+                  "Clearing opening setting did not restore original conversation");
+        });
+        test("Gargoyle conversation speech is shared, packaged and rendered by native runtime",
+             [&] {
+                 QTemporaryDir dir;
+                 auto p = fixture(dir.path());
+                 const auto bytes =
+                     U5::encodeText("Beh Lem<Entry>A gargoyle.<Entry>Old "
+                                    "friend!<Entry>Work<Entry>Bye.<Entry><Any><Label 15>@");
+                 file(dir.path() + "/TOWNE.TLK", U5::writeDialogue({{1, bytes}}));
+                 QByteArray npcs(4608, 0);
+                 npcs[513] = npcs[514] = 64;
+                 npcs[545] = npcs[546] = 1;
+                 file(dir.path() + "/TOWNE.NPC", npcs);
+                 p.openGame(dir.path());
+                 ConversationEditor editor(
+                     &p, "TOWNE.TLK",
+                     [&](const QByteArray &b, const QString &) {
+                         p.resources["TOWNE.TLK"].edited = b;
+                     },
+                     {}, 0, 1, [](int, int) {});
+                 auto gargoyle = editor.findChild<QCheckBox *>("conversationGargoyleSpeech");
+                 auto skip = editor.findChild<QCheckBox *>("conversationSkipOpening");
+                 check(gargoyle && skip && !gargoyle->isChecked(),
+                       "Gargoyle setting missing or defaults on");
+                 gargoyle->setChecked(true);
+                 check(editor.flush(), "Cannot apply gargoyle speech");
+                 auto flagged = U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes;
+                 check(IMPERA_TalkConversationFlags(flagged.constData(), flagged.size()) ==
+                           IMPERA_TALK_FLAG_GARGOYLE_SPEECH,
+                       "Conversation flag not stored");
+                 for (auto field : editor.findChildren<QPlainTextEdit *>("conversationBlockText"))
+                     check(field->toPlainText() == "A gargoyle.",
+                           "Speech flag leaked into authored text");
+                 auto package = p.package();
+                 check(package.startsWith("IMOD0016"), "Gargoyle speech missing version gate");
+                 Project imported;
+                 imported.openGame(dir.path());
+                 imported.importPackage(package);
+                 check(imported.data("TOWNE.TLK") == p.data("TOWNE.TLK"),
+                       "Package lost speech flag");
+                 package.replace(0, 8, "IMOD0015");
+                 rejects([&] { imported.importPackage(package); });
+                 p.save(dir.path() + "/gargoyle.imperaproject");
+                 Project reopened;
+                 reopened.load(p.projectPath);
+                 check(reopened.data("TOWNE.TLK") == p.data("TOWNE.TLK"),
+                       "Project lost speech flag");
+                 auto run = [&](const QByteArray &source, int npc, bool introduced, int seed,
+                                bool askName) {
+                     auto setup =
+                         Dialogue::nativeSetup(p, "TOWNE.TLK", 0, Workshop::npcCharacter(0, npc));
+                     setup.state.introduced = introduced;
+                     setup.seed = seed;
+                     QList<Dialogue::NativeKey> keys;
+                     for (char c : askName ? QByteArray("name\rbye\r") : QByteArray("bye\r"))
+                         keys.append({0, c});
+                     auto result =
+                         Dialogue::runNativeVirtual(source, QByteArray(1024, char(128)),
+                                                    QByteArray(1024, char(128)), setup, keys);
+                     check(result.error.isEmpty(), "Native gargoyle playtest failed");
+                     QString text;
+                     for (const auto &event : result.boundaries)
+                         if (event.kind == "glyph")
+                             text += QChar(event.value);
+                     return text;
+                 };
+                 for (int npc : {1, 2})
+                     for (bool introduced : {false, true}) {
+                         auto text = run(flagged, npc, introduced, 42, true);
+                         check(text.contains("To be called Beh Lem") &&
+                                   !text.contains("My name is") && !text.contains("I am called"),
+                               "Shared Name response did not use gargoyle speech");
+                         if (introduced)
+                             check(text.contains("Old friend!"),
+                                   "Gargoyle speech changed authored greeting");
+                     }
+                 bool sawIntroduction = false;
+                 for (int seed = 0; seed < 32 && !sawIntroduction; ++seed) {
+                     auto normal = run(bytes, 1, false, seed, false);
+                     if (!normal.contains("I am called"))
+                         continue;
+                     sawIntroduction = true;
+                     check(run(flagged, 1, false, seed, false).contains("To be called"),
+                           "Automatic introduction did not use gargoyle speech");
+                 }
+                 check(sawIntroduction, "Random introduction path was not exercised");
+                 skip->setChecked(true);
+                 auto combined = U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes;
+                 check(IMPERA_TalkConversationFlags(combined.constData(), combined.size()) == 3,
+                       "Opening flag displaced gargoyle speech");
+                 check(run(combined, 2, false, 42, true).contains("To be called Beh Lem"),
+                       "Skip opening disabled gargoyle Name response");
+                 gargoyle->setChecked(false);
+                 check(IMPERA_TalkConversationFlags(
+                           U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes.constData(),
+                           combined.size() - 4) == 1,
+                       "Clearing speech flag lost opening flag");
+                 skip->setChecked(false);
+                 check(editor.flush() && U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes == bytes &&
+                           p.data("TOWNE.NPC") == npcs,
+                       "Clearing flags changed original conversation or NPCs");
+             });
+        test("Large mod conversations persist, package and playtest beyond DOS offsets", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            auto bytes =
+                Dialogue::text(QString(70000, 'x')) +
+                U5::encodeText("<Entry>A creature.<Entry>Hello.<End "
+                               "Conversation><Entry>Work<Entry>Bye<Entry><Any><Label 15>@");
+            auto bank = U5::writeDialogue({{1, bytes}, {2, bytes}});
+            file(
+                dir.path() + "/TOWNE.TLK",
+                U5::writeDialogue({{1, U5::encodeText("Name<Entry>Description<Entry>Greeting<Entry>"
+                                                      "Work<Entry>Bye<Entry><Any><Label 15>@")}}));
+            p.openGame(dir.path());
+            p.resources["TOWNE.TLK"].edited = bank;
+            check(Dialogue::parse(bytes).issues().isEmpty(),
+                  "Long conversation rejected by editor");
+            auto package = p.package();
+            check(package.startsWith("IMOD0014"), "Long dialogue lacks version protection");
+            Project imported;
+            imported.openGame(dir.path());
+            imported.importPackage(package);
+            check(imported.data("TOWNE.TLK") == bank, "Long dialogue package roundtrip");
+            auto oldEngine = package;
+            oldEngine.replace(0, 8, "IMOD0013");
+            rejects([&] { imported.importPackage(oldEngine); });
+            p.save(dir.path() + "/long.imperaproject");
+            Project reopened;
+            reopened.load(dir.path() + "/long.imperaproject");
+            check(reopened.data("TOWNE.TLK") == bank, "Long dialogue project roundtrip");
+            Dialogue::NativeSetup setup;
+            setup.state.introduced = true;
+            auto result = Dialogue::runNativeVirtual(bytes, QByteArray(1024, char(128)),
+                                                     QByteArray(1024, char(128)), setup, {});
+            check(result.error.isEmpty(), "Native playtest failed beyond 16-bit offsets");
+            QString rendered;
+            for (const auto &glyph : result.boundaries)
+                if (glyph.kind == "glyph" && glyph.entry == 2)
+                    rendered += QChar(glyph.value);
+            check(rendered == "\"Hello.", "Long dialogue selected the wrong response");
+        });
+        test("Speech insertion after actions creates exactly one paragraph", [&] {
+            for (int code : {143, 131, 137}) {
+                QTemporaryDir dir;
+                auto p = fixture(dir.path());
+                auto response =
+                    Dialogue::text(code == 137 ? "First speech." : "First speech.\n\n") +
+                    Dialogue::action(code);
+                auto bytes = U5::encodeText("Name<Entry>Description<Entry>Greeting<Entry>") +
+                             response + U5::encodeText("<Entry>Bye<Entry><Any><Label 15>@");
+                file(dir.path() + "/TOWNE.TLK", U5::writeDialogue({{1, bytes}}));
+                p.openGame(dir.path());
+                ConversationEditor editor(
+                    &p, "TOWNE.TLK",
+                    [&](const QByteArray &data, const QString &) {
+                        p.resources["TOWNE.TLK"].edited = data;
+                    },
+                    {}, 0, 3, [](int, int) {});
+                auto actions = editor.findChild<QListWidget *>("conversationAvailableActions");
+                for (int i = 0; i < actions->count(); ++i)
+                    if (actions->item(i)->text() == "Speech Text") {
+                        actions->itemClicked(actions->item(i));
+                        break;
+                    }
+                auto fields = editor.findChildren<QPlainTextEdit *>("conversationBlockText");
+                check(fields.size() == 2, "Speech action inserted an extra text box");
+                check(fields[0]->toPlainText() == "First speech." &&
+                          fields[1]->toPlainText() == "New speech.",
+                      "Speech insertion changed text or exposed generated quotes/spacing");
+                fields[1]->setPlainText("Second speech.");
+                check(editor.flush(), "Inserted speech cannot be saved");
+                auto saved = Dialogue::parse(U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes);
+                check(saved.entries[3].bytes.contains(Dialogue::text("Second speech.")),
+                      "New speech was not saved");
+            }
         });
         test("Explicit narration and speech preserve native paragraph quotes", [&] {
             const auto speech = Dialogue::text("I speak.");

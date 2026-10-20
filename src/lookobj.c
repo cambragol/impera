@@ -664,7 +664,9 @@ void LOOKOBJ_099c_LookCmd(void)
                 !ACTORS_Contains(actor, local_8, local_a))
                 continue;
             unsigned type = ACTORS_Instance(actor);
-            if (type && TYPES_Defined(type)) {
+            /* Vanilla actors retain their dedicated LOOK2.DAT descriptions,
+             * including articles and modded text, when only their art changes. */
+            if (type >= 512 && TYPES_Defined(type)) {
                 ULTIMA_1850_PrintString(ACTORS_Name(type, 0));
                 ULTIMA_16ba_PrintChar('\n');
                 return;

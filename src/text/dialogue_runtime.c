@@ -73,6 +73,13 @@ static int explicitAt(ImperaTalk *s, const uint8_t *cursor) {
            s->size - (size_t)(cursor - s->data) >= IMPERA_TALK_EXPLICIT_QUOTES_SIZE &&
            !memcmp(cursor, IMPERA_TALK_EXPLICIT_QUOTES, IMPERA_TALK_EXPLICIT_QUOTES_SIZE);
 }
+static unsigned openingFlagsAt(ImperaTalk *s, const uint8_t *cursor, size_t *length) {
+    if (length)
+        *length = 0;
+    return cursor >= s->data && cursor <= s->data + s->size
+               ? IMPERA_TalkFlagPrefix(cursor, s->data + s->size - cursor, length)
+               : 0;
+}
 static void startResponse(ImperaTalk *s) {
     const uint8_t *cursor = *s->cursor;
     // Aliases use the final response's quotation policy, not the alias keyword.
@@ -184,6 +191,10 @@ static int TALK_0f32_ProcessChar(ImperaTalk *s, uint8_t param_1);
 
 // process talk string
 static int TALK_0788_ProcessTalkString(ImperaTalk *s) {
+    size_t flagBytes = 0;
+    if (!stopped(s))
+        openingFlagsAt(s, *s->cursor, &flagBytes);
+    *s->cursor += flagBytes;
     if (explicitAt(s, *s->cursor)) {
         s->explicitQuotes = 1;
         *s->cursor += IMPERA_TALK_EXPLICIT_QUOTES_SIZE;
@@ -328,7 +339,10 @@ static int TALK_0a54(ImperaTalk *s, uint8_t param_1) {
             return 2;
         }
 
-        s->string(s->host, _TEXT(0x93c2, "\"My name is "));
+        s->string(s->host,
+                  IMPERA_TalkConversationFlags(s->data, s->size) & IMPERA_TALK_FLAG_GARGOYLE_SPEECH
+                      ? "\"To be called "
+                      : _TEXT(0x93c2, "\"My name is "));
         if (TALK_07aa_ProcessNthTalkString(s, TALK_KEY_NAME) != 0) {
             return 1;
         }
@@ -819,16 +833,22 @@ static int TALK_0f32_ProcessChar(ImperaTalk *s, uint8_t param_1) {
 static int TALK_111c(ImperaTalk *s) {
     s->string(s->host, _TEXT(0x94c4, "You see "));
 
-    if (TALK_07aa_ProcessNthTalkString(s, TALK_KEY_DESC) != 0) {
+    TALK_075a_SelectNthTalkString(s, TALK_KEY_DESC);
+    unsigned openingFlags = !stopped(s) ? openingFlagsAt(s, *s->cursor, NULL) : 0;
+    if (TALK_0788_ProcessTalkString(s) != 0) {
         return 1;
     } else {
         TALK_04d2_PrintCr(s);
         TALK_04d2_PrintCr(s);
+        if (openingFlags & IMPERA_TALK_FLAG_SKIP_OPENING)
+            return 0;
         if (TALK_0d7a(s, 0) == 0) {
             s->explicitQuotes = 0;
             if (s->greetingRoll(s->host) != 0) {
                 // "I am called\nNAME"\n\n
-                s->string(s->host, _TEXT(0x94ce, "\"I am called "));
+                s->string(s->host, openingFlags & IMPERA_TALK_FLAG_GARGOYLE_SPEECH
+                                       ? "\"To be called "
+                                       : _TEXT(0x94ce, "\"I am called "));
                 if (TALK_07aa_ProcessNthTalkString(s, TALK_KEY_NAME) == 0) {
                     TALK_04da_PrintQuoteMark(s);
                     TALK_04d2_PrintCr(s);

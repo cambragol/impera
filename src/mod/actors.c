@@ -9,7 +9,9 @@
 static unsigned encounter;
 TypeDef ACTORS_Def(unsigned type) {
     TypeDef d;
-    if (type >= 512 && TYPES_Get(type, &d) && d.kind)
+    /* Look resolves an authored actor's tile-type ID (including vanilla
+     * overrides); combat also accepts its original 0..47 entity index. */
+    if (type >= 256 && TYPES_Get(type, &d) && d.kind)
         return d;
     if (type < 48 && TYPES_Defined(320 + type * 4) && TYPES_Get(320 + type * 4, &d) && d.kind)
         return d;

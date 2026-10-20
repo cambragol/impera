@@ -30,7 +30,7 @@ All integers are unsigned little-endian 32-bit values; there is no padding.
 
 | Header | Encoding |
 | --- | --- |
-| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0009` |
+| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0016` |
 | Title length | 1–256 UTF-8 bytes |
 | Resource count | 1–128 |
 | Title | Length bytes; embedded NUL forbidden |
@@ -367,3 +367,48 @@ in the file format for continuous sequences; Workshop exposes no timing numbers
 or animation scripting. Workshop exports custom actor definitions as version 13
 so older engines reject these packages instead of silently ignoring inherited
 animation. Older packages remain readable by the updated engine.
+
+## Extended dialogue banks (version 14)
+
+`IMOD0014` adds `ITLK0001` dialogue banks when a conversation exceeds 1,024 bytes
+or a bank exceeds the original signed DOS offset range. Ordinary conversations
+continue to use the original TLK layout. Workshop chooses the format automatically.
+The extension works with the existing speech/narration controls and NPC identities.
+
+An extended `.TLK` resource starts with eight ASCII bytes `ITLK0001`, a little-endian
+32-bit conversation count, and one `{id, offset, length}` record per conversation.
+All three record fields are unsigned little-endian 32-bit integers. Offsets are
+absolute byte offsets in the bank. IDs are unique and retain the original 16-bit
+identity range; the table retains its 127-conversation capacity. Payloads contain
+unchanged dialogue bytecode. Records must be ordered and non-overlapping, with
+nonempty payloads entirely inside the resource.
+
+Impera loads the selected conversation with its actual byte length instead of
+copying it into the shared 1,024-byte scratch buffer. Workshop's editor and native
+playtest also use the actual conversation length. The existing package resource
+limit of 8 MiB per bank still applies; there is no separate 1,024-byte conversation
+limit. Older engines reject version 14 packages rather than misreading their banks.
+
+## Conversation opening settings (version 15)
+
+`IMOD0015` adds the **Skip opening dialogue** setting, shared by every NPC using
+the conversation. It skips the random “I am called…” introduction and the
+already-introduced greeting, while retaining the description, Name response,
+topics, and introduction-state flag.
+
+The setting is encoded as the four-byte prefix `FC FD FC FA` at the start of the
+conversation's Description entry. It may precede the explicit-quotation prefix.
+Workshop hides the prefix from visual editing and preserves it when editing the
+description. Banks with this setting require package version 15, including banks
+that otherwise fit the original DOS TLK layout.
+
+## Gargoyle speech (version 16)
+
+`IMOD0016` adds the shared **Gargoyle speech** conversation setting. The engine's
+automatic “I am called…” introduction and “My name is…” Name response use
+“To be called…” instead. Authored text and greetings remain unchanged.
+
+The setting is encoded as `FC FD FC F9` at the start of the Description entry.
+It can be combined with the version 15 opening setting, in either order, before
+any explicit-quotation prefix. Workshop hides these metadata bytes from visual
+editing. Banks using gargoyle speech require package version 16.
