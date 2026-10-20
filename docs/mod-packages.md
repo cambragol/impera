@@ -30,7 +30,7 @@ All integers are unsigned little-endian 32-bit values; there is no padding.
 
 | Header | Encoding |
 | --- | --- |
-| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0015` |
+| Magic/version | Eight ASCII bytes `IMOD0001` through `IMOD0016` |
 | Title length | 1–256 UTF-8 bytes |
 | Resource count | 1–128 |
 | Title | Length bytes; embedded NUL forbidden |
@@ -401,3 +401,14 @@ conversation's Description entry. It may precede the explicit-quotation prefix.
 Workshop hides the prefix from visual editing and preserves it when editing the
 description. Banks with this setting require package version 15, including banks
 that otherwise fit the original DOS TLK layout.
+
+## Gargoyle speech (version 16)
+
+`IMOD0016` adds the shared **Gargoyle speech** conversation setting. The engine's
+automatic “I am called…” introduction and “My name is…” Name response use
+“To be called…” instead. Authored text and greetings remain unchanged.
+
+The setting is encoded as `FC FD FC F9` at the start of the Description entry.
+It can be combined with the version 15 opening setting, in either order, before
+any explicit-quotation prefix. Workshop hides these metadata bytes from visual
+editing. Banks using gargoyle speech require package version 16.

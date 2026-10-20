@@ -61,18 +61,9 @@ static inline int DIALOGUE_ValidateBank(const void *data, size_t size) {
     return 1;
 }
 static inline int DIALOGUE_SkipsOpening(const void *data, size_t size) {
-    const uint8_t *b = (const uint8_t *)data;
-    size_t i = 0;
-    while (i < size) {
-        unsigned code = b[i++];
-        if (!code)
-            return size - i >= IMPERA_TALK_SKIP_OPENING_SIZE &&
-                   !memcmp(b + i, IMPERA_TALK_SKIP_OPENING, IMPERA_TALK_SKIP_OPENING_SIZE);
-        unsigned operands = code == 133 ? 3 : code == 134 || code == 140 ? 1 : code == 254 ? 2 : 0;
-        if (operands > size - i)
-            return 0;
-        i += operands;
-    }
-    return 0;
+    return (IMPERA_TalkConversationFlags(data, size) & IMPERA_TALK_FLAG_SKIP_OPENING) != 0;
+}
+static inline int DIALOGUE_GargoyleSpeech(const void *data, size_t size) {
+    return (IMPERA_TalkConversationFlags(data, size) & IMPERA_TALK_FLAG_GARGOYLE_SPEECH) != 0;
 }
 #endif

@@ -123,13 +123,13 @@ static bool usesExtendedDialogue(const Project &project) {
             return true;
     return false;
 }
-static bool skipsConversationOpening(const Project &project) {
+static bool conversationFlag(const Project &project, unsigned flag) {
     for (const auto &name : project.changed())
         if (name.endsWith(".TLK"))
             for (const auto &conversation : U5::readDialogue(project.data(name)))
-                if (Dialogue::parse(conversation.bytes)
-                        .entries.value(1)
-                        .bytes.startsWith(IMPERA_TALK_SKIP_OPENING))
+                if (IMPERA_TalkConversationFlags(conversation.bytes.constData(),
+                                                 conversation.bytes.size()) &
+                    flag)
                     return true;
     return false;
 }
@@ -153,7 +153,8 @@ QByteArray Project::package() const {
     for (const auto &cell : CustomTiles::placements(*this))
         extraNpcs |= cell.kind == 3 && (cell.x >= 32 || cell.y);
     QByteArray out(
-        skipsConversationOpening(*this)                              ? "IMOD0015"
+        conversationFlag(*this, IMPERA_TALK_FLAG_GARGOYLE_SPEECH)    ? "IMOD0016"
+        : conversationFlag(*this, IMPERA_TALK_FLAG_SKIP_OPENING)     ? "IMOD0015"
         : usesExtendedDialogue(*this)                                ? "IMOD0014"
         : animationOptions                                           ? "IMOD0013"
         : extraNpcs                                                  ? "IMOD0012"
@@ -291,9 +292,13 @@ void Project::save(const QString &path) {
         requirements["extendedDialogue"] = 1;
         requirements["packageVersion"] = 14;
     }
-    if (skipsConversationOpening(*this)) {
+    if (conversationFlag(*this, IMPERA_TALK_FLAG_SKIP_OPENING)) {
         requirements["conversationOpening"] = 1;
         requirements["packageVersion"] = 15;
+    }
+    if (conversationFlag(*this, IMPERA_TALK_FLAG_GARGOYLE_SPEECH)) {
+        requirements["gargoyleSpeech"] = 1;
+        requirements["packageVersion"] = 16;
     }
     if (!requirements.isEmpty())
         root["requires"] = requirements;

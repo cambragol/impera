@@ -236,23 +236,18 @@ ConversationEditor::ConversationEditor(
         "directly to topics, skipping the automatic name introduction and greeting.");
     heading->addWidget(skipOpening);
     connect(skipOpening, &QCheckBox::toggled, this, [this](bool skip) {
-        if (loading)
-            return;
-        if (!flush()) {
-            QSignalBlocker block(skipOpening);
-            skipOpening->setChecked(!skip);
-            return;
-        }
-        attempt([&] {
-            auto next = doc;
-            auto &description = next.entries[1].bytes;
-            if (description.startsWith(IMPERA_TALK_SKIP_OPENING))
-                description.remove(0, IMPERA_TALK_SKIP_OPENING_SIZE);
-            if (skip)
-                description.prepend(IMPERA_TALK_SKIP_OPENING);
-            install(next.bytes(),
-                    skip ? "Skip conversation opening" : "Restore conversation opening", selected);
-        });
+        setConversationFlag(IMPERA_TALK_FLAG_SKIP_OPENING, skip,
+                            skip ? "Skip conversation opening" : "Restore conversation opening");
+    });
+    gargoyleSpeech = new QCheckBox("Gargoyle speech");
+    gargoyleSpeech->setObjectName("conversationGargoyleSpeech");
+    gargoyleSpeech->setToolTip(
+        "For every NPC using this conversation, use ‘To be called’ for the "
+        "automatic introduction and Name response. Authored text is unchanged.");
+    heading->addWidget(gargoyleSpeech);
+    connect(gargoyleSpeech, &QCheckBox::toggled, this, [this](bool enabled) {
+        setConversationFlag(IMPERA_TALK_FLAG_GARGOYLE_SPEECH, enabled,
+                            enabled ? "Enable gargoyle speech" : "Disable gargoyle speech");
     });
     layout->addLayout(heading);
     auto split = new QSplitter;
@@ -742,12 +737,7 @@ void ConversationEditor::loadTestContext() {
 void ConversationEditor::loadNpc(int i, int entry) {
     npcIndex = i;
     doc = parse(conversations[i].bytes);
-    {
-        QSignalBlocker block(skipOpening);
-        skipOpening->setEnabled(doc.structuralError.isEmpty() && doc.entries.size() > 1);
-        skipOpening->setChecked(doc.entries.size() > 1 &&
-                                doc.entries[1].bytes.startsWith(IMPERA_TALK_SKIP_OPENING));
-    }
+    updateConversationFlags();
     stopPlaytest();
     loadTestContext();
     buildOutline(entry);
@@ -895,8 +885,12 @@ int ConversationEditor::entryPrefix(int entry) const {
     for (const auto &question : doc.questions)
         if (question.prompt == entry)
             prefix = 2;
-    if (entry == 1 && doc.entries[entry].bytes.startsWith(IMPERA_TALK_SKIP_OPENING))
-        prefix += IMPERA_TALK_SKIP_OPENING_SIZE;
+    if (entry == 1) {
+        size_t metadata = 0;
+        IMPERA_TalkFlagPrefix(doc.entries[entry].bytes.constData(), doc.entries[entry].bytes.size(),
+                              &metadata);
+        prefix += int(metadata);
+    }
     if (doc.entries[entry].bytes.mid(prefix, IMPERA_TALK_EXPLICIT_QUOTES_SIZE) ==
         IMPERA_TALK_EXPLICIT_QUOTES)
         prefix += IMPERA_TALK_EXPLICIT_QUOTES_SIZE;
@@ -1204,7 +1198,12 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
         sectionLayout->addWidget(label);
     };
     if (entry == 0 || entry == 1)
-        engineText(entry == 0 ? "My name is " : "You see ");
+        engineText(entry == 0 ? (IMPERA_TalkFlagPrefix(doc.entries[1].bytes.constData(),
+                                                       doc.entries[1].bytes.size(), nullptr) &
+                                         IMPERA_TALK_FLAG_GARGOYLE_SPEECH
+                                     ? "To be called "
+                                     : "My name is ")
+                              : "You see ");
     const auto entryBlocks = paragraphBlocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
     for (const auto &block : entryBlocks)
         entryShapes[entry].append(block.opcode);
@@ -1733,13 +1732,42 @@ void ConversationEditor::install(const QByteArray &bytes, const QString &descrip
     buildOutline(entry < 0 ? selected : entry);
     loadEntry(qBound(0, entry < 0 ? selected : entry, int(doc.entries.size() - 1)));
 }
-void ConversationEditor::updateDiagnostics() {
-    {
-        QSignalBlocker block(skipOpening);
-        skipOpening->setEnabled(doc.structuralError.isEmpty() && doc.entries.size() > 1);
-        skipOpening->setChecked(doc.entries.size() > 1 &&
-                                doc.entries[1].bytes.startsWith(IMPERA_TALK_SKIP_OPENING));
+void ConversationEditor::updateConversationFlags() {
+    const bool valid = doc.structuralError.isEmpty() && doc.entries.size() > 1;
+    const auto description = doc.entries.value(1).bytes;
+    const unsigned flags =
+        valid ? IMPERA_TalkFlagPrefix(description.constData(), description.size(), nullptr) : 0;
+    QSignalBlocker skipBlock(skipOpening), gargoyleBlock(gargoyleSpeech);
+    skipOpening->setEnabled(valid);
+    gargoyleSpeech->setEnabled(valid);
+    skipOpening->setChecked(flags & IMPERA_TALK_FLAG_SKIP_OPENING);
+    gargoyleSpeech->setChecked(flags & IMPERA_TALK_FLAG_GARGOYLE_SPEECH);
+}
+void ConversationEditor::setConversationFlag(unsigned flag, bool enabled,
+                                             const QString &description) {
+    if (loading)
+        return;
+    if (!flush()) {
+        updateConversationFlags();
+        return;
     }
+    if (!attempt([&] {
+            auto next = doc;
+            auto &bytes = next.entries[1].bytes;
+            size_t metadata = 0;
+            unsigned flags = IMPERA_TalkFlagPrefix(bytes.constData(), bytes.size(), &metadata);
+            flags = enabled ? flags | flag : flags & ~flag;
+            bytes.remove(0, metadata);
+            if (flags & IMPERA_TALK_FLAG_GARGOYLE_SPEECH)
+                bytes.prepend(IMPERA_TALK_GARGOYLE_SPEECH);
+            if (flags & IMPERA_TALK_FLAG_SKIP_OPENING)
+                bytes.prepend(IMPERA_TALK_SKIP_OPENING);
+            install(next.bytes(), description, selected);
+        }))
+        updateConversationFlags();
+}
+void ConversationEditor::updateDiagnostics() {
+    updateConversationFlags();
     issues = doc.issues();
     diagnostics->clear();
     for (auto i : issues) {
