@@ -378,7 +378,7 @@ void validate(const Project &p) {
             source =
                 QStringList{"TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT", "KEEP.DAT"}[(c.map - 1) / 8];
         require(p.resources.contains(source), "Custom tile references a missing map");
-        auto pages = U5::mapPages(source, p.data(source));
+        auto pages = p.mapPages(source);
         if (page < 0)
             for (int i = 0; i < pages.size(); i++)
                 if (pages[i].settlement == (c.map - 1) % 8 && pages[i].floor == c.floor)

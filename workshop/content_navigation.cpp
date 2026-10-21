@@ -73,7 +73,7 @@ QVector<ContentDestination> characterDestinations(const Project &project) {
         QMap<int, QString> locations;
         if (project.resources.contains(map)) {
             try {
-                for (const auto &page : U5::mapPages(map, project.data(map)))
+                for (const auto &page : project.mapPages(map))
                     if (page.settlement >= 0)
                         locations[page.settlement] = page.name.section(" — ", 0, 0);
             } catch (...) {
@@ -173,13 +173,15 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
             }
             continue;
         }
+        if (name == "LOCATIONS.OVR")
+            continue;
         if (name == "TYPEMAP.OVR")
             continue;
         if (name == "CONTENTS.OVR")
             continue; // Edited through the map inspector.
         const auto c = capability(name);
         if (MapDocument::supported(name)) {
-            const auto pages = U5::mapPages(name, project.data(name));
+            const auto pages = project.mapPages(name);
             for (int i = 0; i < pages.size(); ++i) {
                 const auto &p = pages[i];
                 QString group = p.settlement >= 0       ? "Locations"
@@ -393,6 +395,13 @@ QMap<QString, QStringList> contentChanges(const Project &project,
                 MapDocument map(&original, d.resource);
                 Project live = project;
                 MapDocument edited(&live, d.resource);
+                if (!d.resource.endsWith(".CBT")) {
+                    int id =
+                        d.resource == "UNDER.DAT" ? 41 : positionMap(d.resource, map.pages[d.page]);
+                    if (project.locationName(id) != original.locationName(id))
+                        parts.append("Location name");
+                }
+
                 if (changed(d.resource) || (d.resource == "BRIT.DAT" && changed("DATA.OVL")))
                     for (int i = 0; i < map.pages.size(); ++i) {
                         if (d.settlement >= 0 ? map.pages[i].settlement != d.settlement
@@ -506,6 +515,11 @@ QMap<QString, QStringList> contentChanges(const Project &project,
                         original.data(d.resource).mid(map.pages[d.page].offset, 352))
                     parts.append("Encounter details");
             } else if (d.resource == "DUNGEON.DAT") {
+                for (int id = 33; id <= 40; ++id)
+                    if (project.locationName(id) != original.locationName(id)) {
+                        parts.append("Location names");
+                        break;
+                    }
                 if (changed(d.resource))
                     parts.append("Dungeon terrain");
                 if (changed("CONTENTS.OVR"))

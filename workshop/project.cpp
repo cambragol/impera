@@ -1,3 +1,5 @@
+#include "dungeon_names.h"
+#include "mod/location_names.h"
 #include "mod/npcs.h"
 #include "project.h"
 #include "contents_editor.h"
@@ -44,7 +46,8 @@ void Project::openGame(const QString &directory) {
     for (const auto &name : dir.entryList(QDir::Files, QDir::Name)) {
         QString upper = name.toUpper();
         if (upper == "TYPES.OVR" || upper == "TYPEMAP.OVR" || upper == "CUTSCENE.OVR" ||
-            upper == "TEXT.OVR" || upper == "RULES.TBL" || upper == "CONTENTS.OVR")
+            upper == "LOCATIONS.OVR" || upper == "TEXT.OVR" || upper == "RULES.TBL" ||
+            upper == "CONTENTS.OVR")
             continue; // Companion resources are package-only.
         if (!MOD_AllowedResource(upper.toLatin1().constData()))
             continue;
@@ -64,6 +67,7 @@ void Project::openGame(const QString &directory) {
     next.resources.insert("TYPES.OVR", {{}, {}});
     next.resources.insert("TYPEMAP.OVR", {{}, {}});
     next.resources.insert("CUTSCENE.OVR", {{}, {}});
+    next.resources.insert("LOCATIONS.OVR", {{}, {}});
     next.resources.insert("TEXT.OVR", {{}, {}});
     next.resources.insert("RULES.TBL", {{}, {}});
     next.resources.insert("CONTENTS.OVR", {{}, {}});
@@ -73,6 +77,53 @@ const QByteArray &Project::data(const QString &name) const {
     auto it = resources.constFind(name);
     require(it != resources.cend(), "Required companion resource is missing: " + name);
     return it->edited;
+}
+QString Project::locationName(int map) const {
+    require(map >= 0 && map < LOCATION_NAME_SLOTS, "Invalid location");
+    const auto bytes = resources.value("LOCATIONS.OVR").edited;
+    if (const char *name = LOCATIONS_Name(bytes.constData(), bytes.size(), map))
+        return QString::fromLatin1(name);
+    if (!map)
+        return "Britannia";
+    if (map == 41)
+        return "Underworld";
+    if (map >= 33)
+        return QString::fromLatin1(engineDungeonNames[map - 33]);
+    const QStringList banks{"TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT", "KEEP.DAT"};
+    for (const auto &page : U5::mapPages(banks[(map - 1) / 8], QByteArray(16384, 0)))
+        if (page.settlement == (map - 1) % 8)
+            return page.name.section(" — ", 0, 0);
+    return {};
+}
+QByteArray Project::renameLocation(int map, const QString &name) const {
+    require(map >= 0 && map < LOCATION_NAME_SLOTS, "Invalid location");
+    const auto trimmed = name.trimmed();
+    require(!trimmed.isEmpty() && trimmed.size() < LOCATION_NAME_BYTES,
+            "Location name must contain 1–63 characters");
+    for (auto ch : trimmed)
+        require(ch.unicode() >= 32 && ch.unicode() <= 126,
+                "Location names use printable ASCII characters");
+    auto bytes = resources.value("LOCATIONS.OVR").edited;
+    if (bytes.isEmpty())
+        bytes = QByteArray("ILOC0001", 8) + QByteArray(LOCATION_NAMES_SIZE - 8, 0);
+    require(LOCATIONS_Validate(bytes.constData(), bytes.size()), "Invalid location names");
+    QByteArray slot = trimmed.toLatin1();
+    slot.append(QByteArray(LOCATION_NAME_BYTES - slot.size(), 0));
+    bytes.replace(8 + map * LOCATION_NAME_BYTES, LOCATION_NAME_BYTES, slot);
+    return bytes;
+}
+QVector<U5::MapPage> Project::mapPages(const QString &resource) const {
+    auto pages = U5::mapPages(resource, data(resource));
+    const QStringList banks{"TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT", "KEEP.DAT"};
+    int bank = banks.indexOf(resource);
+    for (auto &page : pages) {
+        if (bank >= 0)
+            page.name =
+                locationName(bank * 8 + page.settlement + 1) + " — " + page.name.section(" — ", 1);
+        else if (resource == "BRIT.DAT" || resource == "UNDER.DAT")
+            page.name = locationName(resource == "BRIT.DAT" ? 0 : 41);
+    }
+    return pages;
 }
 QStringList Project::changed() const {
     QStringList list;
@@ -153,7 +204,8 @@ QByteArray Project::package() const {
     for (const auto &cell : CustomTiles::placements(*this))
         extraNpcs |= cell.kind == 3 && (cell.x >= 32 || cell.y);
     QByteArray out(
-        conversationFlag(*this, IMPERA_TALK_FLAG_GARGOYLE_SPEECH)    ? "IMOD0016"
+        list.contains("LOCATIONS.OVR")                               ? "IMOD0017"
+        : conversationFlag(*this, IMPERA_TALK_FLAG_GARGOYLE_SPEECH)  ? "IMOD0016"
         : conversationFlag(*this, IMPERA_TALK_FLAG_SKIP_OPENING)     ? "IMOD0015"
         : usesExtendedDialogue(*this)                                ? "IMOD0014"
         : animationOptions                                           ? "IMOD0013"
@@ -300,6 +352,10 @@ void Project::save(const QString &path) {
         requirements["gargoyleSpeech"] = 1;
         requirements["packageVersion"] = 16;
     }
+    if (changed().contains("LOCATIONS.OVR")) {
+        requirements["locationNames"] = 1;
+        requirements["packageVersion"] = 17;
+    }
     if (!requirements.isEmpty())
         root["requires"] = requirements;
     QJsonObject annotations;
@@ -394,7 +450,8 @@ QVector<ModDiagnostic> validateMod(const Project &project, const QString &modsDi
     for (const auto &name : changes) {
         try {
             if (name == "TYPES.OVR" || name == "TYPEMAP.OVR" || name == "CUTSCENE.OVR" ||
-                name == "TEXT.OVR" || name == "RULES.TBL" || name == "CONTENTS.OVR") {
+                name == "LOCATIONS.OVR" || name == "TEXT.OVR" || name == "RULES.TBL" ||
+                name == "CONTENTS.OVR") {
                 require(project.resources[name].original.isEmpty(),
                         "Companion resource must have an empty original base");
             } else if (!MOD_TilesetSheet(name.toLatin1().constData())) {
@@ -708,8 +765,8 @@ QString prepareModTest(const Project &project, const QString &sessionsDirectory)
     }
     for (const auto &name : project.resources.keys()) {
         if (name == "TYPES.OVR" || name == "TYPEMAP.OVR" || name == "CUTSCENE.OVR" ||
-            name == "TEXT.OVR" || name == "RULES.TBL" || name == "CONTENTS.OVR" ||
-            MOD_TilesetSheet(name.toLatin1().constData()))
+            name == "LOCATIONS.OVR" || name == "TEXT.OVR" || name == "RULES.TBL" ||
+            name == "CONTENTS.OVR" || MOD_TilesetSheet(name.toLatin1().constData()))
             continue; // Virtual companion exists only inside the package.
         auto bytes = readLimited(destination.filePath(name), MOD_MAX_RESOURCE);
         require(bytes == project.resources[name].original,

@@ -209,8 +209,8 @@ DungeonWorkspace::DungeonWorkspace(
     auto row = new QHBoxLayout;
     auto dungeon = new QComboBox;
     dungeon->setObjectName("dungeonSelector");
-    for (auto name : engineDungeonNames)
-        dungeon->addItem(QString::fromLatin1(name));
+    for (int i = 0; i < 8; ++i)
+        dungeon->addItem(p->locationName(33 + i));
     dungeon->setToolTip("Choose a dungeon. Every dungeon has eight underground levels.");
     dungeon->setCurrentIndex(qBound(0, state->value("DUNGEON.DAT/dungeon"), 7));
     auto floor = new QComboBox;
@@ -222,6 +222,26 @@ DungeonWorkspace::DungeonWorkspace(
     floor->setCurrentIndex(qBound(0, state->value("DUNGEON.DAT/level"), 7));
     row->addWidget(new QLabel("Dungeon:"));
     row->addWidget(dungeon);
+    auto rename = new QToolButton;
+    rename->setObjectName("renameLocation");
+    rename->setIcon(MapCanvas::toolIcon(MapCanvas::Pencil));
+    rename->setToolTip("Rename dungeon");
+    row->addWidget(rename);
+    connect(rename, &QToolButton::clicked, this, [=] {
+        const int index = dungeon->currentIndex();
+        bool ok = false;
+        const auto name = QInputDialog::getText(this, "Rename dungeon", "Name", QLineEdit::Normal,
+                                                p->locationName(33 + index), &ok);
+        if (!ok || name.trimmed() == p->locationName(33 + index))
+            return;
+        try {
+            if (commit({{"LOCATIONS.OVR", p->renameLocation(33 + index, name)}}, "Rename dungeon"))
+                dungeon->setItemText(index, p->locationName(33 + index));
+        } catch (const std::exception &error) {
+            QMessageBox::warning(this, "Cannot rename dungeon", QString::fromUtf8(error.what()));
+        }
+    });
+
     row->addWidget(new QLabel("Level:"));
     row->addWidget(floor);
     row->addStretch();

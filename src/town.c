@@ -503,13 +503,21 @@ static bool TOWN_0600(int param_1)
                 ULTIMA_1850_PrintString(_TEXT(0x26ab, "Yes\n\nExit to\n"));
                 if (D_5893_map_id == 0x19)
                 {
-                    ULTIMA_1850_PrintString(_TEXT(0x26b9, "Underworld!\n"));
+                    if (MOD_LocationName(41, NULL)) {
+                        ULTIMA_1850_PrintString((char *)MOD_LocationName(41, NULL));
+                        ULTIMA_1850_PrintString("!\n");
+                    } else
+                        ULTIMA_1850_PrintString(_TEXT(0x26b9, "Underworld!\n"));
                     D_5895_map_level = 0xff;
                 }
                 else
                 {
                     // 07da
-                    ULTIMA_1850_PrintString(_TEXT(0x26c6, "Britannia!\n"));
+                    if (MOD_LocationName(0, NULL)) {
+                        ULTIMA_1850_PrintString((char *)MOD_LocationName(0, NULL));
+                        ULTIMA_1850_PrintString("!\n");
+                    } else
+                        ULTIMA_1850_PrintString(_TEXT(0x26c6, "Britannia!\n"));
                     D_5895_map_level = 0;
                 }
 

@@ -1,3 +1,4 @@
+#include "map_positions.h"
 #include "mod/npcs.h"
 #include "dialogue_editor.h"
 #include "native_text_viewport.h"
@@ -271,7 +272,8 @@ ConversationEditor::ConversationEditor(
         auto map =
             p->resources.contains(stem + ".DAT") ? p->data(stem + ".DAT") : QByteArray(32768, 0);
         for (auto page : U5::mapPages(stem + ".DAT", map))
-            locationNames[page.settlement] = page.name.section(" — ", 0, 0);
+            locationNames[page.settlement] =
+                p->locationName(Workshop::positionMap(stem + ".DAT", page));
         for (auto it = locationNames.cbegin(); it != locationNames.cend(); ++it)
             locationFilter->addItem(it.value(), it.key());
     }
@@ -852,8 +854,7 @@ void ConversationEditor::loadEntry(int e) {
         auto data = project->data(npcFile);
         QStringList locations;
         auto pages = project->resources.contains(resource.left(resource.size() - 4) + ".DAT")
-                         ? U5::mapPages(resource.left(resource.size() - 4) + ".DAT",
-                                        project->data(resource.left(resource.size() - 4) + ".DAT"))
+                         ? project->mapPages(resource.left(resource.size() - 4) + ".DAT")
                          : QVector<U5::MapPage>{};
         for (int town = 0; town < 8; ++town)
             for (int n = 0; n < int(NPCS_Count(data.constData(), data.size(), town)); ++n)

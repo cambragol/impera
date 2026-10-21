@@ -421,6 +421,102 @@ int main(int argc, char **argv) {
                  invalid.items[0].quantity = 100;
                  rejects([&] { Workshop::writeContents({invalid}, {}); });
              });
+        test("Location names follow maps, conversations, packages and undo", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            file(dir.path() + "/TOWNE.DAT", QByteArray(16384, 0));
+            file(dir.path() + "/CASTLE.DAT", QByteArray(16384, 0));
+            file(dir.path() + "/TOWNE.TLK",
+                 U5::writeDialogue(
+                     {{1, U5::encodeText(
+                              "Mage<Entry>A "
+                              "mage.<Entry>Hello<Entry>Work<Entry>Bye<Entry><Any><Label 15>@")}}));
+            QByteArray npcs(4608, 0);
+            npcs[513] = 64;
+            npcs[545] = 1;
+            file(dir.path() + "/TOWNE.NPC", npcs);
+            p.openGame(dir.path());
+            check(p.locationName(1) == "Moonglow" && p.locationName(17) == "Lord British's Castle",
+                  "Original location names changed");
+            p.resources["LOCATIONS.OVR"].edited = p.renameLocation(1, " New Moonglow ");
+            p.resources["LOCATIONS.OVR"].edited = p.renameLocation(17, "Avatar's Castle");
+            p.resources["LOCATIONS.OVR"].edited = p.renameLocation(33, "Abyss");
+            check(p.mapPages("TOWNE.DAT")[0].name == "New Moonglow — Floor 0" &&
+                      p.mapPages("TOWNE.DAT")[1].name == "New Moonglow — Floor 1",
+                  "Rename did not apply to all floors");
+            bool foundMap = false, foundNpc = false;
+            const auto destinations = Workshop::contentDestinations(p);
+            for (auto d : destinations) {
+                if (d.id == "world/TOWNE.DAT/0")
+                    foundMap = d.title == "New Moonglow";
+                if (d.character == Workshop::npcCharacter(0, 1))
+                    foundNpc = d.group == "New Moonglow";
+            }
+            check(foundMap && foundNpc, "Renamed location missing from map or dialogue navigation");
+            auto changes = Workshop::contentChanges(p, destinations);
+            check(changes["world/TOWNE.DAT/0"].contains("Location name") &&
+                      !changes["world/TOWNE.DAT/1"].contains("Location name"),
+                  "Rename change markers leaked to unrelated locations");
+            const auto positions = Workshop::mapPositions(p);
+            check(std::any_of(positions.begin(), positions.end(),
+                              [](auto pos) {
+                                  return pos.id == 100 && pos.name == "New Moonglow entrance";
+                              }),
+                  "Entrance retained its old name");
+            auto package = p.package();
+            check(package.startsWith("IMOD0017"), "Renames lack package version protection");
+            Project imported;
+            imported.openGame(dir.path());
+            imported.importPackage(package);
+            check(imported.locationName(1) == "New Moonglow" &&
+                      imported.locationName(33) == "Abyss",
+                  "Package lost location names");
+            package.replace(0, 8, "IMOD0016");
+            rejects([&] { imported.importPackage(package); });
+            p.save(dir.path() + "/locations.imperaproject");
+            Project reopened;
+            reopened.load(p.projectPath);
+            check(reopened.locationName(17) == "Avatar's Castle", "Project lost location names");
+            rejects([&] { p.renameLocation(1, " "); });
+            rejects([&] { p.renameLocation(1, QString(64, 'x')); });
+            rejects([&] { p.renameLocation(42, "Out of bounds"); });
+            rejects([&] { p.renameLocation(1, "Bad\nname"); });
+            WorkshopWindow window;
+            check(window.openGame(dir.path()), "Cannot open renaming fixture");
+            window.selectResource("TOWNE.DAT");
+            auto active = [&] {
+                return window.findChild<QStackedWidget *>("workspaces")->currentWidget();
+            };
+            auto rename = active()->findChild<QToolButton *>("renameLocation");
+            check(rename, "Map header lacks Rename location control");
+            QTimer::singleShot(0, [] {
+                auto dialog = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+                if (dialog) {
+                    dialog->setTextValue("New Moonglow");
+                    dialog->accept();
+                }
+            });
+            rename->click();
+            check(window.projectForTests().locationName(1) == "New Moonglow" &&
+                      active()->findChild<QLabel *>("mapLocationLabel")->text() == "New Moonglow:",
+                  "Rename UI did not refresh current map");
+            QAction *undo = nullptr, *redo = nullptr;
+            for (auto action : window.findChildren<QAction *>()) {
+                if (action->shortcut() == QKeySequence::Undo)
+                    undo = action;
+                if (action->shortcut() == QKeySequence::Redo)
+                    redo = action;
+            }
+            check(undo && redo && undo->isEnabled(), "Rename missing undo");
+            undo->trigger();
+            QApplication::processEvents();
+            check(window.projectForTests().locationName(1) == "Moonglow" &&
+                      active()->findChild<QLabel *>("mapLocationLabel")->text() == "Moonglow:",
+                  "Undo did not restore map name");
+            redo->trigger();
+            QApplication::processEvents();
+            check(window.projectForTests().locationName(1) == "New Moonglow", "Redo lost map name");
+        });
         test("Select Move opens contextual contents on settlement and encounter maps", [&] {
             QTemporaryDir dir;
             auto p = fixture(dir.path());

@@ -1,3 +1,4 @@
+#include "location_names.h"
 #include "runtime.h"
 #include "common/common.h"
 #include "common/file.h"
@@ -284,6 +285,11 @@ int MOD_InitializeWorldObjects(void *worlds512) {
     return 1;
 }
 
+const char *MOD_LocationName(unsigned map, const char *fallback) {
+    const ModResource *r = mountedResource("LOCATIONS.OVR");
+    const char *name = r ? LOCATIONS_Name(r->data, r->size, map) : NULL;
+    return name ? name : fallback;
+}
 const char *MOD_NarrativeText(const char *resource, unsigned offset) {
     const ModResource *r = mountedResource("TEXT.OVR");
     if (!r) return NULL;
