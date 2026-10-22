@@ -408,7 +408,7 @@ QWidget *locationTextEditor(Project *project, const QString &resource, TextCommi
             auto name = resources[group];
             if (!project->resources.contains(name))
                 continue;
-            auto maps = U5::mapPages(name, project->data(name));
+            auto maps = project->mapPages(name);
             for (int i = 0; i < maps.size(); i++) {
                 auto m = maps[i];
                 pages->append({name, i, group * 8 + m.settlement + 1, m.floor});

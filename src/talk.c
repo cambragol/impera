@@ -5,6 +5,9 @@
 #include "tiles.h"
 
 #include <string.h>
+#include <stdlib.h>
+#include "common/file.h"
+#include "mod/dialogue_bank.h"
 
 #include "npc.h"
 #include "shoppes.h"
@@ -524,6 +527,10 @@ static ImperaDialogueGame dialogueGame(void) {
     g.shapes = D_659e;
     g.dirty = &D_24e6;
     g.npc = D_bcdc;
+    g.npcCount = LOCATION_NPC_COUNT;
+    g.actorCount = MAP_ACTOR_COUNT;
+    g.extraKilled = D_5b5a + 128;
+    g.extraMet = D_5bda + 128;
     g.random = gameRandom;
     g.vitals = gameVitals;
     return g;
@@ -562,10 +569,20 @@ static void talkObserve(void *host, const uint8_t *cursor) {
     REFERENCE_TraceOpcode(cursor);
 #endif
 }
+#if !defined(TARGET_DOS16)
+static uint8_t *s_conversation;
+static size_t s_conversationSize;
+#endif
 static ImperaTalk nativeTalk(void) {
     ImperaTalk s = {0};
     s.data = D_b21e;
     s.size = 1024;
+#if !defined(TARGET_DOS16)
+    if (s_conversation) {
+        s.data = s_conversation;
+        s.size = s_conversationSize;
+    }
+#endif
     s.cursor = &D_bcde;
     s.operands = D_bce0;
     s.pending = &D_4aee;
@@ -695,14 +712,59 @@ static void TALK_1180(void)
     }
 }
 
+#if !defined(TARGET_DOS16)
+static uint8_t *TALK_LoadConversation(const char *name, unsigned wanted) {
+    s_conversation = NULL;
+    s_conversationSize = 0;
+    FILE *file = FILE_Open(name, "rb");
+    uint8_t *bank = NULL;
+    long size = 0;
+    if (file && !fseek(file, 0, SEEK_END)) {
+        size = ftell(file);
+        if (size > 0 && size <= DIALOGUE_BANK_MAX && !fseek(file, 0, SEEK_SET)) {
+            bank = malloc((size_t)size);
+            if (bank && fread(bank, 1, size, file) != (size_t)size) {
+                free(bank);
+                bank = NULL;
+            }
+        }
+    }
+    if (file)
+        fclose(file);
+    if (!bank || !DIALOGUE_ValidateBank(bank, size)) {
+        free(bank);
+        DEBUG_Error("Cannot load conversation bank '%s'", name);
+        return NULL;
+    }
+    unsigned count = DIALOGUE_Extended(bank, size) ? DIALOGUE_U32(bank + 8) : DIALOGUE_U16(bank);
+    for (unsigned i = 0; i < count; ++i) {
+        unsigned id;
+        size_t offset, length;
+        if (DIALOGUE_BankEntry(bank, size, i, &id, &offset, &length) && id == wanted) {
+            s_conversation = bank + offset;
+            s_conversationSize = length;
+            break;
+        }
+    }
+    if (!s_conversation) {
+        free(bank);
+        DEBUG_Error("Conversation %u missing from '%s'", wanted, name);
+        return NULL;
+    }
+    return bank;
+}
+#endif
+
 static void TALK_127e_StartTalk(int param_1)
 {
+#if !defined(TARGET_DOS16)
+    uint8_t *bank = TALK_LoadConversation(D_4aa0[(D_5893_map_id - 1) >> 3], param_1);
+    if (!bank)
+        return;
+#else
     uint local_4;
-    s16* local_6;
-    s16 local_8;
-    s16 local_a;
-    s16 local_c;
-
+    s16 *local_6;
+    s16 local_8, local_a, local_c;
     local_4 = (D_5893_map_id - 1) >> 3;
     ULTIMA_256e_ReadFileFromDisk(D_4aa0[local_4], D_b21e, 0x200, 0);
 
@@ -719,8 +781,15 @@ static void TALK_127e_StartTalk(int param_1)
     local_8 = *local_6;
     ULTIMA_256e_ReadFileFromDisk(D_4aa0[local_4], D_b21e, 0x400, local_8);
 
+#endif
     ImperaTalk session = nativeTalk();
     IMPERA_TalkRun(&session);
+#if !defined(TARGET_DOS16)
+    D_bcde = NULL;
+    s_conversation = NULL;
+    s_conversationSize = 0;
+    free(bank);
+#endif
 
     TALK_1180();
 }

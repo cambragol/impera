@@ -97,6 +97,44 @@ int main(void) {
     TALK_04da_PrintQuoteMark();
     TALK_04e2_PrintWord();
     assert(!strcmp(output, "\"I speak.\"\n\nHe gestures.\n\n\"Listen.\""));
+    /* Use the real game loader and interpreter with responses beyond 64 KiB.
+     * Long names need not render to test selection past their full byte span. */
+    const size_t padding = 70000;
+    const unsigned char suffix[] = {0, 'A' | 128, 0, 'H' | 128, 'i' | 128, 130, 0, 'W' | 128,
+                                    0, 'B' | 128, 0, 144,       159,       192, 0};
+    size_t conversationSize = padding + sizeof(suffix);
+    size_t bankSize = 24 + conversationSize;
+    uint8_t *bank = calloc(1, bankSize);
+    assert(bank);
+    memcpy(bank, DIALOGUE_BANK_MAGIC, 8);
+    bank[8] = 1;
+    bank[12] = 1;
+    bank[16] = 24;
+    for (int i = 0; i < 4; ++i)
+        bank[20 + i] = conversationSize >> (i * 8);
+    memset(bank + 24, 'X' | 128, padding);
+    memcpy(bank + 24 + padding, suffix, sizeof(suffix));
+    FILE *large = fopen("dialogue-long-test.tlk", "wb");
+    assert(large && fwrite(bank, 1, bankSize, large) == bankSize);
+    assert(!fclose(large));
+    uint8_t *loaded = TALK_LoadConversation("dialogue-long-test.tlk", 1);
+    assert(loaded && s_conversationSize == conversationSize);
+    reset();
+    ImperaTalk session = nativeTalk();
+    IMPERA_TalkSelect(&session, 2);
+    assert(!session.error && *session.cursor == session.data + padding + 3);
+    while (**session.cursor && !session.error)
+        if (IMPERA_TalkCharacter(&session, *(*session.cursor)++))
+            break;
+    IMPERA_TalkFlush(&session);
+    assert(!session.error && !strcmp(output, "Hi"));
+    s_conversation = NULL;
+    s_conversationSize = 0;
+    D_bcde = NULL;
+    free(loaded);
+    assert(!TALK_LoadConversation("dialogue-long-test.tlk", 2));
+    assert(!remove("dialogue-long-test.tlk"));
+    free(bank);
     puts("PASS dialogue flushes literal/dictionary words before actions, preserves operands and "
          "rune style, and retains long words");
     return 0;

@@ -1,3 +1,4 @@
+#include "mod/location_names.h"
 #undef NDEBUG
 #include "common/common.h"
 #include "common/file.h"
@@ -73,6 +74,45 @@ static void value(const char *path, const char *expected, int useMod) {
     assert(fread(b, 1, sizeof(b) - 1, f) == strlen(expected));
     assert(!strcmp(b, expected));
     fclose(f);
+}
+static void locationNames(void) {
+    unsigned char names[LOCATION_NAMES_SIZE] = "ILOC0001";
+    strcpy((char *)names + 8 + 2 * LOCATION_NAME_BYTES, "New Britain");
+    strcpy((char *)names + 8 + 17 * LOCATION_NAME_BYTES, "Avatar's Castle");
+    strcpy((char *)names + 8 + 33 * LOCATION_NAME_BYTES, "Abyss");
+    assert(LOCATIONS_Validate(names, sizeof(names)));
+    assert(!LOCATIONS_Name(names, sizeof(names), 1));
+    assert(!LOCATIONS_Name(names, sizeof(names), 42));
+    Buffer package;
+    header(&package, 1);
+    memcpy(package.bytes, "IMOD0017", 8);
+    rawEntry(&package, "LOCATIONS.OVR", "", 0, names, sizeof(names));
+    ModPackage decoded;
+    char error[256];
+    assert(MOD_Decode(package.bytes, package.size, readBase, NULL, &decoded, error, sizeof(error)));
+    MOD_Free(&decoded);
+    memcpy(package.bytes, "IMOD0016", 8);
+    assert(
+        !MOD_Decode(package.bytes, package.size, readBase, NULL, &decoded, error, sizeof(error)));
+    memcpy(package.bytes, "IMOD0017", 8);
+    put("application/Mods/locations.imperamod", package.bytes, package.size);
+    FILE_SetDataDirectory("game");
+    assert(MOD_LoadedCount() == 1);
+    assert(!strcmp(MOD_LocationName(2, "BRITAIN"), "New Britain"));
+    assert(!strcmp(MOD_LocationName(17, NULL), "Avatar's Castle"));
+    assert(!strcmp(MOD_LocationName(33, NULL), "Abyss"));
+    assert(!strcmp(MOD_LocationName(1, "MOONGLOW"), "MOONGLOW"));
+    assert(!MOD_LocationName(42, NULL));
+    FILE_SetDataDirectory(NULL);
+    assert(!MOD_LocationName(2, NULL));
+    remove("application/Mods/locations.imperamod");
+    names[8 + 63] = 'x';
+    assert(!LOCATIONS_Validate(names, sizeof(names)));
+    names[8 + 63] = 0;
+    names[8] = 1;
+    assert(!LOCATIONS_Validate(names, sizeof(names)));
+    names[8] = 0;
+    assert(!LOCATIONS_Validate(names, sizeof(names) - 1));
 }
 static void narrativeResources(void) {
     Buffer text = {0}, package;
@@ -520,6 +560,7 @@ int main(void) {
     remove("SAVEGAME/INIT.GAM");
     worldResources();
     dungeonResources();
+    locationNames();
     narrativeResources();
     sceneResources();
     engineTables();

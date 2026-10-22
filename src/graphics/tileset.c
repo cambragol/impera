@@ -1,11 +1,13 @@
 #include "tileset.h"
-#include "tileset_assets.h"
-#include "mod/runtime.h"
-#include "mod/package.h"
-#include "mod/tileset_resources.h"
 #include "common/file.h"
 #include "grap_buf.h"
 #include "grap_sdl.h"
+#include "mod/package.h"
+#include "mod/runtime.h"
+#include "mod/tileset_resources.h"
+#include "mod/types.h"
+#include "vars.h"
+#include "tileset_assets.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,6 +16,7 @@
  * retain the UI palette; alternate artwork uses an independent RGB palette.
  * Every logical pixel can describe four native Sharp subpixels without
  * changing map cells, collision, input coordinates or saved game state. */
+#define TILE_ART_TOKEN 0x200000u
 #define TILE_RGB_TOKEN 0x7fffffu
 #define TILE_TOKEN_MASK 0x7fffffu
 #define TILE_SPRITE_FLAG 0x800000u
@@ -199,6 +202,27 @@ static Uint32 over(Uint32 foreground, Uint32 background)
 }
 static Uint32 sampledColor(int color, int subX, int subY, const Uint32 *ega, bool transparent)
 {
+    if (sample >= TILE_ART_TOKEN && sample != TILE_RGB_TOKEN) {
+        unsigned token = sample - TILE_ART_TOKEN - 1, width = 0, height = 0;
+        unsigned fw, fh;
+        TYPES_ArtSlotSize(512 + token / 4096, !D_5893_map_id, &fw, &fh);
+        const unsigned char *rgba = TYPES_SampleArtImage(
+            (512 + token / 4096) | (((token >> 10) & 3) << 16),
+            (unsigned)selected + (!D_5893_map_id ? 6 : 0), SDL_GetTicks(), &width, &height);
+        if (rgba) {
+            unsigned x = token % 32, y = (token % 1024) / 32;
+            unsigned px = (x * 2 + subX) * width / (32 * fw);
+            unsigned py = (y * 2 + subY) * height / (32 * fh);
+            const unsigned char *p = rgba + (py * width + px) * 4;
+            Uint32 value = (Uint32)p[3] << 24 | (Uint32)p[0] << 16 | (Uint32)p[1] << 8 | p[2];
+            /* The engine transparency option keys black in sprite artwork, just
+             * as in native DOS sprites. Raw tiles and editor pixels keep it. */
+            if (transparent && !(value & 0xffffffu))
+                return 0;
+            return transparent ? value : over(value, ega[0]);
+        }
+        return ega[0];
+    }
     if (color < 16 || !sample || !selected)
         return TILESET_Color(color, ega);
     unsigned p = sample - 1, t = p / 256, x = p % 16, y = p % 256 / 16;
@@ -228,8 +252,6 @@ Uint32 TILESET_BufferColor(const byte *pixel, int subX, int subY, const Uint32 *
     unsigned ref = l && l->refs ? l->refs[pixel - l->pixels] : 0;
     if(ref>>24==*pixel && (ref&TILE_TOKEN_MASK)==TILE_RGB_TOKEN && l->backs)
         return l->backs[pixel-l->pixels];
-    if (!selected)
-        return ega[*pixel & 15];
     unsigned saved = sample;
     sample = ref >> 24 == *pixel ? (ref & TILE_TOKEN_MASK) : 0;
     Uint32 color = sampledColor(*pixel, subX, subY, ega, (ref & TILE_SPRITE_FLAG) != 0);
@@ -242,7 +264,10 @@ Uint32 TILESET_BufferColor(const byte *pixel, int subX, int subY, const Uint32 *
         if (sample)
         {
             unsigned token = sample - 1;
-            index = GRAP_BUF_TilePixel(token / 256, token % 16, token % 256 / 16);
+            if (token / 256 >= 512)
+                index = 16;
+            else
+                index = GRAP_BUF_TilePixel(token / 256, token % 16, token % 256 / 16);
         }
         color = over(color, TILESET_LastColor(index, subX, subY, ega));
     }
@@ -401,7 +426,9 @@ void TILESET_Refresh(void)
                 }
                 if(token==TILE_RGB_TOKEN) continue;
                 token--;
-                int color = GRAP_BUF_TilePixel(token / 256, token % 16, token % 256 / 16);
+                int color = token + 1 >= TILE_ART_TOKEN
+                                ? 16
+                                : GRAP_BUF_TilePixel(token / 256, token % 16, token % 256 / 16);
                 layers[i].pixels[p] = (byte)color;
                 layers[i].refs[p] = ((unsigned)color << 24) | (token + 1) | (ref & TILE_SPRITE_FLAG);
             }
@@ -476,6 +503,15 @@ bool TILESET_Select(int choice)
 int TILESET_Pixel(int tile, int x, int y)
 {
     sample = 0;
+    unsigned slot = TYPES_ArtSlot((uint32_t)tile);
+    unsigned fw = 1, fh = 1;
+    if (slot)
+        TYPES_ArtSize(tile, D_5893_map_id == 0, &fw, &fh);
+    if (slot && x >= 0 && y >= 0 && x < (int)(16 * fw) && y < (int)(16 * fh)) {
+        sample = TILE_ART_TOKEN + (slot - 512) * 4096 + (((unsigned)tile >> 16) & 3) * 1024 +
+                 y * 32 + x + 1;
+        return 16;
+    }
     if (!selected || tile < 0 || tile >= 512 || x < 0 || y < 0 || x >= 16 || y >= 16 || !available[tile])
         return -1;
     sample = (unsigned)(tile * 256 + y * 16 + x + 1);

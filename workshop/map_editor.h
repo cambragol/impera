@@ -21,13 +21,15 @@ class MapDocument {
     MapDocument(const Project *project, const QString &resource);
     QVector<U5::MapPage> pages;
     QByteArray terrain(int page, bool original = false) const;
-    QMap<QString, QByteArray> changes(int page, const QByteArray &terrain) const;
+    QMap<QString, QByteArray> changes(int page, const QByteArray &terrain,
+                                      const QByteArray &expanded = {}) const;
     static bool supported(const QString &resource);
     static QString tileName(int id);
     static QString tileCategory(int id);
     QImage terrainImage(int page, const QVector<QImage> &tiles, bool ids) const;
 
   private:
+    QByteArray rawTerrain(int index, bool original = false) const;
     const Project *project;
     QString resource;
 };
@@ -39,6 +41,11 @@ class MapNpcDocument {
   public:
     MapNpcDocument(Project *project, QString resource);
     static int locationIndex(int slot);
+    int count(int settlement) const;
+    int shapeOffset(int settlement, int npc) const;
+    int dialogueOffset(int settlement, int npc) const;
+    int offset(int settlement, int npc) const;
+    static void ensureSlot(QByteArray &, int settlement, int npc);
     NpcLocation location(int settlement, int npc, int slot) const;
     int hour(int settlement, int npc, int slot) const;
     int sprite(int settlement, int npc) const;
@@ -48,7 +55,6 @@ class MapNpcDocument {
   private:
     Project *project;
     QString resource;
-    int offset(int settlement, int npc) const;
 };
 
 class MapCanvas : public QWidget {
@@ -56,6 +62,12 @@ class MapCanvas : public QWidget {
     explicit MapCanvas(QWidget *parent = nullptr);
     enum Tool { Pencil, Eyedropper, Pan, InspectNpc, Select, Rectangle, Fill };
     QByteArray ids, original;
+    QByteArray extended, beforeExtended, stampExtended, libraryUuid;
+    QMap<unsigned, unsigned> legacyTiles;
+    QMap<unsigned, unsigned> spriteGround;
+    QImage tileImageAt(int offset) const;
+    unsigned tileId(int offset) const;
+    void setTileId(int offset, unsigned id);
     QRect selection;
     bool outline = false, comparison = false;
     QString operation = "Paint";
@@ -79,6 +91,11 @@ class MapCanvas : public QWidget {
         int x, y, tile, npc;
         QString label;
     };
+    QMap<unsigned, QSize> actorFootprints;
+    QSize actorSize(int tile) const { return actorFootprints.value(tile, QSize(1, 1)); }
+    QRect actorRect(const Actor &actor) const {
+        return QRect(QPoint(actor.x, actor.y), actorSize(actor.tile));
+    }
     QVector<Actor> actors, ghosts;
     int selectedNpc = -1;
     QPoint keyboardCell = {0, 0};
@@ -126,6 +143,7 @@ class MapCanvas : public QWidget {
     bool pasteFits() const;
     void pasteAt(QPoint cell);
     void say(const QString &message);
+    QPoint npcGrabOffset;
     QPoint last = {-1, -1}, hover = {-1, -1};
     void point(QPointF position, bool draw);
     void line(QPoint from, QPoint to);
@@ -176,6 +194,7 @@ class MapWorkspace : public QWidget {
                  std::function<bool(const QMap<QString, QByteArray> &, const QString &)> commit,
                  std::function<void(const QString &)> navigate, QWidget *parent = nullptr);
     ~MapWorkspace() override { clearLocationLayer(); }
+    std::function<void(unsigned)> editTileType;
     void cancelGesture();
     void prepareNavigation() {
         cancelGesture();

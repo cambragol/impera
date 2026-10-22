@@ -2,7 +2,6 @@
 #include <functional>
 namespace Dialogue {
 QVector<PreviewGlyph> layoutTalkWords(const QByteArray &styled) {
-    U5::require(styled.size() <= 16384, "Dialogue preview exceeds supported bounds");
     struct Layout {
         QVector<PreviewGlyph> result;
         int x = 0, y = 0, font = 0;
@@ -36,7 +35,6 @@ QVector<PreviewGlyph> layoutTalkWords(const QByteArray &styled) {
 GamePreview previewResponse(const QByteArray &bytes, int entry, const QByteArray &font,
                             const QByteArray &runes, const Sandbox &state) {
     U5::require(font.size() == 1024, "Game preview requires the original 1024-byte IBM.CH font");
-    U5::require(bytes.size() <= 1024, "Conversation response exceeds supported bounds");
     GamePreview result;
     QByteArray styled;
     int mask = 255, lastLiteral = 0;

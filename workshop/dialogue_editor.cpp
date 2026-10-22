@@ -1,3 +1,5 @@
+#include "map_positions.h"
+#include "mod/npcs.h"
 #include "dialogue_editor.h"
 #include "native_text_viewport.h"
 #include "native_dialogue_session.h"
@@ -37,6 +39,17 @@ static QVector<Block> paragraphBlocks(const QByteArray &bytes) {
         }
     }
     return result;
+}
+static bool hasFollowingParagraph(const QVector<Block> &entryBlocks, int index) {
+    for (; index < entryBlocks.size(); ++index) {
+        const auto &block = entryBlocks[index];
+        if (block.opcode < 0 && !plain(block.bytes).remove('"').trimmed().isEmpty())
+            return true;
+        if (block.opcode == 130 || block.opcode == 255 ||
+            (block.opcode >= 145 && block.opcode <= 159))
+            break;
+    }
+    return false;
 }
 static bool speechAt(const QVector<Block> &entryBlocks, int index, bool implicitQuotes) {
     bool open = implicitQuotes;
@@ -217,6 +230,26 @@ ConversationEditor::ConversationEditor(
     search->setPlaceholderText("Search NPC names, topics and dialogue…");
     search->setObjectName("conversationSearch");
     heading->addWidget(search, 1);
+    skipOpening = new QCheckBox("Skip opening dialogue");
+    skipOpening->setObjectName("conversationSkipOpening");
+    skipOpening->setToolTip(
+        "For every NPC using this conversation, show the description then go "
+        "directly to topics, skipping the automatic name introduction and greeting.");
+    heading->addWidget(skipOpening);
+    connect(skipOpening, &QCheckBox::toggled, this, [this](bool skip) {
+        setConversationFlag(IMPERA_TALK_FLAG_SKIP_OPENING, skip,
+                            skip ? "Skip conversation opening" : "Restore conversation opening");
+    });
+    gargoyleSpeech = new QCheckBox("Gargoyle speech");
+    gargoyleSpeech->setObjectName("conversationGargoyleSpeech");
+    gargoyleSpeech->setToolTip(
+        "For every NPC using this conversation, use ‘To be called’ for the "
+        "automatic introduction and Name response. Authored text is unchanged.");
+    heading->addWidget(gargoyleSpeech);
+    connect(gargoyleSpeech, &QCheckBox::toggled, this, [this](bool enabled) {
+        setConversationFlag(IMPERA_TALK_FLAG_GARGOYLE_SPEECH, enabled,
+                            enabled ? "Enable gargoyle speech" : "Disable gargoyle speech");
+    });
     layout->addLayout(heading);
     auto split = new QSplitter;
     layout->addWidget(split, 1);
@@ -239,7 +272,8 @@ ConversationEditor::ConversationEditor(
         auto map =
             p->resources.contains(stem + ".DAT") ? p->data(stem + ".DAT") : QByteArray(32768, 0);
         for (auto page : U5::mapPages(stem + ".DAT", map))
-            locationNames[page.settlement] = page.name.section(" — ", 0, 0);
+            locationNames[page.settlement] =
+                p->locationName(Workshop::positionMap(stem + ".DAT", page));
         for (auto it = locationNames.cbegin(); it != locationNames.cend(); ++it)
             locationFilter->addItem(it.value(), it.key());
     }
@@ -260,10 +294,14 @@ ConversationEditor::ConversationEditor(
         item->setData(0, Qt::UserRole, i);
         QVariantList usedLocations;
         for (auto town : locationNames.keys())
-            for (int slot = 0; slot < 32; ++slot)
-                if (town * 576 + 544 + slot < schedules.size() &&
-                    U5::byte(schedules, town * 576 + 512 + slot) != 0 &&
-                    U5::byte(schedules, town * 576 + 544 + slot) == conversations[i].id &&
+            for (int slot = 0;
+                 slot < int(NPCS_Count(schedules.constData(), schedules.size(), town)); ++slot)
+                if (NPCS_DialogueOffset(schedules.constData(), schedules.size(), town, slot) <
+                        schedules.size() &&
+                    U5::byte(schedules, NPCS_ShapeOffset(schedules.constData(), schedules.size(),
+                                                         town, slot)) != 0 &&
+                    U5::byte(schedules, NPCS_DialogueOffset(schedules.constData(), schedules.size(),
+                                                            town, slot)) == conversations[i].id &&
                     !usedLocations.contains(town))
                     usedLocations.append(town);
         item->setData(0, Qt::UserRole + 1, usedLocations);
@@ -692,8 +730,8 @@ void ConversationEditor::loadTestContext() {
     testNpc->clear();
     testNpc->addItem("Conversation only", -2);
     for (const auto &npc : Workshop::characterDestinations(*project))
-        if (npc.character > 0 && npc.character % 32 != 0 && npc.resource == resource &&
-            npc.conversation == npcIndex)
+        if (npc.character > 0 && Workshop::npcSlot(npc.character) != 0 &&
+            npc.resource == resource && npc.conversation == npcIndex)
             testNpc->addItem(npc.title + " — " + npc.group, npc.character);
     if (testNpc->count() == 2)
         testNpc->setCurrentIndex(1);
@@ -701,6 +739,7 @@ void ConversationEditor::loadTestContext() {
 void ConversationEditor::loadNpc(int i, int entry) {
     npcIndex = i;
     doc = parse(conversations[i].bytes);
+    updateConversationFlags();
     stopPlaytest();
     loadTestContext();
     buildOutline(entry);
@@ -815,14 +854,14 @@ void ConversationEditor::loadEntry(int e) {
         auto data = project->data(npcFile);
         QStringList locations;
         auto pages = project->resources.contains(resource.left(resource.size() - 4) + ".DAT")
-                         ? U5::mapPages(resource.left(resource.size() - 4) + ".DAT",
-                                        project->data(resource.left(resource.size() - 4) + ".DAT"))
+                         ? project->mapPages(resource.left(resource.size() - 4) + ".DAT")
                          : QVector<U5::MapPage>{};
         for (int town = 0; town < 8; ++town)
-            for (int n = 0; n < 32; ++n)
-                if (town * 576 + 544 + n < data.size() &&
-                    U5::byte(data, town * 576 + 512 + n) != 0 &&
-                    U5::byte(data, town * 576 + 544 + n) == conversations[npcIndex].id) {
+            for (int n = 0; n < int(NPCS_Count(data.constData(), data.size(), town)); ++n)
+                if (NPCS_DialogueOffset(data.constData(), data.size(), town, n) < data.size() &&
+                    U5::byte(data, NPCS_ShapeOffset(data.constData(), data.size(), town, n)) != 0 &&
+                    U5::byte(data, NPCS_DialogueOffset(data.constData(), data.size(), town, n)) ==
+                        conversations[npcIndex].id) {
                     QString location = QString("Settlement %1").arg(town + 1);
                     for (auto page : pages)
                         if (page.settlement == town) {
@@ -847,6 +886,12 @@ int ConversationEditor::entryPrefix(int entry) const {
     for (const auto &question : doc.questions)
         if (question.prompt == entry)
             prefix = 2;
+    if (entry == 1) {
+        size_t metadata = 0;
+        IMPERA_TalkFlagPrefix(doc.entries[entry].bytes.constData(), doc.entries[entry].bytes.size(),
+                              &metadata);
+        prefix += int(metadata);
+    }
     if (doc.entries[entry].bytes.mid(prefix, IMPERA_TALK_EXPLICIT_QUOTES_SIZE) ==
         IMPERA_TALK_EXPLICIT_QUOTES)
         prefix += IMPERA_TALK_EXPLICIT_QUOTES_SIZE;
@@ -1154,7 +1199,12 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
         sectionLayout->addWidget(label);
     };
     if (entry == 0 || entry == 1)
-        engineText(entry == 0 ? "My name is " : "You see ");
+        engineText(entry == 0 ? (IMPERA_TalkFlagPrefix(doc.entries[1].bytes.constData(),
+                                                       doc.entries[1].bytes.size(), nullptr) &
+                                         IMPERA_TALK_FLAG_GARGOYLE_SPEECH
+                                     ? "To be called "
+                                     : "My name is ")
+                              : "You see ");
     const auto entryBlocks = paragraphBlocks(doc.entries[entry].bytes.mid(entryPrefix(entry)));
     for (const auto &block : entryBlocks)
         entryShapes[entry].append(block.opcode);
@@ -1182,7 +1232,7 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
             const int followingAction = actionAfterStateActions(entryBlocks, end);
             if (displayed.last().opcode < 0) {
                 spacing = managedSpacing(displayed.last().bytes, followingAction);
-                if (spacing.isEmpty() && end < entryBlocks.size() && entryBlocks[end].opcode < 0 &&
+                if (spacing.isEmpty() && hasFollowingParagraph(entryBlocks, end) &&
                     displayed.last().bytes.endsWith(QByteArray::fromHex("8d8d")))
                     spacing = QByteArray::fromHex("8d8d");
                 displayed.last().bytes.chop(spacing.size());
@@ -1305,8 +1355,8 @@ void ConversationEditor::buildEntryBlocks(int entry, QVBoxLayout *sectionLayout)
             QByteArray visible = b.bytes, spacing;
             const int followingAction = actionAfterStateActions(entryBlocks, index + 1);
             spacing = managedSpacing(visible, followingAction);
-            if (spacing.isEmpty() && index + 1 < entryBlocks.size() &&
-                entryBlocks[index + 1].opcode < 0 && visible.endsWith(QByteArray::fromHex("8d8d")))
+            if (spacing.isEmpty() && hasFollowingParagraph(entryBlocks, index + 1) &&
+                visible.endsWith(QByteArray::fromHex("8d8d")))
                 spacing = QByteArray::fromHex("8d8d");
             visible.chop(spacing.size());
             const bool speech = speechAt(entryBlocks, index, entry != 1 && entryPrefix(entry) < 4);
@@ -1683,7 +1733,42 @@ void ConversationEditor::install(const QByteArray &bytes, const QString &descrip
     buildOutline(entry < 0 ? selected : entry);
     loadEntry(qBound(0, entry < 0 ? selected : entry, int(doc.entries.size() - 1)));
 }
+void ConversationEditor::updateConversationFlags() {
+    const bool valid = doc.structuralError.isEmpty() && doc.entries.size() > 1;
+    const auto description = doc.entries.value(1).bytes;
+    const unsigned flags =
+        valid ? IMPERA_TalkFlagPrefix(description.constData(), description.size(), nullptr) : 0;
+    QSignalBlocker skipBlock(skipOpening), gargoyleBlock(gargoyleSpeech);
+    skipOpening->setEnabled(valid);
+    gargoyleSpeech->setEnabled(valid);
+    skipOpening->setChecked(flags & IMPERA_TALK_FLAG_SKIP_OPENING);
+    gargoyleSpeech->setChecked(flags & IMPERA_TALK_FLAG_GARGOYLE_SPEECH);
+}
+void ConversationEditor::setConversationFlag(unsigned flag, bool enabled,
+                                             const QString &description) {
+    if (loading)
+        return;
+    if (!flush()) {
+        updateConversationFlags();
+        return;
+    }
+    if (!attempt([&] {
+            auto next = doc;
+            auto &bytes = next.entries[1].bytes;
+            size_t metadata = 0;
+            unsigned flags = IMPERA_TalkFlagPrefix(bytes.constData(), bytes.size(), &metadata);
+            flags = enabled ? flags | flag : flags & ~flag;
+            bytes.remove(0, metadata);
+            if (flags & IMPERA_TALK_FLAG_GARGOYLE_SPEECH)
+                bytes.prepend(IMPERA_TALK_GARGOYLE_SPEECH);
+            if (flags & IMPERA_TALK_FLAG_SKIP_OPENING)
+                bytes.prepend(IMPERA_TALK_SKIP_OPENING);
+            install(next.bytes(), description, selected);
+        }))
+        updateConversationFlags();
+}
 void ConversationEditor::updateDiagnostics() {
+    updateConversationFlags();
     issues = doc.issues();
     diagnostics->clear();
     for (auto i : issues) {
@@ -1692,11 +1777,10 @@ void ConversationEditor::updateDiagnostics() {
         item->setData(Qt::UserRole, i.entry);
         item->setToolTip(QString("Entry %1").arg(i.entry));
     }
-    budget->setText(
-        QString("<a href=\"issues\">%3 issues</a> · %1 / 1024 bytes · %2 / 15 questions")
-            .arg(doc.bytes().size())
-            .arg(doc.questions.size() + (doc.tail >= 0 ? 1 : 0))
-            .arg(issues.size()));
+    budget->setText(QString("<a href=\"issues\">%3 issues</a> · %1 bytes · %2 / 15 questions")
+                        .arg(doc.bytes().size())
+                        .arg(doc.questions.size() + (doc.tail >= 0 ? 1 : 0))
+                        .arg(issues.size()));
 }
 int ConversationEditor::resolveDisplayedBlock(int entry, int block) const {
     if (block < 0 || !readerRanges.contains(entry))

@@ -46,14 +46,16 @@ QByteArray TableDocument::change(const QByteArray &b, int table, int index, int 
     validate(out);
     return out;
 }
-static QString location(int i) {
+static QString location(int i, const Project *project = nullptr) {
+    if (project && i >= 0 && i < 40)
+        return project->locationName(i + 1);
     return i >= 0 && i < 40 ? QString::fromUtf8(tableLocationNames[i]) : "Unassigned location";
 }
-QString TableDocument::entryLabel(int table, int index) {
+QString TableDocument::entryLabel(int table, int index, const Project *project) {
     if (table == 1)
         return QString::fromUtf8(engineEquipmentNames[index]);
     if (table >= 7)
-        return location(index);
+        return location(index, project);
     int columns = table == 6 ? 1 : 8, row = index / columns;
     if (table == 5) {
         columns = 4;
@@ -62,8 +64,8 @@ QString TableDocument::entryLabel(int table, int index) {
     int type = table == 2 || table == 3 ? 4 : table == 4 ? 0 : table == 5 ? 5 : 2;
     int shop = type * 16 + row;
     QString name = QString::fromUtf8(tableMerchantNames[shop]);
-    QString result =
-        name.isEmpty() ? "Unassigned shop (reserved)" : location(int(tableShopLocations[shop]) - 1);
+    QString result = name.isEmpty() ? "Unassigned shop (reserved)"
+                                    : location(int(tableShopLocations[shop]) - 1, project);
     if (!name.isEmpty())
         result += " · " + name;
     if (table == 2 || table == 3)
@@ -183,7 +185,7 @@ QWidget *tableEditor(Project *project, const QString &, TextCommit commit,
             explanation = QString("%1 entrance at (%2,%3). Enter and exit commands use this "
                                   "coordinate; paint matching terrain in Maps too. Moving an "
                                   "entrance does not move terrain automatically.")
-                              .arg(location(row))
+                              .arg(location(row, project))
                               .arg(TableDocument::value(project->data("RULES.TBL"), 7, row))
                               .arg(TableDocument::value(project->data("RULES.TBL"), 8, row));
         else
@@ -203,7 +205,7 @@ QWidget *tableEditor(Project *project, const QString &, TextCommit commit,
         table->setRowCount(spec->rows * spec->columns);
         for (int i = 0; i < table->rowCount(); ++i) {
             int v = TableDocument::value(bytes, id, i);
-            auto item = new QTableWidgetItem(TableDocument::entryLabel(id, i));
+            auto item = new QTableWidgetItem(TableDocument::entryLabel(id, i, project));
             item->setToolTip(
                 QString("%1 · Entry %2 · legacy candidate address 0x%3 (Advanced inventory)")
                     .arg(QString::fromUtf8(spec->symbol))

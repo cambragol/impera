@@ -2,6 +2,7 @@
 #include "common/common.h"
 #include "common/movement.h"
 #include "mod/runtime.h"
+#include "mod/types_game.h"
 #if defined(TARGET_SDL)
 #include "key/mouse.h"
 #include "key/key.h"
@@ -24,8 +25,13 @@
 // check npc killed flag
 int TOWN_0000_CheckNpcKilled(int param_1)
 {
+    if (param_1 < 0 || param_1 >= LOCATION_NPC_COUNT || D_5893_map_id < 1 || D_5893_map_id > 32)
+        return 0;
     if (D_659e[param_1] == TILE_ACTOR_SANDALWOOD_BOX || D_659e[param_1] >= TILE_ACTOR_WIZARD)
     {
+        if (param_1 >= 32)
+            return (D_5b5a[128 + (D_5893_map_id - 1) * (IMPERA_NPC_CAPACITY / 8) + param_1 / 8] &
+                    (1u << (param_1 % 8))) != 0;
         return ((*(u32*)&D_5b5a[(D_5893_map_id - 1) * 4]) & ((u32)1 << (byte)param_1)) != 0;
     }
 
@@ -37,13 +43,18 @@ void TOWN_0052_SetNpcKilled(int param_1)
 {
     int local_4;
 
-    if (param_1 < 0 || param_1 > 0x1f)
+    if (param_1 < 0 || param_1 >= LOCATION_NPC_COUNT || D_5893_map_id < 1 || D_5893_map_id > 32)
         return;
 
     local_4 = D_659e[param_1] & 0xfc;
 
     if ((local_4 != TILE_ACTOR_GUARD && local_4 < TILE_ACTOR_80) || local_4 == TILE_ACTOR_SHARD)
     {
+        if (param_1 >= 32) {
+            D_5b5a[128 + (D_5893_map_id - 1) * (IMPERA_NPC_CAPACITY / 8) + param_1 / 8] |=
+                1u << (param_1 % 8);
+            return;
+        }
         // 0084
         (*(u32*)&D_5b5a[(D_5893_map_id - 1) * 4]) |= ((u32)1 << (byte)param_1);
     }
@@ -66,8 +77,7 @@ int TOWN_011e(int param_1)
     int local_4;
     int local_2 = -1;
 
-    for (local_4 = 0; local_4 < 0x20; local_4++)
-    {
+    for (local_4 = 0; local_4 < LOCATION_NPC_COUNT; local_4++) {
         if (D_5f5e[local_4]._c == param_1 && D_659e[local_4] != 0 && D_5f5e[local_4]._0 != 0)
         {
             local_2 = local_4;
@@ -89,7 +99,8 @@ void TOWN_0170(void)
         {
             if (*ULTIMA_4402_GetTileAddr(local_4, local_6) == TILE_MAP_87)
             {
-                *ULTIMA_4402_GetTileAddr(local_4, local_6 + 1) ^= TILE_MAP_DD;
+                TYPES_GAME_Write(local_4, local_6 + 1,
+                                 *ULTIMA_4402_GetTileAddr(local_4, local_6 + 1) ^ (TILE_MAP_DD));
             }
         }
     }
@@ -100,11 +111,11 @@ void TOWN_0170(void)
         {
             if (D_587f == 5)
             {
-                *ULTIMA_4402_GetTileAddr(D_58ee[local_4], D_590e[local_4]) = D_592e[local_4];
+                TYPES_GAME_Write(D_58ee[local_4], D_590e[local_4], D_592e[local_4]);
             }
             else
             {
-                *ULTIMA_4402_GetTileAddr(D_58ee[local_4], D_590e[local_4]) = TILE_MAP_WATER_3;
+                TYPES_GAME_Write(D_58ee[local_4], D_590e[local_4], TILE_MAP_WATER_3);
             }
         }
     }
@@ -125,18 +136,18 @@ static void TOWN_0212(void)
         {
             for (local_4 = 0; local_4 < 0x20; local_4++)
             {
-                switch (GetMap(local_4, local_6))
+                switch (*ULTIMA_4402_GetTileAddr(local_4, local_6))
                 {
                 case TILE_MAP_TREE:
                     if (ULTIMA_2092_RandomRange(0, 7) != 0)
                     {
-                        GetMap(local_4, local_6) = TILE_MAP_STUMP;
+                        TYPES_GAME_Change(local_4, local_6, 3, TILE_MAP_STUMP);
                     }
                     break;
                 case TILE_MAP_CROPS:
                     if (ULTIMA_2092_RandomRange(0, 7) != 0)
                     {
-                        GetMap(local_4, local_6) = TILE_MAP_CROPS_PICKED;
+                        TYPES_GAME_Change(local_4, local_6, 3, TILE_MAP_CROPS_PICKED);
                     }
                     break;
                 }
@@ -174,28 +185,27 @@ static void TOWN_02ae(void)
     {
         // Setup shadow lord
         TOWN_0212();
-        for (local_8 = 0; local_8 < 0x20; local_8++)
-        {
+        for (local_8 = 0; local_8 < MAP_ACTOR_COUNT; local_8++) {
             if (D_5c5a[local_8]._0_tile == TILE_ACTOR_SHADOWLORD)
             {
                 return;
             }
         }
 
-        local_a = ULTIMA_38e4();
-
-        local_6 = &D_5c5a[local_a];
-
-        local_4 = 0x1f;
-        for (local_8 = 0x1f; local_8 >= 0; local_8--)
-        {
-            if (D_659e[local_8] == 0)
-            {
+        local_4 = -1;
+        for (local_8 = LOCATION_NPC_COUNT - 1; local_8 > 0; local_8--)
+            if (!D_659e[local_8]) {
                 local_4 = local_8;
                 break;
             }
+        if (local_4 < 0) {
+            if (LOCATION_NPC_COUNT >= IMPERA_NPC_CAPACITY)
+                return;
+            local_4 = LOCATION_NPC_COUNT;
+            D_imperaNpcCount = local_4 + 1;
         }
-
+        local_a = local_4 >= 32 ? local_4 : ULTIMA_38e4();
+        local_6 = &D_5c5a[local_a];
         ASSERT(D_5893_map_id > 0 && D_5893_map_id <= 8);
 
         D_5f5e[local_4]._0 = 1;
@@ -391,8 +401,8 @@ static bool TOWN_0600(int param_1)
         local_c = (param_1 == U5_KEY_HOME || param_1 == U5_KEY_END) ? -1 : 1;
         local_e = (param_1 == U5_KEY_HOME || param_1 == U5_KEY_PGUP) ? -1 : 1;
         /* Diagonal steps cannot cut through blocked corners. */
-        if (!ULTIMA_2c4c_IsWalkableTile(D_587c_partyTile, GetMapViewport(5 + local_c, 5)) ||
-            !ULTIMA_2c4c_IsWalkableTile(D_587c_partyTile, GetMapViewport(5, 5 + local_e))) {
+        if (!TYPES_GAME_WalkableView(D_587c_partyTile, 5 + local_c, 5) ||
+            !TYPES_GAME_WalkableView(D_587c_partyTile, 5, 5 + local_e)) {
             ULTIMA_1850_PrintString("Blocked!\n");
             return false;
         }
@@ -476,8 +486,7 @@ static bool TOWN_0600(int param_1)
     }
 
     // 0776
-    if (local_6 && ULTIMA_2c4c_IsWalkableTile(D_587c_partyTile, local_10) != 0)
-    {
+    if (local_6 && TYPES_GAME_WalkableView(D_587c_partyTile, 5 + local_c, 5 + local_e) != 0) {
         // 0792
         if (local_8 != 0)
         {
@@ -494,13 +503,21 @@ static bool TOWN_0600(int param_1)
                 ULTIMA_1850_PrintString(_TEXT(0x26ab, "Yes\n\nExit to\n"));
                 if (D_5893_map_id == 0x19)
                 {
-                    ULTIMA_1850_PrintString(_TEXT(0x26b9, "Underworld!\n"));
+                    if (MOD_LocationName(41, NULL)) {
+                        ULTIMA_1850_PrintString((char *)MOD_LocationName(41, NULL));
+                        ULTIMA_1850_PrintString("!\n");
+                    } else
+                        ULTIMA_1850_PrintString(_TEXT(0x26b9, "Underworld!\n"));
                     D_5895_map_level = 0xff;
                 }
                 else
                 {
                     // 07da
-                    ULTIMA_1850_PrintString(_TEXT(0x26c6, "Britannia!\n"));
+                    if (MOD_LocationName(0, NULL)) {
+                        ULTIMA_1850_PrintString((char *)MOD_LocationName(0, NULL));
+                        ULTIMA_1850_PrintString("!\n");
+                    } else
+                        ULTIMA_1850_PrintString(_TEXT(0x26c6, "Britannia!\n"));
                     D_5895_map_level = 0;
                 }
 
@@ -530,9 +547,7 @@ static bool TOWN_0600(int param_1)
 
             TOWN_052e(param_1, local_10);
         }
-    }
-    else
-    {
+    } else {
         // 083a
         ULTIMA_1850_PrintString(_TEXT(0x26d6, "Blocked!\n"));
         ULTIMA_22c0_AudioTone(0xa5, 200);
@@ -602,8 +617,7 @@ void TOWN_0958(void)
     int local_6;
     int local_4;
 
-    for (local_4 = 0; local_4 < 0x20; local_4++)
-    {
+    for (local_4 = 0; local_4 < LOCATION_NPC_COUNT; local_4++) {
         if (D_5f5e[local_4]._0 != 0)
         {
             local_6 = D_659e[local_4];
@@ -656,7 +670,7 @@ int TOWN_09e6_AttackCmd(void)
         local_c = (uint)D_5897_map_y + D_5878;
         if (*ULTIMA_4402_GetTileAddr(local_a, local_c) == TILE_MAP_MIRROR)
         {
-            *ULTIMA_4402_GetTileAddr(local_a, local_c) = TILE_MAP_MIRROR_BROKEN;
+            TYPES_GAME_Change(local_a, local_c, 3, TILE_MAP_MIRROR_BROKEN);
             ULTIMA_1850_PrintString(_TEXT(0x26f2, "Broken!\n"));
 
             for (local_e = 2000; local_e < 20000; local_e += 1000)
@@ -823,8 +837,7 @@ static void TOWN_0c78(void)
     int local_c;
     int local_e;
 
-    for (local_a = 0; local_a < 0x20; local_a++)
-    {
+    for (local_a = 0; local_a < LOCATION_NPC_COUNT; local_a++) {
         local_4 = &D_5c5a[local_a];
 
         local_e = local_4->_0_tile;
@@ -861,9 +874,8 @@ static void TOWN_0c78(void)
 
                 if (local_6 <= 0x1f && local_8 <= 0x1f && 0 <= local_6 && 0 <= local_8)
                 {
-                    if ((ULTIMA_2c4c_IsWalkableTile(TILE_ACTOR_HORSE, *ULTIMA_4402_GetTileAddr(local_6, local_8)) != 0) &&
-                        (ULTIMA_3702(local_6, local_8, D_5895_map_level) == 0))
-                    {
+                    if ((TYPES_GAME_Walkable(TILE_ACTOR_HORSE, local_6, local_8) != 0) &&
+                        (ULTIMA_3702(local_6, local_8, D_5895_map_level) == 0)) {
                         local_4->_0_tile = local_4->_1_animTile = local_e;
                         local_4->_2_x = (byte)local_6;
                         local_4->_3_y = (byte)local_8;
@@ -935,7 +947,7 @@ static int TOWN_0e34(int param_1)
                 D_2767 = 0;
                 if (D_5893_map_id == 0x11 && D_5895_map_level == 0x02)
                 {
-                    GetMap(0x11, 0xd) ^= 0xb; // 67b9
+                    TYPES_GAME_Write(0x11, 0xd, *ULTIMA_4402_GetTileAddr(0x11, 0xd) ^ 0xb); // 67b9
                     ULTIMA_3072_ShakeScreen();
                     D_24e6 = 1;
                 }
@@ -986,6 +998,8 @@ static void TOWN_0f02(void)
     {
         local_4 = 0;
         local_a = *ULTIMA_4402_GetTileAddr(D_5896_map_x, D_5897_map_y);
+        if (TYPES_Defined(TYPES_GAME_At(D_5896_map_x, D_5897_map_y)))
+            TYPES_GAME_Effects();
         if (local_a == TILE_MAP_TRAPDOOR && (D_587c_partyTile & 0xfe) != TILE_ACTOR_FLYING_CARPET)
         {
             ULTIMA_1850_PrintString(_TEXT(0x2768, "A TRAPDOOR!\n"));
@@ -1029,9 +1043,8 @@ static void TOWN_0f02(void)
                 TOWN_0408(1);
                 local_4 = 1;
             }
-        }
-        else if (local_a == TILE_MAP_POISON && D_587c_partyTile == TILE_ACTOR_AVATAR)
-        {
+        } else if (local_a == TILE_MAP_POISON && D_587c_partyTile == TILE_ACTOR_AVATAR &&
+                   !TYPES_Defined(TYPES_GAME_At(D_5896_map_x, D_5897_map_y))) {
             // NOT MATCHING
             // for (105d; 1067; 1064)
             for (local_6 = 0; local_6 < D_585b; local_6++)
@@ -1048,8 +1061,8 @@ static void TOWN_0f02(void)
             }
         }
         // 10ac
-        else if (local_a == TILE_MAP_FIREPLACE || local_a == TILE_MAP_LAVA)
-        {
+        else if ((local_a == TILE_MAP_FIREPLACE || local_a == TILE_MAP_LAVA) &&
+                 !TYPES_Defined(TYPES_GAME_At(D_5896_map_x, D_5897_map_y))) {
             // 10ba
             ULTIMA_5910_UpdateFrame();
             ULTIMA_1850_PrintString(_TEXT(0x2780, "Burning!\n"));
@@ -1105,8 +1118,7 @@ static void TOWN_1156(void)
     switch (D_5958)
     {
     case 1:
-        for (local_4 = 0; local_4 < 0x20; local_4++)
-        {
+        for (local_4 = 0; local_4 < LOCATION_NPC_COUNT; local_4++) {
             if (TOWN_10f2(local_4) != 0)
             {
                 TOWN_085e(local_4);
@@ -1116,8 +1128,7 @@ static void TOWN_1156(void)
         break;
 
     case 2:
-        for (local_4 = 0; local_4 < 0x20; local_4++)
-        {
+        for (local_4 = 0; local_4 < LOCATION_NPC_COUNT; local_4++) {
             if (TOWN_10f2(local_4) != 0)
             {
                 TOWN_08d4(local_4);
@@ -1147,8 +1158,7 @@ void TOWN_11f0_Entry(int param_1)
     D_a9bc = D_24e6 = 1;
     if (param_1 != 0)
     {
-        for (local_4 = 1; local_4 < 0x20; local_4++)
-        {
+        for (local_4 = 1; local_4 < LOCATION_NPC_COUNT; local_4++) {
             D_5c5a[local_4]._0_tile = 0;
         }
         D_5957 = 0;
@@ -1160,8 +1170,7 @@ void TOWN_11f0_Entry(int param_1)
     TOWN_0408(param_1);
     TOWN_02ae();
 
-    for (local_4 = 0; local_4 < 0x20; local_4++)
-    {
+    for (local_4 = 0; local_4 < LOCATION_NPC_COUNT; local_4++) {
         if (TOWN_0000_CheckNpcKilled(local_4) != 0)
             TOWN_00b0_DespawnNpc(local_4);
     }
@@ -1489,14 +1498,12 @@ void TOWN_1694(void)
     int local_4;
     int local_6;
 
-    for (local_4 = 1; local_4 < 0x20; local_4++)
-    {
+    for (local_4 = 1; local_4 < LOCATION_NPC_COUNT; local_4++) {
         ULTIMA_3a74(0, 0, 0, 0, 0, 0, local_4);
         D_5f5e[local_4]._c = 0;
     }
 
-    for (local_4 = 1; local_4 < 0x20; local_4++)
-    {
+    for (local_4 = 1; local_4 < LOCATION_NPC_COUNT; local_4++) {
         if (D_659e[local_4] != 0)
         {
             local_6 = NPC_12e0(local_4, D_587f);
@@ -1527,18 +1534,14 @@ void TOWN_1726(int param_1, int param_2, int param_3, int param_4)
 
     if (param_4 == D_5895_map_level && local_4->_c == 0)
     {
-        local_6 = ULTIMA_38e4();
+        local_6 = param_1 >= 32 ? param_1 : ULTIMA_38e4();
 
         if (D_659e[param_1] == 1)
         {
             local_8 = 0x1e;
-        }
-        else if ((D_28c6[D_5893_map_id - 1] & ((u32)1 << param_1)) != 0)
-        {
+        } else if (param_1 < 32 && (D_28c6[D_5893_map_id - 1] & ((u32)1 << param_1)) != 0) {
             local_8 = 0xff;
-        }
-        else
-        {
+        } else {
             local_8 = 0;
         }
 

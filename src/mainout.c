@@ -1,7 +1,9 @@
+#include "mod/actors.h"
 #include "audio/audio.h"
 #include "common/common.h"
 #include "common/movement.h"
 #include "mod/runtime.h"
+#include "mod/types_game.h"
 #if defined(TARGET_SDL)
 #include "key/mouse.h"
 #include "key/key.h"
@@ -198,7 +200,8 @@ static int MAINOUT_01fe(int param_2, int param_1)
 
     local_8 = GetMapViewport(param_2 + 5, param_1 + 5);
 
-    local_4 = local_4 && ULTIMA_2c4c_IsWalkableTile(D_587c_partyTile, local_8) != 0 ? 1 : 0;
+    local_4 =
+        local_4 && TYPES_GAME_WalkableView(D_587c_partyTile, 5 + param_2, 5 + param_1) != 0 ? 1 : 0;
     if (local_4 == 0)
     {
         if (D_5955 != 0)
@@ -306,6 +309,7 @@ static void MAINOUT_03e0(void)
         local_6 = 1;
     }
 
+    local_6 = TYPES_GAME_Property(D_5896_map_x, D_5897_map_y, 3, local_6);
     // 041f
     switch (local_6)
     {
@@ -381,8 +385,8 @@ static int MAINOUT_0490(int param_1, int param_2)
         if (!MOVEMENT_Diagonal()) return 0;
         local_6 = (param_1 == U5_KEY_HOME || param_1 == U5_KEY_END) ? -1 : 1;
         local_8 = (param_1 == U5_KEY_HOME || param_1 == U5_KEY_PGUP) ? -1 : 1;
-        if (!ULTIMA_2c4c_IsWalkableTile(D_587c_partyTile, GetMapViewport(5 + local_6, 5)) ||
-            !ULTIMA_2c4c_IsWalkableTile(D_587c_partyTile, GetMapViewport(5, 5 + local_8))) {
+        if (!TYPES_GAME_WalkableView(D_587c_partyTile, 5 + local_6, 5) ||
+            !TYPES_GAME_WalkableView(D_587c_partyTile, 5, 5 + local_8)) {
             ULTIMA_1850_PrintString("Blocked!\n");
             return 0;
         }
@@ -686,7 +690,7 @@ static int MAINOUT_0790_LoadDungeon(char* param_1)
         {
             ULTIMA_1850_PrintString(_TEXT(0x2a47, "\n\n"));
             ULTIMA_16ba_PrintChar(CTRL_CHAR_CENTER_TEXT);
-            ULTIMA_1850_PrintString(D_1e3a[local_4]);
+            ULTIMA_1850_PrintString((char *)MOD_LocationName(local_4 + 1, D_1e3a[local_4]));
             ULTIMA_16ba_PrintChar(CTRL_CHAR_UNCENTER_TEXT);
         }
 
@@ -796,11 +800,13 @@ int MAINOUT_08de_EnterCmd(void)
         break;
 
     case TILE_MAP_PALACEBT:
-        local_4 = OUTSUBS_0388_EnterTown(_TEXT(0x2ae0, "the palace of Blackthorn!"));
+        local_4 = OUTSUBS_0388_EnterTown(
+            MOD_LocationName(18, NULL) ? "palace" : _TEXT(0x2ae0, "the palace of Blackthorn!"));
         break;
 
     case TILE_MAP_CASTLELB:
-        local_4 = OUTSUBS_0388_EnterTown(_TEXT(0x2afa, "the Castle of Lord British!"));
+        local_4 = OUTSUBS_0388_EnterTown(
+            MOD_LocationName(17, NULL) ? "castle" : _TEXT(0x2afa, "the Castle of Lord British!"));
         break;
 
     default:
@@ -1006,22 +1012,22 @@ static void MAINOUT_0a84_MainLoop(void)
                 // 0c39
                 ULTIMA_4f7c(2);
                 local_12 = *ULTIMA_4402_GetTileAddr(D_5896_map_x, D_5897_map_y);
+                if (TYPES_Defined(TYPES_GAME_At(D_5896_map_x, D_5897_map_y)))
+                    TYPES_GAME_Effects();
                 if ((local_12 & 0xfe) == TILE_MAP_6A)
                 {
                     MAINOUT_1be8();
                 }
                 // 0c64
-                else if (local_12 == TILE_MAP_POISON && D_587c_partyTile == TILE_ACTOR_AVATAR)
-                {
+                else if (local_12 == TILE_MAP_POISON && D_587c_partyTile == TILE_ACTOR_AVATAR &&
+                         !TYPES_Defined(TYPES_GAME_At(D_5896_map_x, D_5897_map_y))) {
                     OUTSUBS_05fc_StepOnPoisonTile();
                     ULTIMA_3ae6(1);
-                }
-                else if (local_12 == TILE_MAP_LAVA)
-                {
+                } else if (local_12 == TILE_MAP_LAVA &&
+                           !TYPES_Defined(TYPES_GAME_At(D_5896_map_x, D_5897_map_y))) {
                     OUTSUBS_05ee_StepOnBurningTile();
-                }
-                else if (D_5896_map_x == 0xe9 && D_5897_map_y == 0xeb && D_5895_map_level == 0 && D_5893_map_id == 0)
-                {
+                } else if (D_5896_map_x == 0xe9 && D_5897_map_y == 0xeb && D_5895_map_level == 0 &&
+                           D_5893_map_id == 0) {
                     ULTIMA_1850_PrintString(_TEXT(0x2b6b, "\n\""));
                     if (D_58cc != 0)
                     {
@@ -1482,7 +1488,12 @@ static int MAINOUT_131a(int param_1)
 
 static int MAINOUT_1482(int param_1, int param_2, int param_3)
 {
-    if (ULTIMA_2c4c_IsWalkableTile(D_5c5a[param_1]._0_tile, *ULTIMA_4402_GetTileAddr(param_2, param_3)) == 0)
+    unsigned width, height;
+    ACTORS_Size(param_1, &width, &height);
+    if (width > 1 || height > 1)
+        return ACTORS_CanMove(param_1, param_2, param_3);
+    if (TYPES_GAME_Walkable(ACTORS_MoveShape(param_1, D_5c5a[param_1]._0_tile), param_2, param_3) ==
+        0)
         return 0;
 
     if (ULTIMA_3702(param_2, param_3, D_5895_map_level) != 0)

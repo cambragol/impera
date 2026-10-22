@@ -6,6 +6,7 @@ enum class EditorKind {
     WorldObjects,
     Fonts,
     Artwork,
+    TileTypes,
     Conversation,
     Schedule,
     State,

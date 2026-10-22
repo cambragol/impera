@@ -1,3 +1,4 @@
+#include "mod/npcs.h"
 #include "cutscene_editor.h"
 #include "cutscene_composition.h"
 #include "map_positions.h"
@@ -44,7 +45,7 @@ bool matchesSelection(const ContentDestination &d, const QMap<QString, int> &sta
     return true;
 }
 QStringList contentWorkspaces() {
-    return {"World", "NPCs", "Cutscenes", "Graphics", "Game Rules", "Mod Overview"};
+    return {"World", "Dialogue", "Cutscenes", "Graphics", "Game Rules", "Mod Overview"};
 }
 QVector<ContentDestination> characterDestinations(const Project &project) {
     QVector<ContentDestination> result;
@@ -72,7 +73,7 @@ QVector<ContentDestination> characterDestinations(const Project &project) {
         QMap<int, QString> locations;
         if (project.resources.contains(map)) {
             try {
-                for (const auto &page : U5::mapPages(map, project.data(map)))
+                for (const auto &page : project.mapPages(map))
                     if (page.settlement >= 0)
                         locations[page.settlement] = page.name.section(" — ", 0, 0);
             } catch (...) {
@@ -81,12 +82,16 @@ QVector<ContentDestination> characterDestinations(const Project &project) {
         const QByteArray data =
             project.resources.contains(schedule) ? project.data(schedule) : QByteArray();
         QMap<int, QStringList> users;
-        if (data.size() == 4608) {
+        if (data.size() >= 4608) {
             for (int town = 0; town < 8; ++town)
-                for (int slot = 0; slot < 32; ++slot) {
-                    if (U5::byte(data, town * 576 + 512 + slot) == 0)
+                for (int slot = 0; slot < int(NPCS_Count(data.constData(), data.size(), town));
+                     ++slot) {
+                    if (U5::byte(data,
+                                 NPCS_ShapeOffset(data.constData(), data.size(), town, slot)) == 0)
                         continue;
-                    int id = U5::byte(data, town * 576 + 544 + slot), conversation = -1;
+                    int id = U5::byte(
+                            data, NPCS_DialogueOffset(data.constData(), data.size(), town, slot)),
+                        conversation = -1;
                     for (int i = 0; i < conversations.size(); ++i)
                         if (int(conversations[i].id) == id) {
                             conversation = i;
@@ -97,9 +102,9 @@ QVector<ContentDestination> characterDestinations(const Project &project) {
                     QString name = conversation >= 0 ? names[conversation]
                                                      : QString("NPC %1").arg(slot + 1);
                     ContentDestination d{
-                        QString("character/%1/%2/%3").arg(stem).arg(town).arg(slot), "NPCs",
+                        QString("character/%1/%2/%3").arg(stem).arg(town).arg(slot), "Dialogue",
                         location, name, conversation >= 0 ? talk : schedule};
-                    d.character = town * 32 + slot;
+                    d.character = npcCharacter(town, slot);
                     d.conversation = conversation;
                     d.settlement = town;
                     d.scheduleResource = schedule;
@@ -115,12 +120,14 @@ QVector<ContentDestination> characterDestinations(const Project &project) {
         for (int i = 0; i < conversations.size(); ++i) {
             if (!users.contains(i)) {
                 ContentDestination d{
-                    QString("conversation/%1/%2").arg(stem).arg(conversations[i].id), "NPCs",
-                    data.size() == 4608 ? "Unassigned conversations" : "Unverified assignments", names[i], talk};
+                    QString("conversation/%1/%2").arg(stem).arg(conversations[i].id), "Dialogue",
+                    data.size() >= 4608 ? "Unassigned conversations" : "Unverified assignments",
+                    names[i], talk};
                 d.conversation = i;
-                d.provenance = data.size() == 4608
-                    ? "No scheduled NPC uses this conversation. It may be referenced by special game logic."
-                    : "Schedule data is missing or damaged; NPC assignments cannot be verified.";
+                d.provenance = data.size() >= 4608 ? "No scheduled NPC uses this conversation. It "
+                                                     "may be referenced by special game logic."
+                                                   : "Schedule data is missing or damaged; NPC "
+                                                     "assignments cannot be verified.";
                 result.append(d);
             }
         }
@@ -153,11 +160,28 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
     }
     for (auto it = project.resources.begin(); it != project.resources.end(); ++it) {
         const auto name = it.key();
+        if (name == "TYPES.OVR") {
+            ContentDestination tiles{"custom-tiles", "Graphics", "Custom tiles", "Tiles", name};
+            tiles.selection["customTiles/kind"] = 0;
+            result.append(tiles);
+            for (int kind = 1; kind <= 2; kind++) {
+                ContentDestination types{kind == 1 ? "npc-types" : "monster-types", "Graphics",
+                                         "Custom tiles",
+                                         kind == 1 ? "NPC types" : "Monster types", name};
+                types.selection["customTiles/kind"] = kind;
+                result.append(types);
+            }
+            continue;
+        }
+        if (name == "LOCATIONS.OVR")
+            continue;
+        if (name == "TYPEMAP.OVR")
+            continue;
         if (name == "CONTENTS.OVR")
             continue; // Edited through the map inspector.
         const auto c = capability(name);
         if (MapDocument::supported(name)) {
-            const auto pages = U5::mapPages(name, project.data(name));
+            const auto pages = project.mapPages(name);
             for (int i = 0; i < pages.size(); ++i) {
                 const auto &p = pages[i];
                 QString group = p.settlement >= 0       ? "Locations"
@@ -213,7 +237,8 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
         case EditorKind::Schedule:
             // Healthy schedule banks remain editable on maps even when none of
             // their NPCs has dialogue; do not add a bank to the dialogue list.
-            if (c.editor == EditorKind::Schedule && project.data(name).size() == 4608)
+            if (c.editor == EditorKind::Schedule &&
+                NPCS_Validate(project.data(name).constData(), project.data(name).size()))
                 continue;
             // Damaged or empty banks remain accessible for compatibility.
             if (std::any_of(result.cbegin(), result.cend(), [&](const auto &d) {
@@ -273,7 +298,7 @@ QVector<ContentDestination> contentDestinations(const Project &project) {
             if (name == "SHOPPE.DAT") {
                 const auto services = shopServices();
                 for (int index = 0; index < services.size(); ++index) {
-                    ContentDestination d{"shop/" + services[index], "NPCs", "Shops & Services",
+                    ContentDestination d{"shop/" + services[index], "Dialogue", "Shops & Services",
                                          services[index], name};
                     d.selection["SHOPPE.DAT/service"] = index;
                     d.sources = {name, "TEXT.OVR"};
@@ -343,26 +368,40 @@ QMap<QString, QStringList> contentChanges(const Project &project,
             continue;
         QStringList parts;
         try {
-            if (d.workspace == "NPCs" && d.character >= 0) {
+            if (d.workspace == "Dialogue" && d.character >= 0) {
                 if (changed(d.scheduleResource)) {
                     const auto &now = project.data(d.scheduleResource);
                     const auto &old = original.data(d.scheduleResource);
-                    U5::require(now.size() == 4608 && old.size() == 4608, "Damaged schedules");
-                    int town = d.character / 32, slot = d.character % 32, base = town * 576;
-                    if (now.mid(base + slot * 16, 16) != old.mid(base + slot * 16, 16) ||
-                        now[base + 512 + slot] != old[base + 512 + slot] ||
-                        now[base + 544 + slot] != old[base + 544 + slot])
+                    U5::require(now.size() >= 4608 && old.size() >= 4608, "Damaged schedules");
+                    int town = Workshop::npcTown(d.character),
+                        slot = Workshop::npcSlot(d.character), base = town * 576;
+                    auto npcBytes = [&](const QByteArray &b) {
+                        const int off = NPCS_Offset(b.constData(), b.size(), town, slot);
+                        if (off >= b.size())
+                            return QByteArray();
+                        return b.mid(off, 16) +
+                               b.mid(NPCS_ShapeOffset(b.constData(), b.size(), town, slot), 1) +
+                               b.mid(NPCS_DialogueOffset(b.constData(), b.size(), town, slot), 1);
+                    };
+                    if (npcBytes(now) != npcBytes(old))
                         parts.append("Schedule / appearance");
                 }
                 if (dialogueChanged(d))
                     parts.append("Conversation");
-            } else if (d.workspace == "NPCs" && d.conversation >= 0) {
+            } else if (d.workspace == "Dialogue" && d.conversation >= 0) {
                 if (dialogueChanged(d))
                     parts.append("Conversation");
             } else if (d.page >= 0 && MapDocument::supported(d.resource)) {
                 MapDocument map(&original, d.resource);
                 Project live = project;
                 MapDocument edited(&live, d.resource);
+                if (!d.resource.endsWith(".CBT")) {
+                    int id =
+                        d.resource == "UNDER.DAT" ? 41 : positionMap(d.resource, map.pages[d.page]);
+                    if (project.locationName(id) != original.locationName(id))
+                        parts.append("Location name");
+                }
+
                 if (changed(d.resource) || (d.resource == "BRIT.DAT" && changed("DATA.OVL")))
                     for (int i = 0; i < map.pages.size(); ++i) {
                         if (d.settlement >= 0 ? map.pages[i].settlement != d.settlement
@@ -414,9 +453,24 @@ QMap<QString, QStringList> contentChanges(const Project &project,
                 int settlement = map.pages[d.page].settlement;
                 if (settlement >= 0) {
                     QString schedules = d.resource.section('.', 0, 0) + ".NPC";
-                    if (changed(schedules) &&
-                        project.data(schedules).mid(settlement * 576, 576) !=
-                            original.data(schedules).mid(settlement * 576, 576))
+                    auto scheduleTown = [&](const QByteArray &bytes) {
+                        QByteArray result;
+                        for (unsigned slot = 0;
+                             slot < NPCS_Count(bytes.constData(), bytes.size(), settlement);
+                             ++slot) {
+                            result += bytes.mid(
+                                NPCS_Offset(bytes.constData(), bytes.size(), settlement, slot), 16);
+                            result += bytes.mid(
+                                NPCS_ShapeOffset(bytes.constData(), bytes.size(), settlement, slot),
+                                1);
+                            result += bytes.mid(NPCS_DialogueOffset(bytes.constData(), bytes.size(),
+                                                                    settlement, slot),
+                                                1);
+                        }
+                        return result;
+                    };
+                    if (changed(schedules) && scheduleTown(project.data(schedules)) !=
+                                                  scheduleTown(original.data(schedules)))
                         parts.append("NPCs / schedules");
                     for (const auto &character : destinations)
                         if (character.settlement == settlement &&
@@ -461,6 +515,11 @@ QMap<QString, QStringList> contentChanges(const Project &project,
                         original.data(d.resource).mid(map.pages[d.page].offset, 352))
                     parts.append("Encounter details");
             } else if (d.resource == "DUNGEON.DAT") {
+                for (int id = 33; id <= 40; ++id)
+                    if (project.locationName(id) != original.locationName(id)) {
+                        parts.append("Location names");
+                        break;
+                    }
                 if (changed(d.resource))
                     parts.append("Dungeon terrain");
                 if (changed("CONTENTS.OVR"))

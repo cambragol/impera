@@ -1,3 +1,4 @@
+#include "custom_tiles.h"
 #include "world_objects.h"
 #include "map_entities.h"
 #include "../src/tiles.h"
@@ -122,7 +123,8 @@ static QString objectName(int shape) {
 }
 QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit commit,
                            QMap<QString, int> *state, std::function<bool()> *flush,
-                           MapCanvas *sharedCanvas, std::function<void(QPoint)> locate) {
+                           MapCanvas *sharedCanvas, std::function<void(QPoint)> locate,
+                           TypedObjectCommit typedCommit) {
     auto owner = std::make_unique<QWidget>();
     auto root = owner.get();
     root->setObjectName("worldObjectEditor");
@@ -130,7 +132,7 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
     auto toolbar = new QHBoxLayout;
     auto world = new QComboBox;
     world->setObjectName("objectWorld");
-    world->addItems({"Britannia", "Underworld"});
+    world->addItems({project->locationName(0), project->locationName(41)});
     world->setCurrentIndex(initialWorld);
     world->setToolTip(
         "Edit the effective objects for a fresh game in this world. Existing saves are unchanged.");
@@ -194,6 +196,14 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
         type->addItem(objectName(tile), tile);
     for (int tile : Workshop::monsterShapes())
         type->addItem(objectName(tile), tile);
+    if (typedCommit)
+        for (auto record : CustomTiles::records(*project)) {
+            TypeDef d;
+            TYPES_Decode(reinterpret_cast<const unsigned char *>(record.constData()), &d);
+            if (d.kind == 2 && d.id >= 512)
+                type->addItem(QIcon(QPixmap::fromImage(CustomTiles::image(*project, d.id))),
+                              QString::fromUtf8(d.name), d.id);
+        }
     type->setToolTip("Choose a verified world object shape. Other inherited shapes are retained, "
                      "with unsupported properties read-only.");
     il->addRow("Object", type);
@@ -249,7 +259,10 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
             (*state)["objects/slot"] = slot;
             auto r = b.mid(slot * 8, 8);
             int tile = uchar(r[0]);
-            int index = type->findData(tile);
+            QString map = world->currentIndex() ? "UNDER.DAT" : "BRIT.DAT";
+            QVector<U5::MapPage> pages{{map, 256, 0, 256}};
+            unsigned selectedType = CustomTiles::actorType(*project, map, pages[0], 0, slot, tile);
+            int index = type->findData(selectedType);
             if (index < 0) {
                 type->addItem(QString("Unusual shape %1 (preserved)").arg(tile), tile);
                 index = type->count() - 1;
@@ -317,13 +330,18 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
             if (!tile)
                 continue;
             ++count;
-            QString label = objectName(tile);
-            auto item = new QListWidgetItem(
-                QIcon(QPixmap::fromImage(canvas->tiles.value(256 + tile))),
+            auto mapName = which ? QString("UNDER.DAT") : QString("BRIT.DAT");
+            U5::MapPage mapPage{mapName, 256, 0, 256};
+            unsigned appearance = CustomTiles::actorType(*project, mapName, mapPage, 0, slot, 256 + tile);
+            QString label = appearance >= 512 ? QString::fromUtf8(CustomTiles::definition(*project, appearance).name) : objectName(tile);
+            auto art = appearance >= 512 ? CustomTiles::image(*project, appearance, 6)
+                                         : canvas->tiles.value(appearance);
+            auto item = new QListWidgetItem(QIcon(QPixmap::fromImage(art)),
                 QString("%1 · (%2,%3)").arg(label).arg(uchar(r[2])).arg(uchar(r[3])), list);
             item->setData(Qt::UserRole, slot);
             item->setToolTip(QString("World slot %1 · %2").arg(slot).arg(label));
-            canvas->actors.append({int(uchar(r[2])), int(uchar(r[3])), 256 + tile, slot, label});
+            canvas->actors.append(
+                {int(uchar(r[2])), int(uchar(r[3])), int(appearance), slot, label});
             if (slot == selected)
                 list->setCurrentItem(item);
         }
@@ -364,7 +382,13 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
         try {
             int which = world->currentIndex();
             auto bytes = WorldObjects::change(*project, which, slot, r);
-            if (!commit(WorldObjects::resource(which), bytes, true))
+            unsigned selectedType = type->currentData().toUInt();
+            if (!r[0] || !list->currentItem() ||
+                list->currentItem()->data(Qt::UserRole).toInt() != slot)
+                selectedType = 0;
+            if (!(typedCommit
+                      ? typedCommit(WorldObjects::resource(which), bytes, true, slot, selectedType)
+                      : commit(WorldObjects::resource(which), bytes, true)))
                 return false;
             (*state)["objects/slot"] = slot;
             (*load)();
@@ -380,7 +404,9 @@ QWidget *worldObjectEditor(Project *project, int initialWorld, ObjectCommit comm
             return;
         int slot = list->currentItem()->data(Qt::UserRole).toInt();
         auto r = WorldObjects::effective(*project, world->currentIndex()).mid(slot * 8, 8);
-        int tile = type->currentData().toInt();
+        unsigned selectedType = type->currentData().toUInt();
+        int tile = selectedType >= 512 ? CustomTiles::definition(*project, selectedType).base
+                                       : selectedType;
         if (tile != uchar(r[0])) {
             r[0] = r[1] = char(tile);
             r[5] = char(defaultProperty(tile));

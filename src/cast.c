@@ -1,7 +1,9 @@
+#include "mod/actors.h"
 #include "common/common.h"
 #include "funcs.h"
 #include "macros.h"
 #include "mod/contents_game.h"
+#include "mod/types_game.h"
 #include "tiles.h"
 #include "vars.h"
 
@@ -194,7 +196,7 @@ static int CAST_0230_AnYlem(void)
     case TILE_MAP_DRESSER:
     case TILE_MAP_AE:
     case TILE_MAP_TRUNK:
-        *local_4 = TILE_MAP_44;
+        TYPES_GAME_Change(D_5876, D_5878, 3, TILE_MAP_44);
         ULTIMA_1850_PrintString(_TEXT(0x459a, "POOF!\n"));
         D_24e6 |= 2;
         ULTIMA_5910_UpdateFrame();
@@ -253,7 +255,7 @@ static int CAST_02d2_AnSanct(void)
                 ULTIMA_1850_PrintString(_TEXT(0x45a1, "Disarmed!\n"));
             }
 
-            *local_4 = (*local_4 & 8) | 0x70;
+            TYPES_GAME_Write(D_5876, D_5878, (*local_4 & 8) | 0x70);
 
             ULTIMA_1850_PrintString(_TEXT(0x45ac, "Chest opened!\n"));
 
@@ -282,7 +284,7 @@ static int CAST_02d2_AnSanct(void)
 
         if (*local_4 == TILE_MAP_DOOR_B9 || *local_4 == TILE_MAP_DOOR_BB)
         {
-            --*local_4;
+            TYPES_GAME_Change(D_5876, D_5878, 1, *local_4 - 1);
 
             D_24e6 |= 2;
 
@@ -292,8 +294,7 @@ static int CAST_02d2_AnSanct(void)
         }
         else
         {
-            for (local_a = 0; local_a < 0x20; local_a++)
-            {
+            for (local_a = 0; local_a < MAP_ACTOR_COUNT; local_a++) {
                 local_6 = &D_5c5a[local_a];
 
                 if (local_6->_0_tile == TILE_ACTOR_CHEST && local_6->_2_x == D_5876 && local_6->_3_y == D_5878 &&
@@ -323,9 +324,10 @@ static void CAST_043e_AnCorpXen(void)
     for (local_6 = 0; local_6 < 0x20; local_6++)
     {
         local_4 = &D_ba14[local_6];
-        if (CAST_0000(local_6) == 0 && (local_4->flags & (COMBAT_FLAGS_PLAYER | COMBAT_FLAGS_MONSTER)) == COMBAT_FLAGS_MONSTER &&
-            ((byte)D_153c_enemyFlags[local_4->entityIdx] & ENEMY_FLAG_UNDEAD) != 0)
-        {
+        if (CAST_0000(local_6) == 0 &&
+            (local_4->flags & (COMBAT_FLAGS_PLAYER | COMBAT_FLAGS_MONSTER)) ==
+                COMBAT_FLAGS_MONSTER &&
+            ((byte)ACTORS_Flags(local_4->entityIdx) & ENEMY_FLAG_UNDEAD) != 0) {
             if (COMSUBS_0000(D_589e, local_6, 0) == 0)
             {
                 local_4->hp = 1;
@@ -459,7 +461,7 @@ static int CAST_05dc_InPor(void)
                 if (COMBAT_120e() == 0)
                     continue;
 
-                if (COMBAT_0000(local_4->_0_tile, D_5876, D_5878) == 0)
+                if (!ACTORS_CanMove(D_ba14[D_589e].actorIdx, D_5876, D_5878))
                     continue;
 
                 local_4->_2_x = D_ba14[D_589e].x = D_5876;
@@ -604,14 +606,14 @@ static int CAST_0846_AnExPor(void)
         {
         case TILE_MAP_DOOR_B8:
         case TILE_MAP_DOOR_B9:
-            *local_4 = TILE_MAP_97;
+            TYPES_GAME_Change(D_5876, D_5878, 2, TILE_MAP_97);
             local_6 = 1;
             D_24e6 |= 2;
             break;
 
         case TILE_MAP_DOOR_BA:
         case TILE_MAP_DOOR_BB:
-            *local_4 = TILE_MAP_98;
+            TYPES_GAME_Change(D_5876, D_5878, 2, TILE_MAP_98);
             local_6 = 1;
             D_24e6 |= 2;
             break;
@@ -805,6 +807,23 @@ static int CAST_0b28_InQuasXen(void)
 
                 D_5c5a[local_c] = D_5c5a[D_ba14[local_6].actorIdx];
 
+                unsigned cloneW, cloneH;
+                ACTORS_Size(local_c, &cloneW, &cloneH);
+                if (cloneW > 1 || cloneH > 1) {
+                    local_8 = 0;
+                    for (int y = 0; y < 11 && !local_8; ++y)
+                        for (int x = 0; x < 11 && !local_8; ++x)
+                            if (ACTORS_CanPlace(D_ba14[local_4].entityIdx, x, y, local_c)) {
+                                D_5c5a[local_c]._2_x = D_ba14[local_4].x = x;
+                                D_5c5a[local_c]._3_y = D_ba14[local_4].y = y;
+                                local_8 = 1;
+                            }
+                    if (!local_8) {
+                        D_ba14[local_4].flags = 0;
+                        D_5c5a[local_c]._0_tile = D_5c5a[local_c]._1_animTile = 0;
+                    }
+                    return local_8;
+                }
                 do
                 {
                     if (COMBAT_120e() == 0 || COMBAT_0000(TILE_ACTOR_AVATAR, D_5876, D_5878) == 0)
@@ -886,8 +905,7 @@ static int CAST_0d4c_AnTym(void)
     CAST2_0000_CastEffect(8);
     local_6 = -1;
 
-    for (local_4 = 0; local_4 < 0x20; local_4++)
-    {
+    for (local_4 = 0; local_4 < MAP_ACTOR_COUNT; local_4++) {
         if (D_5c5a[local_4]._0_tile == TILE_ACTOR_SHADOWLORD)
         {
             ULTIMA_1850_PrintString(_TEXT(0x45f2, "Magic absorbed!\n"));
@@ -1772,7 +1790,8 @@ void CAST_1792_UseCmd(void)
                         local_8 = ULTIMA_4402_GetTileAddr(local_e + D_5896_map_x, local_12 + D_5897_map_y);
                         if ((*local_8 & 0xf0) == TILE_MAP_70)
                         {
-                            *local_8 = TILE_MAP_GRASS;
+                            TYPES_GAME_Write(local_e + D_5896_map_x, local_12 + D_5897_map_y,
+                                             TILE_MAP_GRASS);
                             ULTIMA_5910_UpdateFrame();
                             ULTIMA_223c_AudioWhiteNoise(10, 3000, 2000);
                             local_4++;

@@ -387,6 +387,28 @@ int main(void)
     f=FILE_Open(meta,"w");assert(f);assert(fputs("Old Format\n123\n",f)>=0);fclose(f);
     assert(SLOTS_Load(latest));expectedLocation='U';
     assert(SDL_AddTimer(50,cancel,NULL));assert(!SLOTS_ShowLoad());assert(expectedLocation==-1);
+    /* Named-slot validation must accept the extended NPC prefix as well. */
+    writeWorld("SAVEGAME/BRIT.OOL", 0x12, 256);
+    writeWorld("SAVEGAME/UNDER.OOL", 0x34, 256);
+    D_imperaNpcCount = 33;
+    D_5893_map_id = 13;
+    memset(&D_5f5e[32], 0, sizeof(D_5f5e[32]));
+    memset(&D_5c5a[32], 0, sizeof(D_5c5a[32]));
+    memset(&D_5d5e[32], 0, sizeof(D_5d5e[32]));
+    memset(&D_615e[32], 0, sizeof(D_615e[32]));
+    D_655e[32] = -1;
+    D_65c2[32] = 0;
+    D_659e[32] = 80;
+    D_5f5e[32]._0 = 1;
+    D_5f5e[32]._c = 32;
+    D_5c5a[32]._0_tile = D_5c5a[32]._1_animTile = 80;
+    D_5c5a[32]._2_x = 17;
+    assert(SLOTS_Write("999999", "Additional NPCs", NULL));
+    NPC_ResetExtra();
+    assert(SLOTS_Load("999999") && FILE_ReadSavegameFile("SAVED.GAM") == 0);
+    assert(LOCATION_NPC_COUNT == 33 && D_5f5e[32]._c == 32 && D_5c5a[32]._2_x == 17);
+    assert(SLOTS_Delete("999999"));
+    NPC_ResetExtra();
     D_539c[0]=NULL;GRAP_Cleanup();SDL_Quit();
     puts("90+ named slots, party/world round trip, play time, failed overwrite, corrupt load and browser input passed");
     return 0;

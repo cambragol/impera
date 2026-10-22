@@ -1,3 +1,4 @@
+#include "mod/actors.h"
 #include "widescreen.h"
 #include "common/common.h"
 #include "common/file.h"
@@ -6,12 +7,13 @@
 #include "macros.h"
 #include "mod/contents_game.h"
 #include "mod/runtime.h"
+#include "mod/types_game.h"
 #include "tiles.h"
 #include "tileset.h"
 #include "vars.h"
 #include <string.h>
 
-static int s_actorTiles[32];
+static int s_actorTiles[IMPERA_NPC_CAPACITY];
 int WIDE_ActorTile(int actor) { return s_actorTiles[actor]; }
 
 WideLayout WIDE_Layout(int width, int height)
@@ -139,11 +141,14 @@ byte WIDE_GroundTile(int dx, int dy)
 
 int WIDE_SpritePixel(int tile, int dx, int dy, int x, int y)
 {
-    /* Southern foreground scenery owns its pixels. Sprite art is 16x16;
-     * only the outline margin can cross into the following map row. */
-    if (GRAP_BUF_TransparentSprites() && y >= 16) {
-        int neighbor = x < 0 ? -1 : x >= 16 ? 1 : 0;
-        byte south = WIDE_MapTile(dx + neighbor, dy + 1);
+    /* Southern foreground scenery owns its pixels. Only the outline
+     * margin below the complete footprint crosses into the following map row. */
+    unsigned fw = 1, fh = 1;
+    if (TYPES_ArtSlot(tile))
+        TYPES_ArtSize(tile, D_5893_map_id == 0, &fw, &fh);
+    if (GRAP_BUF_TransparentSprites() && y >= (int)(16 * fh)) {
+        int neighbor = x < 0 ? -1 : x / 16;
+        byte south = WIDE_MapTile(dx + neighbor, dy + fh);
         if (memchr(D_6a86, south, sizeof(D_6a86))) return -1;
     }
     return GRAP_BUF_SpritePixel(tile,x,y);
@@ -193,9 +198,26 @@ bool WIDE_Visible(int dx, int dy)
          * emerge on the far side of a room it classified as unseen. */
         if(expanded && abs(x)<=5 && abs(y)<=5 && GetMapViewport(x+5,y+5)==255) return false;
         if (x == dx && y == dy) break;
-        if (!Transparent(WIDE_MapTile(x, y), x * x + y * y)) return false;
+        if (!TYPES_GAME_Sight(D_5896_map_x + x, D_5897_map_y + y, x * x + y * y,
+                              Transparent(WIDE_MapTile(x, y), x * x + y * y)))
+            return false;
     }
     return true;
+}
+
+bool WIDE_FootprintVisible(int dx, int dy, unsigned width, unsigned height) {
+    if (D_5893_map_id >= 128)
+        return true;
+    for (unsigned y = 0; y < height; ++y)
+        for (unsigned x = 0; x < width; ++x) {
+            int vx = dx + x, vy = dy + y;
+            if (abs(vx) <= 5 && abs(vy) <= 5) {
+                if (GetMapViewport(vx + 5, vy + 5) != 255 && WIDE_Visible(vx, vy))
+                    return true;
+            } else if (WIDE_Visible(vx, vy))
+                return true;
+        }
+    return false;
 }
 
 static void Copy(byte* dst, int stride, int dx, int dy, int sx, int sy, int w, int h)
@@ -234,7 +256,8 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
     Copy(pixels, l.width, l.sidebarX - 8, l.height - 8, 184, 184, 8, 8);
     Copy(pixels, l.width, l.sidebarX / 2 - 56, l.height - 8, 40, 184, 112, 8);
 
-    for (int i = 0; i < 32; i++) s_actorTiles[i] = -1;
+    for (int i = 0; i < MAP_ACTOR_COUNT; i++)
+        s_actorTiles[i] = -1;
     int cx = l.columns / 2, cy = l.rows / 2;
     int* sprites = malloc((size_t)l.columns * l.rows * sizeof(int));
     if (!sprites) return false;
@@ -253,7 +276,7 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
                     D_5893_map_id ? D_5897_map_y + dy : (D_5897_map_y + dy) & 255);
                 if (loot)
                     sprites[row * l.columns + col] = 256 + loot;
-                for (int actor = 31; actor >= 0; actor--) {
+                for (int actor = MAP_ACTOR_COUNT - 1; actor >= 0; actor--) {
                     ActorFmt* a = &D_5c5a[actor];
                     int ax = a->_2_x - D_5896_map_x, ay = a->_3_y - D_5897_map_y;
                     if (D_5893_map_id == 0) {
@@ -274,7 +297,9 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
                         }
                         if (sprite == -1) continue;
                         if (sprite == -2) idx = D_b11e[TILE_MAP_38];
-                        else sprites[row * l.columns + col] = s_actorTiles[actor] = 256 + sprite;
+                        else
+                            sprites[row * l.columns + col] = s_actorTiles[actor] =
+                                ACTORS_Sprite(actor, 256 + sprite);
                         if (reflection && row > 0 && WIDE_Visible(dx, dy - 1)) {
                             for (int y = 0; y < 16; y++)
                                 if(l.mapY+(row-1)*16+y>=8 && l.mapY+(row-1)*16+y<l.height-8)
@@ -293,6 +318,16 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
             }
         }
     }
+    for (int row = 0; row < l.rows; row++)
+        for (int col = 0; col < l.columns; col++) {
+            int dx = col - cx, dy = row - cy;
+            if (abs(dx) <= 5 && abs(dy) <= 5 || !WIDE_Visible(dx, dy))
+                continue;
+            if (sprites[row * l.columns + col] < 0 ||
+                GRAP_BUF_SpriteIsTransparent(sprites[row * l.columns + col]))
+                TYPES_GAME_Draw(pixels, l.width, l.mapX + col * 16, l.mapY + row * 16, dx, dy, 8,
+                                l.height - 8);
+        }
     /* Keep the engine's central tiles, effects, targeting and modal overlays. */
     Copy(pixels, l.width, l.mapX + (cx - 5) * 16, l.mapY + (cy - 5) * 16,
          8, 8, 176, l.height-8-(l.mapY+(cy-5)*16)<176 ?
@@ -303,16 +338,65 @@ bool WIDE_Compose(byte* pixels, WideLayout l)
         int actorSprite=sprites[row*l.columns+col];
         if(actorSprite>=0 && !GRAP_BUF_SpriteIsTransparent(actorSprite)) continue;
         byte tile=WIDE_MapTile(dx,dy);
-        if(WIDE_GroundTile(dx,dy)!=tile)
+        if (!TYPES_ArtSlot(TYPES_GAME_At(D_5896_map_x + dx, D_5897_map_y + dy)) &&
+            WIDE_GroundTile(dx, dy) != tile)
             GRAP_BUF_DrawSprite(pixels,l.width,l.mapX+col*16,l.mapY+row*16,
                 D_b11e[tile],l.mapX,8,l.mapX+l.columns*16,l.height-8,dx,dy);
     }
-    for (int row = 0; row < l.rows; row++)
-        for (int col = 0; col < l.columns; col++) {
-            int sprite = sprites[row * l.columns + col];
-            if (sprite >= 0)
-                GRAP_BUF_DrawSprite(pixels, l.width, l.mapX + col * 16, l.mapY + row * 16,
-                    sprite, l.mapX, 8, l.mapX + l.columns * 16, l.height - 8,col-cx,row-cy);
+    bool largeVisible = false;
+    if (D_5893_map_id > 0 && D_5893_map_id < 128)
+        for (unsigned actor = 0; actor < (unsigned)MAP_ACTOR_COUNT; ++actor) {
+            ActorFmt *a = &D_5c5a[actor];
+            if (!a->_0_tile || !a->_1_animTile || a->_4_z != D_5895_map_level)
+                continue;
+            unsigned w, h;
+            ACTORS_Size(actor, &w, &h);
+            if ((w > 1 || h > 1) &&
+                WIDE_FootprintVisible(a->_2_x - D_5896_map_x, a->_3_y - D_5897_map_y, w, h)) {
+                largeVisible = true;
+                break;
+            }
+        }
+    /* Redraw central actors too: large artwork can cross the original viewport
+     * seam. Keep every footprint in north-to-south anchor order, rather than
+     * painting large actors over the already completed southern sprites. */
+    for (int layer = 0; layer < 2; ++layer)
+        for (int row = -1; row < l.rows; ++row) {
+            if (largeVisible && layer == 1)
+                for (unsigned actor = 0; actor < (unsigned)MAP_ACTOR_COUNT; ++actor) {
+                    ActorFmt *a = &D_5c5a[actor];
+                    if (!a->_0_tile || !a->_1_animTile || a->_4_z != D_5895_map_level)
+                        continue;
+                    int dx = a->_2_x - D_5896_map_x, dy = a->_3_y - D_5897_map_y;
+                    if (cy + dy != row)
+                        continue;
+                    unsigned w, h;
+                    ACTORS_Size(actor, &w, &h);
+                    if ((w > 1 || h > 1) && WIDE_FootprintVisible(dx, dy, w, h))
+                        GRAP_BUF_DrawSprite(pixels, l.width, l.mapX + (cx + dx) * 16,
+                                            l.mapY + row * 16,
+                                            ACTORS_Sprite(actor, 256 + a->_1_animTile), l.mapX, 8,
+                                            l.mapX + l.columns * 16, l.height - 8, dx, dy);
+                }
+            if (row < 0)
+                continue;
+            for (int col = 0; col < l.columns; col++) {
+                int dx = col - cx, dy = row - cy;
+                int sprite = sprites[row * l.columns + col];
+                if (largeVisible && abs(dx) <= 5 && abs(dy) <= 5 &&
+                    GetMapViewport(dx + 5, dy + 5) == 0 && GetActorMap(dx + 5, dy + 5) != 0x16)
+                    sprite = 256 + GetActorMap(dx + 5, dy + 5);
+                bool body = sprite == 256 + TILE_ACTOR_SLEEP || sprite == 256 + TILE_ACTOR_DEAD;
+                if (body != (layer == 0))
+                    continue;
+                if (largeVisible && !body && abs(dx) <= 5 && abs(dy) <= 5 &&
+                    GetMapViewport(dx + 5, dy + 5) == 0 && GetActorMap(dx + 5, dy + 5) != 0x16)
+                    sprite = ACTORS_AtCell(D_5896_map_x + dx, D_5897_map_y + dy, sprite);
+                if (sprite >= 0)
+                    GRAP_BUF_DrawSprite(pixels, l.width, l.mapX + col * 16, l.mapY + row * 16,
+                                        sprite, l.mapX, 8, l.mapX + l.columns * 16, l.height - 8,
+                                        dx, dy);
+            }
         }
     free(sprites);
     /* Restore outline margins at the seam after copying central effects. */
@@ -360,7 +444,7 @@ static bool SolidMasonry(byte tile)
 }
 
 /* Darkness coverage, 0..16, at original game-pixel resolution. Visible tiles
- * fade inward over 24 pixels; unseen terrain stays completely hidden.
+ * fade inward over one 16-pixel tile; unseen terrain stays completely hidden.
  * Visible masonry (including concealed doors) keeps its solid silhouette. */
 bool WIDE_DarknessMask(byte* mask,int columns,int rows)
 {
@@ -373,19 +457,23 @@ bool WIDE_DarknessMask(byte* mask,int columns,int rows)
         byte tile=WIDE_MapTile(dx,dy);
         /* Unavailable terrain is not a source of an inward fade. Town
          * backgrounds are valid tiles, just like the original viewport. */
-        solid[(row+2)*stride+col+2]=tile==255 || SolidMasonry(tile);
+        solid[(row + 2) * stride + col + 2] =
+            tile == 255 ||
+            TYPES_GAME_Property(D_5896_map_x + col - columns / 2, D_5897_map_y + row - rows / 2, 2,
+                                SolidMasonry(tile));
         lit[(row+2)*stride+col+2]=tile!=255 &&
             (abs(dx)<=5 && abs(dy)<=5 ? GetMapViewport(dx+5,dy+5)!=255 : WIDE_Visible(dx,dy));
     }
     for(int row=0;row<rows;row++) for(int col=0;col<columns;col++) {
         bool visible=lit[(row+2)*stride+col+2];
         byte tile=visible ? WIDE_MapTile(col-columns/2,row-rows/2) : 255;
-        bool masonry=SolidMasonry(tile);
+        bool masonry = TYPES_GAME_Property(D_5896_map_x + col - columns / 2,
+                                           D_5897_map_y + row - rows / 2, 2, SolidMasonry(tile));
         /* Tile visibility is constant across its pixels. Collect only nearby
-         * exposed darkness once, rather than scanning 25 tiles per pixel. */
-        int candidateX[25],candidateY[25],candidateCount=0;
+         * exposed darkness once, rather than scanning nine tiles per pixel. */
+        int candidateX[9],candidateY[9],candidateCount=0;
         if(visible && !masonry && (col!=columns/2 || row!=rows/2))
-            for(int oy=-2;oy<=2;oy++) for(int ox=-2;ox<=2;ox++) {
+            for(int oy=-1;oy<=1;oy++) for(int ox=-1;ox<=1;ox++) {
                 int i=(row+oy+2)*stride+col+ox+2;
                 if(!lit[i] && !solid[i]) {
                     candidateX[candidateCount]=ox;candidateY[candidateCount++]=oy;
@@ -400,7 +488,7 @@ bool WIDE_DarknessMask(byte* mask,int columns,int rows)
             int shade=0;
             if(!visible) shade=16;
             else if(!masonry && (col!=columns/2 || row!=rows/2)) {
-                int nearest=24*24;
+                int nearest=16*16;
                 for(int candidate=0;candidate<candidateCount;candidate++) {
                     int ox=candidateX[candidate],oy=candidateY[candidate];
                     int x=px-ox*16,y=py-oy*16;
@@ -422,8 +510,8 @@ bool WIDE_DarknessMask(byte* mask,int columns,int rows)
                     }
                     if(!blocked) nearest=distance;
                 }
-                int distance=0;while(distance<24 && (distance+1)*(distance+1)<=nearest) distance++;
-                shade=(24-distance)*16/24;if(shade>15) shade=15;
+                int distance=0;while(distance<16 && (distance+1)*(distance+1)<=nearest) distance++;
+                shade=16-distance;if(shade>15) shade=15;
             }
             mask[(row*16+py)*columns*16+col*16+px]=(byte)shade;
         }

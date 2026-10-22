@@ -1,8 +1,10 @@
+#include "mod/runtime.h"
 #include "common/common.h"
 #include "funcs.h"
-#include "vars.h"
 #include "macros.h"
+#include "mod/types_game.h"
 #include "tiles.h"
+#include "vars.h"
 
 #include "shoppes.h"
 #include "shoppes2.h"
@@ -100,14 +102,14 @@ static int SHOPPES2_00dc(void)
 
         if (*ULTIMA_4402_GetTileAddr(D_5896_map_x, D_5897_map_y - 1) == TILE_MAP_TABLE_95)
         {
-            *ULTIMA_4402_GetTileAddr(D_5896_map_x, D_5897_map_y - 1) = TILE_MAP_TABLE_9B;
+            TYPES_GAME_Write(D_5896_map_x, D_5897_map_y - 1, TILE_MAP_TABLE_9B);
             D_bd1e = TILE_MAP_TABLE_9B;
 
             ULTIMA_5910_UpdateFrame();
         }
         else if (*ULTIMA_4402_GetTileAddr(D_5896_map_x, D_5897_map_y + 1) == TILE_MAP_TABLE_95)
         {
-            *ULTIMA_4402_GetTileAddr(D_5896_map_x, D_5897_map_y + 1) = TILE_MAP_TABLE_9A;
+            TYPES_GAME_Write(D_5896_map_x, D_5897_map_y + 1, TILE_MAP_TABLE_9A);
             D_bd1e = TILE_MAP_TABLE_9A;
 
             ULTIMA_5910_UpdateFrame();
@@ -386,7 +388,9 @@ static int SHOPPES2_0508(void)
                 ULTIMA_2900_UpdateVitalsDisplay();
 
                 D_ab00 = D_4ca8[local_8];
-                D_ac62 = D_4cf6[D_4cdc[local_8]];
+                unsigned place = D_4cdc[local_8];
+                unsigned map = place < 8 ? place + 1 : place == 11 ? 30 : place == 12 ? 32 : 255;
+                D_ac62 = (char *)MOD_LocationName(map, D_4cf6[place]);
 
                 SHOPPES_017a(D_4d44[ULTIMA_2092_RandomRange(0, 3)]);
 

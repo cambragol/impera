@@ -1,3 +1,5 @@
+#include "mod/actors.h"
+#include "mod/types_game.h"
 #include "common/common.h"
 #include "funcs.h"
 #include "vars.h"
@@ -8,6 +10,8 @@
 #include <string.h>
 #include "npc.h"
 #include "town.h"
+#include "mod/package.h"
+#include <stdlib.h>
 
 static int NPC_032c(int a, int b, int c, int d, int e, int f);
 static int NPC_06a0(int param_1, int param_2, int param_3, int param_4);
@@ -56,6 +60,7 @@ void NPC_0000_LoadNpcFile(void)
     }
 
     D_5893_map_id++;
+    NPC_LoadExtra(local_6, local_28);
 }
 
 int NPC_InitializeNewGame(void)
@@ -82,6 +87,7 @@ int NPC_InitializeNewGame(void)
         D_5f5e[i]._a = record[0x220 + i];
         if (i && TOWN_0000_CheckNpcKilled(i)) D_659e[i] = 0;
     }
+    NPC_LoadExtra(files[location / 8], location % 8);
     NPC_00d6(D_587f);
     TOWN_1694();
     debug("Initialized starting settlement NPCs: map=%u floor=%u hour=%u", D_5893_map_id,
@@ -94,8 +100,7 @@ void NPC_00d6(int param_1)
     int local_4;
     int local_6;
 
-    for (local_4 = 1; local_4 < 0x20; local_4++)
-    {
+    for (local_4 = 1; local_4 < LOCATION_NPC_COUNT; local_4++) {
         if (D_659e[local_4] == 0)
         {
             D_5f5e[local_4]._0 = 0;
@@ -180,7 +185,7 @@ static void NPC_01d2(int param_1, int param_2, int param_3, int param_4, int par
     // 0272
     local_4 = &D_5f5e[param_6];
 
-    for (local_6 = 0x1f; local_6 > 0; local_6--) // NOT MATCHING
+    for (local_6 = MAP_ACTOR_COUNT - 1; local_6 > 0; local_6--) // NOT MATCHING
     {
         local_c = &D_5c5a[local_6];
         if (local_c->_0_tile > TILE_ACTOR_WIZARD - 1)
@@ -494,7 +499,7 @@ static void NPC_06e4(int param_1, int param_2)
     int local_1a;
     int local_1c;
 
-    CHECK_PARAM_RANGE(param_1, 0, 32);
+    CHECK_PARAM_RANGE(param_1, 0, LOCATION_NPC_COUNT);
     CHECK_PARAM_RANGE(param_2, 0, 3);
 
     local_18 = &D_5c5a[0];
@@ -617,6 +622,10 @@ static void NPC_06e4(int param_1, int param_2)
             D_5878 = local_8->_4_y;
             NPC_0632(local_1a);
 
+            unsigned w, h;
+            ACTORS_Size(local_8->_c, &w, &h);
+            if ((w > 1 || h > 1) && !ACTORS_CanMove(local_8->_c, D_5876, D_5878))
+                return;
             D_5c5a[local_8->_c]._2_x = local_8->_2_x = D_5876;
             D_5c5a[local_8->_c]._3_y = local_8->_4_y = D_5878;
             D_24e6 |= 2;
@@ -765,6 +774,12 @@ static int NPC_0adc(int param_1, int param_2, int param_3, int param_4, int para
 
     local_6 = 0;
     local_4 = &D_5d5e[param_4];
+    unsigned actor = D_5f5e[param_4]._c, width, height;
+    if (actor < (unsigned)MAP_ACTOR_COUNT && param_3 == D_5895_map_level) {
+        ACTORS_Size(actor, &width, &height);
+        if (width > 1 || height > 1)
+            return ACTORS_CanMove(actor, param_1, param_2);
+    }
 
     if (param_5 > -1 && local_4->x[param_5] == param_1 && local_4->y[param_5] == param_2 && local_4->z[param_5] == param_3)
     {
@@ -788,6 +803,21 @@ static int NPC_0adc(int param_1, int param_2, int param_3, int param_4, int para
         else
         {
             local_6 = ((uint)D_367e[local_8 >> 3] & 0x80 >> (local_8 & 7)) == 0;
+            if (param_1 >= 0 && param_2 >= 0 && param_1 < 32 && param_2 < 32) {
+                TypeCell key = {3, D_5893_map_id, 0, param_4 & 255, (unsigned)param_4 >> 8, 0, 0};
+                unsigned actorType = TYPES_At(key, 0), tileType = TYPES_GAME_At(param_1, param_2);
+                unsigned originalType = 256 + D_659e[param_4];
+                if (!actorType && TYPES_Defined(originalType)) actorType = originalType;
+                if (actorType || TYPES_Defined(tileType)) {
+                    TypeDef terrain, actor;
+                    if (actorType)
+                        TYPES_Get(actorType, &actor);
+                    else
+                        TYPES_Vanilla(1, D_659e[param_4], &actor);
+                    if (TYPES_Get(tileType, &terrain))
+                        local_6 = !!(terrain.movement & (1u << actor.moveProfile));
+                }
+            }
         }
     }
 
@@ -796,6 +826,12 @@ static int NPC_0adc(int param_1, int param_2, int param_3, int param_4, int para
 
 static int NPC_0b9e(int param_1, int param_2, int param_3, int param_4)
 {
+    unsigned actor = D_5f5e[param_3]._c, w, h;
+    if (actor < (unsigned)MAP_ACTOR_COUNT) {
+        ACTORS_Size(actor, &w, &h);
+        if (w > 1 || h > 1)
+            return ACTORS_CanMove(actor, param_1, param_2);
+    }
     int local_8;
     int local_6;
     int local_4;
@@ -926,8 +962,7 @@ void NPC_0db4(int param_1)
     D_65bf = 0;
 
     // 0dd9
-    for (local_4 = 1; /*1267*/ local_4 < 0x20; /*1264*/ local_4++)
-    {
+    for (local_4 = 1; /*1267*/ local_4 < LOCATION_NPC_COUNT; /*1264*/ local_4++) {
         // 126d
         if (D_659e[local_4] == 0)
             continue;
@@ -1227,4 +1262,142 @@ int NPC_12e0(int param_1, char param_2)
     }
 
     return ret;
+}
+
+void NPC_ResetExtra(void) {
+    D_imperaNpcCount = 32;
+    memset(D_5b5a + 128, 0, sizeof(D_5b5a) - 128);
+    memset(D_5bda + 128, 0, sizeof(D_5bda) - 128);
+    memset(D_5c5a + 32, 0, sizeof(D_5c5a) - 32 * sizeof(*D_5c5a));
+}
+void NPC_LoadExtra(const char *name, unsigned town) {
+    unsigned previous = LOCATION_NPC_COUNT;
+    memset(D_5c5a + 32, 0, (previous - 32) * sizeof(*D_5c5a));
+    memset(D_659e + 32, 0, previous - 32);
+    memset(D_5f5e + 32, 0, (previous - 32) * sizeof(*D_5f5e));
+    D_imperaNpcCount = 32;
+    FILE *f = FILE_Open(name, "rb");
+    if (!f)
+        return;
+    if (fseek(f, 0, SEEK_END)) {
+        fclose(f);
+        return;
+    }
+    long size = ftell(f);
+    if (size <= 4608 || size > MOD_MAX_RESOURCE || fseek(f, 0, SEEK_SET)) {
+        fclose(f);
+        return;
+    }
+    unsigned char *bytes = malloc(size);
+    int ok = bytes && fread(bytes, 1, size, f) == (size_t)size && NPCS_Validate(bytes, size);
+    fclose(f);
+    if (!ok) {
+        free(bytes);
+        DEBUG_Error("Invalid extended NPC records in %s", name);
+        return;
+    }
+    D_imperaNpcCount = NPCS_Count(bytes, size, town);
+    memset(D_5f5e + 32, 0, (D_imperaNpcCount - 32) * sizeof(*D_5f5e));
+    memset(D_5c5a + 32, 0, (D_imperaNpcCount - 32) * sizeof(*D_5c5a));
+    memset(D_659e + 32, 0, D_imperaNpcCount - 32);
+    for (size_t off = IMPERA_NPC_EXTRA_START; off < (size_t)size; off += 24) {
+        if (bytes[off] != town)
+            continue;
+        unsigned slot = NPCS_Word(bytes + off + 2);
+        memcpy(&D_5d5e[slot], bytes + off + 4, 16);
+        D_659e[slot] = bytes[off + 20];
+        D_5f5e[slot]._a = bytes[off + 21];
+        if (TOWN_0000_CheckNpcKilled(slot))
+            D_659e[slot] = 0;
+    }
+    free(bytes);
+}
+/* Prefix before the existing contents/type trailers; vanilla saves have no prefix.
+ * Records use explicit little-endian words, never compiler structure layouts. */
+int NPC_WriteExtraState(FILE *f) {
+    unsigned count = LOCATION_NPC_COUNT;
+    size_t flagBytes = sizeof(D_5b5a) - 128;
+    int flags = 0;
+    for (size_t i = 0; i < flagBytes; i++)
+        flags |= D_5b5a[128 + i] | D_5bda[128 + i];
+    if (count == 32 && !flags)
+        return 1;
+    size_t size = 2 * flagBytes + (size_t)(count - 32) * 78;
+    unsigned char *b = calloc(1, size), h[24] = {0};
+    if (!b)
+        return 0;
+    memcpy(h, "INPSAV01", 8);
+    TYPES_Put32(h + 8, size);
+    TYPES_Put32(h + 12, count);
+    memcpy(b, D_5b5a + 128, flagBytes);
+    memcpy(b + flagBytes, D_5bda + 128, flagBytes);
+    size_t off = 2 * flagBytes;
+    for (unsigned i = 32; i < count; i++, off += 78) {
+        memcpy(b + off, &D_5c5a[i], 8);
+        memcpy(b + off + 8, &D_5d5e[i], 16);
+        const unsigned short *words = (const unsigned short *)&D_5f5e[i];
+        for (unsigned j = 0; j < 8; j++) {
+            b[off + 24 + j * 2] = words[j];
+            b[off + 25 + j * 2] = words[j] >> 8;
+        }
+        memcpy(b + off + 40, &D_615e[i], 32);
+        b[off + 72] = D_655e[i];
+        b[off + 73] = (unsigned short)D_655e[i] >> 8;
+        b[off + 74] = D_659e[i];
+        b[off + 75] = 0;
+        b[off + 76] = D_65c2[i];
+        b[off + 77] = (unsigned short)D_65c2[i] >> 8;
+    }
+    TYPES_Put32(h + 16, MOD_Crc32(b, size));
+    int ok = fwrite(h, 1, 24, f) == 24 && fwrite(b, 1, size, f) == size;
+    free(b);
+    return ok;
+}
+int NPC_ReadExtraState(FILE *f, int apply) {
+    long start = ftell(f);
+    unsigned char h[24];
+    size_t got = fread(h, 1, 24, f);
+    if (got < 8 || memcmp(h, "INPSAV01", 8)) {
+        if (ferror(f) || fseek(f, start, SEEK_SET))
+            return 0;
+        if (apply)
+            NPC_ResetExtra();
+        return 1;
+    }
+    unsigned count = TYPES_U32(h + 12), size = TYPES_U32(h + 8);
+    size_t flagBytes = sizeof(D_5b5a) - 128;
+    if (got != 24 || count < 32 || count > IMPERA_NPC_CAPACITY || TYPES_U32(h + 20) ||
+        size != 2 * flagBytes + (size_t)(count - 32) * 78)
+        return 0;
+    unsigned char *b = malloc(size);
+    if (!b)
+        return 0;
+    int ok = fread(b, 1, size, f) == size && MOD_Crc32(b, size) == TYPES_U32(h + 16);
+    for (unsigned i = 32; ok && i < count; i++) {
+        size_t off = 2 * flagBytes + (size_t)(i - 32) * 78;
+        unsigned actor = NPCS_Word(b + off + 24 + 12);
+        int path = (short)NPCS_Word(b + off + 72);
+        if (actor >= count || path < -1 || path > 30 || b[off + 75])
+            ok = 0;
+    }
+    if (ok && apply) {
+        NPC_ResetExtra();
+        D_imperaNpcCount = count;
+        memcpy(D_5b5a + 128, b, flagBytes);
+        memcpy(D_5bda + 128, b + flagBytes, flagBytes);
+        for (unsigned i = 32; i < count; i++) {
+            size_t off = 2 * flagBytes + (size_t)(i - 32) * 78;
+            memcpy(&D_5c5a[i], b + off, 8);
+            memcpy(&D_5d5e[i], b + off + 8, 16);
+            unsigned short *words = (unsigned short *)&D_5f5e[i];
+            for (unsigned j = 0; j < 8; j++)
+                words[j] = NPCS_Word(b + off + 24 + j * 2);
+            memcpy(&D_615e[i], b + off + 40, 32);
+            D_655e[i] = (short)NPCS_Word(b + off + 72);
+            D_659e[i] = b[off + 74];
+            D_65c2[i] = (short)NPCS_Word(b + off + 76);
+        }
+    }
+    free(b);
+    return ok;
 }

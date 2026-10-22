@@ -19,6 +19,9 @@ class Project {
     QStringList changed() const;
     const QByteArray &data(const QString &name) const;
     void validate() const;
+    QString locationName(int map) const;
+    QByteArray renameLocation(int map, const QString &name) const;
+    QVector<U5::MapPage> mapPages(const QString &resource) const;
 };
 
 struct ModDiagnostic {

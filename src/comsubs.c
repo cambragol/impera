@@ -1,3 +1,4 @@
+#include "mod/actors.h"
 #include "common/common.h"
 #if defined(TARGET_SDL)
 #include "key/mouse.h"
@@ -56,7 +57,7 @@ void COMSUBS_0094_PrintName(int param_1)
     }
     else
     {
-        ULTIMA_1850_PrintString(D_1856[D_ba14[param_1].entityIdx]);
+        ULTIMA_1850_PrintString(ACTORS_Name(D_ba14[param_1].entityIdx, 0));
     }
 }
 
@@ -89,8 +90,7 @@ int COMSUBS_00f4(int param_1)
         return 0;
     }
 
-    if (((byte)D_153c_enemyFlags[local_4] & ENEMY_FLAG_CHARM) != 0)
-    {
+    if (((byte)ACTORS_Flags(local_4) & ENEMY_FLAG_CHARM) != 0) {
         local_e = ULTIMA_2092_RandomRange(0, 0x1f);
 
         local_6 = D_ba14[local_e].flags;
@@ -111,8 +111,7 @@ int COMSUBS_00f4(int param_1)
                 COMSUBS_0094_PrintName(local_e);
                 ULTIMA_1850_PrintString(_TEXT(0x99b4, " possessed!\n"));
                 ULTIMA_2192_AudioPulse(0xc1c, 1, 30000, 1000, 2);
-                if (local_4 == 0x26)
-                {
+                if (ACTORS_Profile(local_4) == 0x26) {
                     COMBAT_1236(-param_1 - 1);
                 }
             }
@@ -121,8 +120,8 @@ int COMSUBS_00f4(int param_1)
         }
     }
 
-    if ((D_153c_enemyFlags[local_4] & ENEMY_FLAG_DISAPPEAR) != 0 && ULTIMA_2092_RandomRange(0, 0xff) < 0x20)
-    {
+    if ((ACTORS_Flags(local_4) & ENEMY_FLAG_DISAPPEAR) != 0 &&
+        ULTIMA_2092_RandomRange(0, 0xff) < 0x20) {
         ULTIMA_16ba_PrintChar('\n');
         COMSUBS_0094_PrintName(param_1);
         if (D_5c5a[local_c]._1_animTile == 0)
@@ -141,18 +140,22 @@ int COMSUBS_00f4(int param_1)
         return 1;
     }
 
-    if ((D_153c_enemyFlags[local_4] & ENEMY_FLAG_SUMMON) != 0 && ULTIMA_2092_RandomRange(0, 0xff) < 0x20)
-    {
+    if ((ACTORS_Flags(local_4) & ENEMY_FLAG_SUMMON) != 0 &&
+        ULTIMA_2092_RandomRange(0, 0xff) < 0x20) {
         if (COMBAT_120e() != 0)
         {
-            if (COMBAT_0000(TILE_ACTOR_D8, D_5876, D_5878) != 0)
-            {
-                local_8 = ULTIMA_6506(0x26, 0, D_5876, D_5878, D_5895_map_level);
+            if (ACTORS_CanPlace(ACTORS_Target(local_4, 1, 0x26), D_5876, D_5878, 32) != 0) {
+                local_8 = ULTIMA_6506(ACTORS_Target(local_4, 1, 0x26), 0, D_5876, D_5878,
+                                      D_5895_map_level);
                 if (local_8 != -1)
                 {
                     ULTIMA_16ba_PrintChar('\n');
                     COMSUBS_0094_PrintName(param_1);
-                    ULTIMA_1850_PrintString(_TEXT(0x99dc, " gates in a daemon!\n"));
+                    if (ACTORS_Def(local_4).result[1]) {
+                        ULTIMA_1850_PrintString(" summons ");
+                        ULTIMA_1850_PrintString(ACTORS_Name(D_ba14[local_8].entityIdx, 0));
+                        ULTIMA_1850_PrintString("!\n");
+                    } else ULTIMA_1850_PrintString(_TEXT(0x99dc, " gates in a daemon!\n"));
                     ULTIMA_2192_AudioPulse(0xac8, 1, 5000, 1000, 0xf);
 
                     local_a = &D_5c5a[D_ba14[local_8].actorIdx];
@@ -161,7 +164,8 @@ int COMSUBS_00f4(int param_1)
 
                     ULTIMA_1068(0x1d8, D_5876, D_5878);
 
-                    local_a->_0_tile = local_a->_1_animTile = TILE_ACTOR_D8;
+                    local_a->_0_tile = local_a->_1_animTile =
+                        ACTORS_Def(D_ba14[local_8].entityIdx).base;
 
                     return 1;
                 }
@@ -205,16 +209,13 @@ void COMSUBS_0312(int param_1, int param_2)
             COMSUBS_0094_PrintName(param_1);
             if ((local_4 & COMBAT_FLAGS_PLAYER) != 0)
             {
-                if (param_2 != 0xff && D_ba14[param_2].entityIdx == 0x2d)
-                {
+                if (param_2 != 0xff && ACTORS_Profile(D_ba14[param_2].entityIdx) == 0x2d) {
                     ULTIMA_1850_PrintString(_TEXT(0x9a10, " dragged under!\n"));
                     ULTIMA_43ae_AudioSweepTone(0x4b0, 2000, 1, 0x28);
                     D_ba14[param_1].flags |= COMBAT_FLAGS_4;
                     D_5c5a[D_ba14[param_1].actorIdx]._1_animTile = 0;
                     ULTIMA_3ae6(4);
-                }
-                else
-                {
+                } else {
                     ULTIMA_1850_PrintString(_TEXT(0x9a22, " hit!\n"));
                 }
             }
@@ -287,6 +288,11 @@ int COMSUBS_048a(int param_1, int param_2, int param_3, int param_4)
 
 int COMSUBS_04d4(int param_1, int param_2)
 {
+    unsigned aw, ah, bw, bh;
+    ACTORS_Size(D_ba14[param_1].actorIdx, &aw, &ah);
+    ACTORS_Size(D_ba14[param_2].actorIdx, &bw, &bh);
+    if (aw > 1 || ah > 1 || bw > 1 || bh > 1)
+        return ACTORS_Distance(param_1, param_2);
     return COMSUBS_048a(D_ba14[param_1].x, D_ba14[param_1].y, D_ba14[param_2].x, D_ba14[param_2].y);
 }
 
@@ -377,17 +383,19 @@ int COMSUBS_0504(int param_1, int param_2)
             break;
 
         case U5_KEY_SPACE: // 068a
-            if ((D_ba14[param_1].x == D_5899) && (D_ba14[param_1].y == D_589a))
-            {
+            if (ACTORS_CombatContains(param_1, D_5899, D_589a)) {
                 local_e = 1;
             }
             // fallthrough
 
         case U5_KEY_ENTER:  // 06a3
         case 0x41: // 06a3
-            if (D_ba14[param_1].x != D_5899 || D_ba14[param_1].y != D_589a)
-            {
-                if (!MOVEMENT_AttackAllowed(D_5899-D_ba14[param_1].x,D_589a-D_ba14[param_1].y)) {
+            if (!ACTORS_CombatContains(param_1, D_5899, D_589a)) {
+                int ax = D_ba14[param_1].x, ay = D_ba14[param_1].y, bx = D_5899, by = D_589a;
+                int target = COMSUBS_0748(bx, by);
+                if (target >= 0)
+                    ACTORS_AttackCells(param_1, target, &ax, &ay, &bx, &by);
+                if (!MOVEMENT_AttackAllowed(bx - ax, by - ay)) {
                     ULTIMA_1850_PrintString("Cardinal directions only!\n");
                     break;
                 }
@@ -411,6 +419,9 @@ int COMSUBS_0504(int param_1, int param_2)
         local_6 = local_12 + D_589a;
 
         local_14 = COMSUBS_048a(local_4, local_6, D_ba14[param_1].x, D_ba14[param_1].y);
+        int footprintTarget = COMSUBS_0748(local_4, local_6);
+        if (footprintTarget >= 0 && footprintTarget != param_1)
+            local_14 = COMSUBS_04d4(param_1, footprintTarget);
         if (local_14 <= param_2 &&
             local_4 >= 0 && local_4 < 0xb &&
             local_6 >= 0 && local_6 < 0xb)
@@ -443,8 +454,7 @@ int COMSUBS_0748(int param_1, int param_2)
 
     for (local_6 = 0; local_6 < 0x20; local_6++)
     {
-        if (D_ba14[local_6].x == param_1 && D_ba14[local_6].y == param_2)
-        {
+        if (ACTORS_CombatContains(local_6, param_1, param_2)) {
             local_4 = D_ba14[local_6].flags;
 
             if (D_5c5a[D_ba14[local_6].actorIdx]._1_animTile != TILE_ACTOR_F4)
@@ -488,11 +498,15 @@ int COMSUBS_0822(int param_1, int param_2, int param_3, int param_4, int param_5
     int local_6;
     int local_8;
 
-    if (!MOVEMENT_AttackAllowed(param_2-D_ba14[param_1].x,param_3-D_ba14[param_1].y)) return -1;
-    local_6 = param_2;
-    local_c = param_3;
     local_4 = D_ba14[param_1].x;
     local_a = D_ba14[param_1].y;
+    int target = COMSUBS_0748(param_2, param_3);
+    if (target >= 0)
+        ACTORS_AttackCells(param_1, target, &local_4, &local_a, &param_2, &param_3);
+    if (!MOVEMENT_AttackAllowed(param_2 - local_4, param_3 - local_a))
+        return -1;
+    local_6 = param_2;
+    local_c = param_3;
 
     if (param_4 == 0)
     {
@@ -726,13 +740,13 @@ void COMSUBS_0c52(int param_1, int param_2)
 
     if ((D_ba14[param_1].flags & COMBAT_FLAGS_PLAYER) == 0)
     {
-        local_a = D_159c[D_ba14[param_1].entityIdx];
+        local_a = ACTORS_Range(D_ba14[param_1].entityIdx);
         if (local_a == 1)
         {
             local_a = 0;
         }
 
-        local_4 = D_15cc[D_ba14[param_1].entityIdx];
+        local_4 = ACTORS_Projectile(D_ba14[param_1].entityIdx);
     }
     else
     {

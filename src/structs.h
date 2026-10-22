@@ -137,14 +137,16 @@ typedef union S_6608_Map
 } S_6608_Map;
 
 // size: 8
-// combat entity (ba14)
+// Combat entity (ba14). Native-only logical type IDs may exceed a byte; this runtime
+// structure is not part of the DOS save layout.
 typedef struct CombatEntity
 {
 	u8 hp;			// 0 / ba14; current hp
 	u8 dex;			// 1 / ba15; dex
 	u8 flags;		// 2 / ba16; flags (0x80: player, 0x40: monster, ...)
-	u8 entityIdx;	// 3 / ba17; entity idx (player, monster, ...) (->13bc, 153c, 15cc, 1856, 55a8, )
-	u8 actorIdx;	// 4 / ba18; actor idx (->5c5a)
+        u32 entityIdx;  // 3 / ba17; entity idx (player, monster, ...) (->13bc, 153c, 15cc, 1856,
+                        // 55a8, )
+        u8 actorIdx;	// 4 / ba18; actor idx (->5c5a)
 	u8 turnTimer;	// 5 / ba19; turn timer?
 	u8 x;			// 6 / ba1a; x coord
 	u8 y;			// 7 / ba1b; y coord

@@ -1,23 +1,26 @@
-#include "cutscene_editor.h"
-#include "inventory_names.h"
-#include "map_positions.h"
+#include "mod/npcs.h"
+#include "color_palette.h"
 #include "window.h"
-#include "map_entities.h"
-#include "mod/tileset_resources.h"
 #include "contents_editor.h"
+#include "custom_tiles.h"
+#include "cutscene_editor.h"
 #include "dialogue_editor.h"
 #include "dungeon_editor.h"
 #include "engine_tables.h"
 #include "font_editor.h"
+#include "inventory_names.h"
 #include "location_text.h"
+#include "map_entities.h"
+#include "map_positions.h"
 #include "mod/package.h"
+#include "mod/tileset_resources.h"
 #include "narrative_editor.h"
 #include "resource_document.h"
 #include "scene_editor.h"
 #include "text_preview.h"
 #include "world_objects.h"
-#include <QMouseEvent>
 #include <QCollator>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QtWidgets>
 #include <memory>
@@ -114,6 +117,7 @@ class PixelCanvas : public QWidget {
   public:
     QImage image;
     QRgb brush = qRgb(255, 255, 255);
+    QVector<QRgb> allowedColors;
     int zoom = 6;
     QImage before;
     std::function<void(const QImage &)> commit;
@@ -136,7 +140,8 @@ class PixelCanvas : public QWidget {
         if (x < 0 || y < 0 || x >= image.width() || y >= image.height())
             return;
         if (e->buttons() & Qt::RightButton)
-            brush = image.pixel(x, y);
+            brush = allowedColors.isEmpty() ? image.pixel(x, y)
+                                           : Workshop::paletteColor(image.pixel(x, y), allowedColors);
         else if (e->buttons() & Qt::LeftButton) {
             image.setPixel(x, y, brush);
             update();
@@ -608,7 +613,7 @@ void WorkshopWindow::navigateContent(const QString &id) {
         prepareNavigation();
         if (!replayNavigation && navigationIndex >= 0)
             navigationStates[navigationIndex] = editorState;
-        if (d.workspace == "NPCs" && d.resource != "SHOPPE.DAT") {
+        if (d.workspace == "Dialogue" && d.resource != "SHOPPE.DAT") {
             if (!replayNavigation && d.character >= 0 && d.resource != current &&
                 current.left(current.size() - 4) == d.resource.left(d.resource.size() - 4) &&
                 editorState.value(current + "/character", -1) == d.character)
@@ -652,7 +657,7 @@ void WorkshopWindow::rebuildTree() {
     assets->setProperty("workspace", workspaceSelector->currentText());
     destinations = Workshop::contentDestinations(project);
     QMap<QString, QTreeWidgetItem *> groups;
-    const bool characters = workspaceSelector->currentText() == "NPCs";
+    const bool characters = workspaceSelector->currentText() == "Dialogue";
     characterLocation->setVisible(characters);
     const QString selectedLocation = characterLocation->currentData().toString();
     {
@@ -661,7 +666,7 @@ void WorkshopWindow::rebuildTree() {
         characterLocation->addItem("All NPCs & services", QString());
         QSet<QString> locations;
         for (const auto &d : destinations)
-            if (d.workspace == "NPCs")
+            if (d.workspace == "Dialogue")
                 locations.insert(d.group);
         QStringList sorted = locations.values();
         sorted.sort();
@@ -679,7 +684,7 @@ void WorkshopWindow::rebuildTree() {
     }
     if (workspaceSelector->currentText() == "Graphics") {
         for (const QString &label :
-             {QString("Tilesets"), QString("Illustrations"), QString("Fonts")}) {
+             {QString("Tilesets"), QString("Custom tiles"), QString("Illustrations"), QString("Fonts")}) {
             const bool present = std::any_of(destinations.cbegin(), destinations.cend(),
                                             [&](const auto &d) {
                                                 return d.workspace == "Graphics" && d.group == label;
@@ -730,19 +735,19 @@ void WorkshopWindow::rebuildTree() {
         if (d.resource == current) {
             const int selected = editorState.value(current + "/map");
             bool matches = (d.page < 0 || selected == d.page) && Workshop::matchesSelection(d, editorState);
-            if (d.workspace == "NPCs" && (d.character >= 0 || d.conversation >= 0))
+            if (d.workspace == "Dialogue" && (d.character >= 0 || d.conversation >= 0))
                 matches = editorState.value(current + "/character", -1) == d.character &&
                           (d.conversation < 0 ||
                            editorState.value(current + "/conversation") == d.conversation);
             if (!matches && d.page >= 0) {
-                const auto pages = U5::mapPages(current, project.data(current));
+                const auto pages = project.mapPages(current);
                 matches = selected >= 0 && selected < pages.size() &&
                           pages[d.page].settlement >= 0 &&
                           pages[d.page].settlement == pages[selected].settlement;
             }
             if (matches) {
                 assets->setCurrentItem(item);
-                if (d.workspace == "NPCs" && content->currentWidget())
+                if (d.workspace == "Dialogue" && content->currentWidget())
                     if (auto title = content->currentWidget()->findChild<QLabel *>("characterTitle"))
                         title->setText(d.title + " — " + d.group);
             }
@@ -832,13 +837,13 @@ void WorkshopWindow::selectResource(const QString &name) {
         for (const auto &d : destinations) {
             if (d.resource != current || !Workshop::matchesSelection(d, editorState))
                 continue;
-            if (d.workspace == "NPCs" && (d.character >= 0 || d.conversation >= 0) &&
+            if (d.workspace == "Dialogue" && (d.character >= 0 || d.conversation >= 0) &&
                 (editorState.value(current + "/character", -1) != d.character ||
                  (d.conversation >= 0 &&
                   editorState.value(current + "/conversation") != d.conversation)))
                 continue;
             if (d.page >= 0 && d.page != editorState.value(current + "/map")) {
-                const auto pages = U5::mapPages(current, project.data(current));
+                const auto pages = project.mapPages(current);
                 const int selected = editorState.value(current + "/map");
                 if (selected >= pages.size() || pages[d.page].settlement < 0 ||
                     pages[d.page].settlement != pages[selected].settlement)
@@ -1246,6 +1251,19 @@ QWidget *WorkshopWindow::resourceEditor(const QString &name) {
             return true;
         };
         editor = workspace;
+    } else if (name == "TYPES.OVR") {
+        editor = CustomTiles::editor(
+            &project,
+            [this](const QMap<QString, QByteArray> &changes, const QString &title) {
+                return guard([&] {
+                    Project candidate = project;
+                    for (auto it = changes.begin(); it != changes.end(); ++it)
+                        candidate.resources[it.key()].edited = it.value();
+                    candidate.validate();
+                    edit(changes, title);
+                });
+            },
+            &editorState);
     } else if (kind == Workshop::EditorKind::Artwork)
         editor = graphicsEditor(name);
     else if (kind == Workshop::EditorKind::Conversation)
@@ -1298,6 +1316,15 @@ QWidget *WorkshopWindow::mapEditor(const QString &name) {
             });
         },
         [this](const QString &resource) { selectResource(resource); });
+    workspace->editTileType = [this](unsigned id) {
+        auto type = CustomTiles::definition(project, id);
+        int kind = type.kind;
+        if (id < 512 && kind && type.base >= 128)
+            kind = 2;
+        editorState["customTiles/kind"] = kind;
+        editorState[kind ? QString("customTiles/%1/id").arg(kind) : "customTiles/id"] = id;
+        selectResource("TYPES.OVR");
+    };
     workspace->locationChanged = [this] { rebuildTree(); };
     QStringList modes{"Terrain"};
     const auto npc = name.left(name.size() - 4) + ".NPC";
@@ -1373,9 +1400,9 @@ QWidget *WorkshopWindow::mapEditor(const QString &name) {
                                           }});
             }
             if (mode == "Starting Objects") {
-                return Workshop::worldObjectEditor(
-                    &project, name == "BRIT.DAT" ? 0 : 1,
-                    [this](const QString &resource, const QByteArray &bytes, bool included) {
+                auto saveObjects =
+                    [this](const QString &resource, const QByteArray &bytes, bool included,
+                           int slot = -1, unsigned type = 0) {
                         return guard([&] {
                             Project candidate = project;
                             candidate.resources[resource].edited = bytes;
@@ -1401,12 +1428,37 @@ QWidget *WorkshopWindow::mapEditor(const QString &name) {
                                 changes["CONTENTS.OVR"] = contents;
                                 candidate.resources["CONTENTS.OVR"].edited = contents;
                             }
+                            if (slot < 0 && !included) {
+                                auto placements = CustomTiles::placements(project);
+                                for (auto it = placements.begin(); it != placements.end();) {
+                                    if (it->kind == 4 && it->floor == floor)
+                                        it = placements.erase(it);
+                                    else
+                                        ++it;
+                                }
+                                if (!project.data("TYPEMAP.OVR").isEmpty()) {
+                                    auto mapTypes = CustomTiles::mapBytes(project, placements);
+                                    changes["TYPEMAP.OVR"] = mapTypes;
+                                    candidate.resources["TYPEMAP.OVR"].edited = mapTypes;
+                                }
+                            }
+                            if (slot > 0 && (type >= 512 || !project.resources.value("TYPEMAP.OVR").edited.isEmpty())) {
+                                QString map = floor < 0 ? "UNDER.DAT" : "BRIT.DAT";
+                                auto pages = project.mapPages(map);
+                                auto typeChanges =
+                                    CustomTiles::assignActor(project, map, pages[0], 0, slot, type);
+                                for (auto it = typeChanges.begin(); it != typeChanges.end(); ++it) {
+                                    changes[it.key()] = it.value();
+                                    candidate.resources[it.key()].edited = it.value();
+                                }
+                            }
                             candidate.validate();
                             edit(changes, "Edit starting world objects", {{resource, included}});
                         });
-                    },
-                    &editorState, flush, canvas,
-                    [workspace](QPoint cell) { workspace->centerOnCell(cell); });
+                    };
+                return Workshop::worldObjectEditor(
+                    &project, name == "BRIT.DAT" ? 0 : 1, saveObjects, &editorState, flush, canvas,
+                    [workspace](QPoint cell) { workspace->centerOnCell(cell); }, saveObjects);
             }
             *flush = [] { return true; };
             return combatEditor(name, page);
@@ -1446,6 +1498,19 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
     slot->setObjectName("imageSlot");
     slot->setCurrentIndex(
         qBound(0, editorState.value(name + "/image"), int(graphics->images.size()) - 1));
+    if (graphics->tiles) {
+        auto create = new QPushButton("New tile…");
+        create->setObjectName("newTileDefinition");
+        row->addWidget(create);
+        connect(create, &QPushButton::clicked, w, [this] {
+            editorState["customTiles/kind"] = 0;
+            selectResource("TYPES.OVR");
+            QTimer::singleShot(0, this, [this] {
+                if (auto add = findChild<QPushButton *>("newCustomTile"))
+                    add->click();
+            });
+        });
+    }
     row->addWidget(slot, 1);
     auto zoom = new QComboBox;
     zoom->addItems({"1×", "2×", "4×", "6×", "8×", "12×"});
@@ -1489,36 +1554,15 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
         QSignalBlocker block(gallery);
         gallery->setCurrentRow(i);
     });
-    auto paletteRow = new QHBoxLayout;
-    QVector<QRgb> brushColors = U5::palette();
-    if (!graphics->pngResource.isEmpty()) {
-        QSet<QRgb> unique;
-        brushColors.clear();
-        for (const auto &image : graphics->images)
-            for (int y = 0; y < image.height(); y++)
-                for (int x = 0; x < image.width(); x++)
-                    unique.insert(image.pixel(x, y));
-        brushColors = unique.values().toVector();
-        std::sort(brushColors.begin(), brushColors.end());
-    }
-    for (QRgb color : brushColors.mid(0, 24)) {
-        auto b = new QPushButton;
-        b->setFixedSize(30, 30);
-        b->setStyleSheet(
-            QString("background:%1;border:1px solid #8290a0;").arg(QColor(color).name()));
-        paletteRow->addWidget(b);
-        connect(b, &QPushButton::clicked, w, [=] { canvas->brush = color; });
-    }
-    if (!graphics->pngResource.isEmpty())
-        button(paletteRow, "Choose color…", [=] {
-            auto color = QColorDialog::getColor(QColor(canvas->brush), w, "Brush color");
-            if (color.isValid())
-                canvas->brush = color.rgba();
-        });
-    if (!graphics->tiles)
-        button(paletteRow, "Transparent", [=] { canvas->brush = qRgba(0, 0, 0, 0); });
-    paletteRow->addStretch();
-    layout->addLayout(paletteRow);
+    auto palette = new Workshop::ColorPalette(16);
+    palette->setObjectName("artworkPalette");
+    auto colors = Workshop::artworkColors(U5::readGraphics(name, project.resources.value(name).original));
+    canvas->allowedColors = colors;
+    canvas->brush = Workshop::paletteColor(canvas->brush, colors);
+    palette->setColors(colors, !graphics->tiles);
+    palette->select(canvas->brush);
+    palette->changed = [=](QRgb color) { canvas->brush = color; };
+    layout->addWidget(palette);
     connect(slot, &QComboBox::currentIndexChanged, w, [=](int i) {
         editorState[name + "/image"] = i;
         canvas->image = graphics->images[i];
@@ -1532,7 +1576,8 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
     auto change = [=](const QImage &img) {
         int i = slot->currentIndex();
         QImage old = graphics->images[i];
-        graphics->images[i] = img;
+        auto constrained = Workshop::paletteImage(img, colors);
+        graphics->images[i] = constrained;
         if (!guard([&] {
                 edit({{name, U5::writeGraphics(*graphics)}}, "Edit image " + QString::number(i));
             })) {
@@ -1540,9 +1585,9 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
             canvas->image = old;
             canvas->update();
         } else {
-            canvas->image = img;
+            canvas->image = constrained;
             canvas->size();
-            gallery->item(i)->setIcon(artworkPreview(img));
+            gallery->item(i)->setIcon(artworkPreview(constrained));
         }
     };
     canvas->commit = change;
@@ -1558,6 +1603,7 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
             require(!img.isNull() && img.size() == canvas->image.size(),
                     "PNG dimensions must match the selected image");
             change(img.convertToFormat(QImage::Format_ARGB32));
+            palette->setColors(colors, !graphics->tiles);
         });
     });
     button(actions, "Export slot PNG", [=] {
@@ -1608,9 +1654,12 @@ QWidget *WorkshopWindow::graphicsEditor(const QString &name) {
                                                (i / graphics->columns) * cell.height(),
                                                cell.width(), cell.height())
                                          .convertToFormat(QImage::Format_ARGB32);
+                for (auto &image : next.images)
+                    image = Workshop::paletteImage(image, colors);
                 auto bytes = U5::writeGraphics(next);
                 edit({{name, bytes}}, "Import tilesheet");
                 *graphics = next;
+                palette->setColors(colors, !graphics->tiles);
                 canvas->image = graphics->images[slot->currentIndex()];
                 canvas->size();
                 for (int i = 0; i < graphics->images.size(); i++)
@@ -1666,7 +1715,7 @@ QWidget *WorkshopWindow::characterEditor(const QString &name) {
     }
     if (character >= 0) {
         const QString schedule = selected.scheduleResource;
-        const int town = character / 32, slot = character % 32;
+        const int town = Workshop::npcTown(character), slot = Workshop::npcSlot(character);
         auto show = new QPushButton("Show NPC on map");
         show->setObjectName("showCharacterMap");
         show->setToolTip("Open this NPC's first scheduled floor in "
@@ -1676,7 +1725,7 @@ QWidget *WorkshopWindow::characterEditor(const QString &name) {
         connect(show, &QPushButton::clicked, root, [this, map, schedule, town, slot] {
             if (flushDraft && !flushDraft())
                 return;
-            const auto pages = U5::mapPages(map, project.data(map));
+            const auto pages = project.mapPages(map);
             MapNpcDocument doc(&project, schedule);
             const auto destination = doc.location(town, slot, 0);
             for (int i = 0; i < pages.size(); ++i)
@@ -2078,7 +2127,8 @@ QWidget *WorkshopWindow::stateEditor() {
     return tabs;
 }
 QWidget *WorkshopWindow::npcEditor(const QString &name) {
-    require(project.data(name).size() == 4608, "NPC schedules must be 4608 bytes");
+    require(NPCS_Validate(project.data(name).constData(), project.data(name).size()),
+            "Invalid NPC schedules");
     QVBoxLayout *layout;
     auto w = panel(&layout);
     auto row = new QHBoxLayout;
@@ -2086,7 +2136,7 @@ QWidget *WorkshopWindow::npcEditor(const QString &name) {
     QString mapName = name.left(name.size() - 4) + ".DAT";
     QStringList labels;
     try {
-        for (auto p : U5::mapPages(mapName, project.data(mapName))) {
+        for (auto p : project.mapPages(mapName)) {
             QString label = p.name.section(" — ", 0, 0);
             if (!labels.contains(label))
                 labels << label;
@@ -2099,7 +2149,7 @@ QWidget *WorkshopWindow::npcEditor(const QString &name) {
     settlement->setCurrentIndex(qBound(0, editorState.value(name + "/settlement"), 7));
     row->addWidget(settlement, 1);
     auto npc = new QSpinBox;
-    npc->setRange(0, 31);
+    npc->setRange(0, MapNpcDocument(&project, name).count(settlement->currentIndex()) - 1);
     npc->setValue(editorState.value(name + "/npc"));
     row->addWidget(new QLabel("NPC"));
     row->addWidget(npc);
@@ -2110,7 +2160,10 @@ QWidget *WorkshopWindow::npcEditor(const QString &name) {
     layout->addWidget(table, 1);
     auto load = [=] {
         QSignalBlocker blocked(table);
-        int base = settlement->currentIndex() * 576 + npc->value() * 16;
+        MapNpcDocument npcs(&project, name);
+        QSignalBlocker blockNpc(npc);
+        npc->setMaximum(npcs.count(settlement->currentIndex()) - 1);
+        int base = npcs.offset(settlement->currentIndex(), npc->value());
         QStringList fields = {"Behavior: change 1",
                               "Behavior: changes 2 and 4",
                               "Behavior: change 3",
@@ -2130,9 +2183,10 @@ QWidget *WorkshopWindow::npcEditor(const QString &name) {
                               "Appearance code",
                               "Conversation number"};
         for (int r = 0; r < 18; r++) {
-            int off = r < 16
-                          ? base + r
-                          : settlement->currentIndex() * 576 + 512 + (r - 16) * 32 + npc->value();
+            int off =
+                r < 16 ? base + r
+                       : (r == 16 ? npcs.shapeOffset(settlement->currentIndex(), npc->value())
+                                  : npcs.dialogueOffset(settlement->currentIndex(), npc->value()));
             auto label = new QTableWidgetItem(fields[r]);
             label->setFlags(label->flags() & ~Qt::ItemIsEditable);
             table->setItem(r, 0, label);
@@ -2174,7 +2228,7 @@ QWidget *WorkshopWindow::npcEditor(const QString &name) {
     return w;
 }
 QWidget *WorkshopWindow::combatEditor(const QString &name, int pageIndex) {
-    auto pages = U5::mapPages(name, project.data(name));
+    auto pages = project.mapPages(name);
     QVBoxLayout *layout;
     auto w = panel(&layout);
     auto choice = new QComboBox;

@@ -29,24 +29,8 @@ QVector<MapPosition> mapPositions(const Project &p) {
                         {int(U5::byte(b, 0x28a + i)), int(U5::byte(b, 0x292 + i))},
                         U5::byte(b, 0x29a + i) == 255});
     }
-    static const QMap<int, QString> locationNames = [] {
-        QMap<int, QString> names;
-        const QStringList banks{"TOWNE.DAT", "DWELLING.DAT", "CASTLE.DAT", "KEEP.DAT"};
-        // The catalog is fixed by the engine, independent of resource contents or availability.
-        for (int bank = 0; bank < banks.size(); ++bank)
-            for (auto page : U5::mapPages(banks[bank], QByteArray(16384, 0)))
-                names[bank * 8 + page.settlement] = page.name.section(" — ", 0, 0);
-        return names;
-    }();
     for (int i = 0; i < 40; ++i) {
-        QString name = locationNames.value(i, QString::fromUtf8(tableLocationNames[i]));
-        if (name == "(unused)")
-            continue;
-        if (!locationNames.contains(i)) {
-            name = name.toLower();
-            if (!name.isEmpty())
-                name[0] = name[0].toUpper();
-        }
+        QString name = p.locationName(i + 1);
         out.append({100 + i,
                     name + " entrance",
                     0,

@@ -1,5 +1,6 @@
 #include "common/common.h"
 #include "key/key.h"
+#include "mod/types.h"
 #include "time/time.h"
 
 #include "vars.h"
@@ -11,6 +12,10 @@
 #include "widescreen.h"
 #include "tileset.h"
 #include "text/text_window.h"
+#if defined(TARGET_SDL)
+#include "grap_sdl.h"
+#include "event/event.h"
+#endif
 
 #if defined(ENABLE_GRAP_OVERLAY_DEBUG)
 #include "common/dbg_font_data.h"
@@ -54,11 +59,88 @@ static pfGrapFlushFrame* s_pfFlushFrame;
 static u32 s_lastPresentTick = 0;
 static bool s_dirty = false;
 
+#define TEXT_HISTORY_LINES 512
+static byte s_textHistory[TEXT_HISTORY_LINES][8 * 128];
+static int s_historyNext, s_historyCount, s_historyOffset;
+static int s_historyLeft, s_historyTop, s_historyWidth, s_historyHeight;
+void GRAP_BUF_ResetTextHistory(void)
+{
+    s_historyNext = s_historyCount = s_historyOffset = 0;
+    s_historyWidth = 0;
+    s_dirty = true;
+}
+static bool TextHistoryWindow(void)
+{
+    const TextWindow *w = &D_535e_textWindows[2];
+    int left = w->left * 8, top = w->top * 8;
+    int width = (w->right - w->left + 1) * 8;
+    int height = (w->bottom - w->top + 1) * 8;
+    // Only the gameplay message panel, never full-screen text or artwork.
+    if (left < 192 || top < 80 || width < 8 || width > 128 ||
+        height < 8 || left + width > 320 || top + height > 200)
+        return false;
+    if (left != s_historyLeft || top != s_historyTop || width != s_historyWidth ||
+        height != s_historyHeight) {
+        GRAP_BUF_ResetTextHistory();
+        s_historyLeft = left; s_historyTop = top;
+        s_historyWidth = width; s_historyHeight = height;
+    }
+    return true;
+}
+static bool RecordTextHistory(void)
+{
+#if defined(TARGET_SDL)
+    return D_58a4 && !GRAP_SDL_PixelUI() && !EVT_ImmediateExitEnabled() &&
+           D_52ba_vdp._52d8_page == 0 && TextHistoryWindow();
+#else
+    return false;
+#endif
+}
+void GRAP_BUF_EndTextScroll(void)
+{
+    if (s_historyOffset) { s_historyOffset = 0; s_dirty = true; }
+}
+void GRAP_BUF_ScrollTextHistory(int lines)
+{
+    if (!g_linearEgaBuffer0 || !TextHistoryWindow()) return;
+    long long offset = (long long)s_historyOffset + lines;
+    if (offset < 0) offset = 0;
+    if (offset > s_historyCount) offset = s_historyCount;
+    if (offset != s_historyOffset) { s_historyOffset = (int)offset; s_dirty = true; }
+}
+static void ArchiveTextLine(int y)
+{
+    for (int row = 0; row < 8; ++row)
+        memcpy(s_textHistory[s_historyNext] + row * s_historyWidth,
+               g_linearEgaBuffer0 + (y + row) * loresWidth + s_historyLeft, s_historyWidth);
+    s_historyNext = (s_historyNext + 1) % TEXT_HISTORY_LINES;
+    if (s_historyCount < TEXT_HISTORY_LINES) ++s_historyCount;
+}
+bool GRAP_BUF_TextHistoryPixel(int x, int y, byte *color)
+{
+    if (!s_historyOffset) return false;
+    // A geometry change can reset the offset while validating the window.
+    if (!TextHistoryWindow() || !s_historyOffset ||
+        x < s_historyLeft || x >= s_historyLeft + s_historyWidth ||
+        y < s_historyTop || y >= s_historyTop + s_historyHeight) return false;
+    int row = (y - s_historyTop) / 8;
+    int line = s_historyCount - s_historyOffset + row;
+    if (line < s_historyCount) {
+        int slot = (s_historyNext - s_historyCount + line + TEXT_HISTORY_LINES) % TEXT_HISTORY_LINES;
+        *color = s_textHistory[slot][((y - s_historyTop) % 8) * s_historyWidth + x - s_historyLeft];
+    } else {
+        *color = g_linearEgaBuffer0[(s_historyTop + (line - s_historyCount) * 8 +
+                                   (y - s_historyTop) % 8) * loresWidth + x];
+    }
+    return true;
+}
+
 // T1K:19d9
 static u16 s_tileRevealSeed = 0;
 
 void GRAP_BUF_Initialize(pfGrapFlushFrame* pfFlushFrame)
 {
+    GRAP_BUF_ResetTextHistory();
     g_linearEgaBuffer0 = malloc(loresWidth * loresHeight);
     memset(g_linearEgaBuffer0, 0, loresWidth * loresHeight);
 
@@ -312,6 +394,11 @@ static void textPixel(void *host, int x, int y, byte color) {
 }
 void GRAP_BUF_PrintChar(byte* ptr, int offset, byte fgColor, byte bgColor, int penX, int penY)
 {
+    // Input cursors are redrawn continuously with advance disabled; they
+    // must not snap scrollback to the bottom while the player is reading.
+    if (D_538e && RecordTextHistory() && penX * 8 >= s_historyLeft && penX * 8 < s_historyLeft + s_historyWidth &&
+        penY * 8 >= s_historyTop && penY * 8 < s_historyTop + s_historyHeight)
+        GRAP_BUF_EndTextScroll();
     IMPERA_TextGlyph(ptr, offset, s_colorTable[fgColor], s_colorTable[bgColor], penX * 8,
                      penY * 8 + s_textPixelOffset, NULL, textPixel);
     s_dirty = true;
@@ -322,6 +409,11 @@ static void textCopy(void *host, byte *dst, const byte *src, size_t size) {
 }
 void GRAP_BUF_ScrollWindow(int left, int top, int right, int bottom, int amount)
 {
+    if (amount == -8 && RecordTextHistory() && left == s_historyLeft && top == s_historyTop &&
+        right == left + s_historyWidth - 1 && bottom == top + s_historyHeight - 1) {
+        ArchiveTextLine(top);
+        GRAP_BUF_EndTextScroll();
+    }
     IMPERA_TextScroll(g_linearEgaBuffer0, loresWidth, left, top, right, bottom, amount, NULL,
                       textCopy);
     s_dirty = true;
@@ -336,6 +428,21 @@ void GRAP_BUF_FillWindow(int x1, int y1, int x2, int y2, int xorMode)
         return;
 
     byte* target = GetPage(D_52ba_vdp._52d8_page);
+    if (!xorMode && target == g_linearEgaBuffer0 && RecordTextHistory()) {
+        if (x1 == s_historyLeft && y1 == s_historyTop &&
+            x2 == x1 + s_historyWidth - 1 && y2 == y1 + s_historyHeight - 1) {
+            int last = -1;
+            for (int y = y1; y <= y2; ++y)
+                for (int x = x1; x <= x2; ++x)
+                    if (target[y * loresWidth + x] != s_grapPenColor) last = (y - y1) / 8;
+            for (int line = 0; line <= last; ++line) ArchiveTextLine(y1 + line * 8);
+            GRAP_BUF_EndTextScroll();
+        } else if (x1 <= s_historyLeft && y1 <= s_historyTop &&
+                   x2 >= s_historyLeft + s_historyWidth - 1 &&
+                   y2 >= s_historyTop + s_historyHeight - 1) {
+            GRAP_BUF_ResetTextHistory();
+        }
+    }
 
     for (int y = y1; y <= y2; y++)
     {
@@ -369,6 +476,8 @@ bool GRAP_BUF_HasTileset(void) { return s_tileset != NULL; }
 
 byte GRAP_BUF_TilePixel(int tile, int x, int y)
 {
+    if (tile >= 0 && x >= 0 && y >= 0 && TYPES_ArtSlot(tile))
+        return (byte)TILESET_Pixel(tile, x, y);
     if (!s_tileset || tile < 0 || tile >= 512 || x < 0 || y < 0 || x >= 16 || y >= 16) {TILESET_SetSample(0);return 0;}
     int alternate=TILESET_Pixel(tile,x,y);
     if(alternate>=0) return (byte)alternate;
@@ -381,6 +490,11 @@ byte GRAP_BUF_TilePixel(int tile, int x, int y)
  * black outline, including the one-pixel margin outside the source tile. */
 bool GRAP_BUF_SpriteIsTransparent(int tile)
 {
+    if (TYPES_ArtSlot(tile)) {
+        TypeDef definition;
+        return s_transparentSprites && TYPES_Get(TYPES_ArtworkType(tile), &definition) &&
+               (definition.render & TYPES_SPRITE);
+    }
     /* Furniture and seated poses include their scenery; keep the original
      * pixels and do not generate an outline outside their tile. */
     if ((tile >= TILE_MAP_CHAIR_90 && tile <= TILE_MAP_TABLE_96) ||
@@ -393,26 +507,58 @@ bool GRAP_BUF_SpriteIsTransparent(int tile)
         !(tile >= 256 + 0x64 && tile <= 256 + 0x67); /* occupied manacles */
 }
 
+/* Inspect all native subpixels: Sharp artwork can mix black and color inside
+ * a single logical pixel. Raw tile/editor sampling must retain opaque black. */
+static int CustomSpritePixel(int tile, int x, int y) {
+    int color = TILESET_Pixel(tile, x, y);
+    if (color < 0)
+        return 0;
+    for (int sy = 0; sy < 2; sy++)
+        for (int sx = 0; sx < 2; sx++)
+            if (TILESET_LastSpriteColor(color, sx, sy, IMPERA_TextPalette, true) >> 24)
+                return color;
+    return 0;
+}
 int GRAP_BUF_SpritePixel(int tile, int x, int y)
 {
+    bool authored = TYPES_ArtSlot(tile) != 0;
+    unsigned w = 1, h = 1;
+    if (authored)
+        TYPES_ArtSize(tile, D_5893_map_id == 0, &w, &h);
     if (!GRAP_BUF_SpriteIsTransparent(tile))
-        return x < 0 || y < 0 || x >= 16 || y >= 16 ? -1 : GRAP_BUF_TilePixel(tile, x, y);
-    byte color = GRAP_BUF_TilePixel(tile, x, y);
+        return x < 0 || y < 0 || x >= (int)(16 * w) || y >= (int)(16 * h)
+                   ? -1
+                   : GRAP_BUF_TilePixel(tile, x, y);
+    int color = authored ? CustomSpritePixel(tile, x, y) : GRAP_BUF_TilePixel(tile, x, y);
     if (color) return color;
-    /* Alpha and Sharp cutouts supply their own native sprite edges. */
     if (!TILESET_SpriteOutline()) return -1;
     for (int dy = -1; dy <= 1; dy++)
         for (int dx = -1; dx <= 1; dx++)
-            if (GRAP_BUF_TilePixel(tile, x + dx, y + dy)) {TILESET_SetSample(0);return 0;}
+            if (authored ? CustomSpritePixel(tile, x + dx, y + dy)
+                         : GRAP_BUF_TilePixel(tile, x + dx, y + dy)) {
+                TILESET_SetSample(0);
+                return 0;
+            }
     return -1;
 }
 
 void GRAP_BUF_DrawSprite(byte* pixels, int stride, int x, int y, int tile,
                          int left, int top, int right, int bottom, int dx, int dy)
 {
-    for (int sy = -1; sy <= 16; sy++)
-        for (int sx = -1; sx <= 16; sx++) {
+    unsigned w = 1, h = 1;
+    if (TYPES_ArtSlot(tile))
+        TYPES_ArtSize(tile, D_5893_map_id == 0, &w, &h);
+    bool visible[4] = {true, true, true, true};
+    if ((w > 1 || h > 1) && D_5893_map_id > 0 && D_5893_map_id < 128)
+        for (unsigned cy = 0; cy < h; ++cy)
+            for (unsigned cx = 0; cx < w; ++cx)
+                visible[cy * w + cx] = WIDE_FootprintVisible(dx + cx, dy + cy, 1, 1);
+    for (int sy = -1; sy <= (int)(16 * h); sy++)
+        for (int sx = -1; sx <= (int)(16 * w); sx++) {
             int px = x + sx, py = y + sy;
+            if (sx >= 0 && sy >= 0 && sx < (int)(16 * w) && sy < (int)(16 * h) &&
+                !visible[(sy / 16) * w + sx / 16])
+                continue;
             if (px < left || py < top || px >= right || py >= bottom) continue;
             int color = WIDE_SpritePixel(tile, dx, dy, sx, sy);
             if (color >= 0) { TILESET_RecordSprite(pixels+py*stride+px,color,GRAP_BUF_SpriteIsTransparent(tile));pixels[py * stride + px] = (byte)color; }

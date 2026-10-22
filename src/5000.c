@@ -1,7 +1,10 @@
+#include "mod/actors.h"
 #include "common/common.h"
 #include "mod/contents_game.h"
+#include "mod/types_game.h"
 #if defined(TARGET_SDL)
 #include "graphics/grap_sdl.h"
+#include "graphics/sprite_order.h"
 #include "graphics/grap_buf.h"
 #include "graphics/widescreen.h"
 #endif
@@ -11,6 +14,7 @@
 #include "tiles.h"
 
 #include <string.h>
+#include <stdlib.h>
 
 #include "audio/aud_mus.h"
 
@@ -199,7 +203,7 @@ void ULTIMA_5394(void)
     }
 
     // 542a
-    local_c = 31;
+    local_c = MAP_ACTOR_COUNT - 1;
     do
     {
         if (D_5c5a[local_c]._0_tile != 0)
@@ -309,6 +313,67 @@ int ULTIMA_5646(int param_1)
     // 56a4
 }
 
+#if defined(TARGET_SDL)
+typedef struct {
+    SpriteOrder order;
+    unsigned tile;
+    int x, y;
+} CombatSprite;
+static void AddCombatSprite(CombatSprite *sprites, int *count, unsigned tile, int x, int y,
+                            int actor) {
+    for (int i = 0; i < *count; ++i)
+        if (sprites[i].x == x && sprites[i].y == y && sprites[i].tile == tile)
+            return;
+    unsigned w = 1, h = 1;
+    if (TYPES_ArtSlot(tile))
+        TYPES_ArtSize(tile, 0, &w, &h);
+    sprites[(*count)++] =
+        (CombatSprite){{SPRITES_Layer(tile), y + (int)h - 1, x, -actor}, tile, x, y};
+}
+static void DrawCombatSprites(void) {
+    CombatSprite sprites[121 + 32 + 121];
+    int count = 0;
+    for (int y = 0; y < 11; ++y)
+        for (int x = 0; x < 11; ++x) {
+            if (GetMapViewport(x, y) != 0 || GetActorMap(x, y) == 0x16)
+                continue;
+            bool owned = false;
+            for (int i = 0; i < 32; ++i) {
+                ActorFmt *a = &D_5c5a[i];
+                if (a->_0_tile && a->_1_animTile && a->_2_x == x && a->_3_y == y) {
+                    owned = true;
+                    break;
+                }
+            }
+            if (!owned)
+                AddCombatSprite(sprites, &count, 256 + GetActorMap(x, y), x, y, 32);
+        }
+    for (int i = 0; i < 32; ++i) {
+        ActorFmt *a = &D_5c5a[i];
+        int x = a->_2_x, y = a->_3_y;
+        if (!a->_0_tile || !a->_1_animTile || x >= 11 || y >= 11 || GetMapViewport(x, y) == 255 ||
+            GetMapViewport(x, y) == TILE_MAP_87 || a->_1_animTile == 0x16)
+            continue;
+        int native = SPRITES_NativeActorTile(a, *ULTIMA_4402_GetTileAddr(x, y),
+                                             y ? *ULTIMA_4402_GetTileAddr(x, y - 1) : 0,
+                                             y < 10 ? *ULTIMA_4402_GetTileAddr(x, y + 1) : 0);
+        if (native >= 0)
+            AddCombatSprite(sprites, &count, ACTORS_Sprite(i, 256 + native), x, y, i);
+    }
+    for (int y = 0; y < 11; ++y)
+        for (int x = 0; x < 11; ++x) {
+            if (GetMapViewport(x, y) == 255 || GetMapViewport(x, y) == TILE_MAP_87)
+                continue;
+            int shape = CONTENTS_GAME_Shape(x, y);
+            if (shape && !SPRITES_Layer(256 + shape))
+                AddCombatSprite(sprites, &count, 256 + shape, x, y, 32);
+        }
+    qsort(sprites, count, sizeof(*sprites), SPRITES_Compare);
+    for (int i = 0; i < count; ++i)
+        GRAP_BUF_PutMapSprite(sprites[i].x, sprites[i].y, sprites[i].tile);
+}
+#endif
+
 void ULTIMA_56ac_DrawMap(void)
 {
     int local_2;
@@ -358,6 +423,15 @@ void ULTIMA_56ac_DrawMap(void)
     }
 
 #if defined(TARGET_SDL)
+    for (int ty = 0; ty < 11; ty++)
+        for (int tx = 0; tx < 11; tx++)
+            if (GetMapViewport(tx, ty) != 255 &&
+                (GetMapViewport(tx, ty) != 0 ||
+                 GRAP_BUF_SpriteIsTransparent(256 + GetActorMap(tx, ty))))
+                TYPES_GAME_Draw(D_52ba_vdp._52d8_page ? g_linearEgaBuffer1 : g_linearEgaBuffer0,
+                                320, 8 + tx * 16, 8 + ty * 16,
+                                tx - (D_5893_map_id >= 128 ? D_5896_map_x : 5),
+                                ty - (D_5893_map_id >= 128 ? D_5897_map_y : 5), 8, 184);
     for(local_8=0;local_8<11;local_8++) for(local_6=0;local_6<11;local_6++) {
         byte tile=GetMapViewport(local_6,local_8);
         int dx=local_6-(D_5893_map_id>=128?D_5896_map_x:5),dy=local_8-(D_5893_map_id>=128?D_5897_map_y:5);
@@ -365,14 +439,53 @@ void ULTIMA_56ac_DrawMap(void)
             if(!GRAP_BUF_SpriteIsTransparent(256+GetActorMap(local_6,local_8))) continue;
             tile=WIDE_MapTile(dx,dy);
         }
-        if(tile!=255 && tile==WIDE_MapTile(dx,dy) && WIDE_GroundTile(dx,dy)!=tile)
+        if (!TYPES_ArtSlot(TYPES_GAME_At(D_5896_map_x + dx, D_5897_map_y + dy)) && tile != 255 &&
+            tile == WIDE_MapTile(dx, dy) && WIDE_GroundTile(dx, dy) != tile)
             GRAP_BUF_PutMapSprite(local_6,local_8,D_b11e[tile]);
     }
-    /* All terrain must be complete before outlines spill across cell edges. */
-    for (local_8 = 0; local_8 < 11; local_8++)
-        for (local_6 = 0; local_6 < 11; local_6++)
-            if (GetMapViewport(local_6, local_8) == 0 && GetActorMap(local_6, local_8) != 0x16)
-                GRAP_BUF_PutMapSprite(local_6, local_8, 256 + GetActorMap(local_6, local_8));
+    /* All terrain must be complete before outlines spill across cell edges.
+     * Include offscreen large anchors in the same north-to-south order. */
+    if (D_5893_map_id >= 128)
+        DrawCombatSprites();
+    else
+        for (int layer = 0; layer < 2; ++layer)
+            for (local_8 = -1; local_8 < 11; local_8++) {
+                if (layer == 1)
+                    for (unsigned actor = 0; actor < (unsigned)MAP_ACTOR_COUNT; ++actor) {
+                        ActorFmt *a = &D_5c5a[actor];
+                        if (!a->_0_tile || !a->_1_animTile || a->_4_z != D_5895_map_level)
+                            continue;
+                        int x = D_5893_map_id >= 128 ? a->_2_x : a->_2_x - D_5896_map_x + 5;
+                        int y = D_5893_map_id >= 128 ? a->_3_y : a->_3_y - D_5897_map_y + 5;
+                        if (y != local_8 || (x >= 0 && y >= 0 && x < 11 && y < 11))
+                            continue;
+                        unsigned w, h;
+                        ACTORS_Size(actor, &w, &h);
+                        if ((w > 1 || h > 1) && x + (int)w > 0 && y + (int)h > 0 && x < 11 &&
+                            WIDE_FootprintVisible(x - 5, y - 5, w, h))
+                            GRAP_BUF_PutMapSprite(x, y, ACTORS_Sprite(actor, 256 + a->_1_animTile));
+                    }
+                if (local_8 < 0)
+                    continue;
+                for (local_6 = 0; local_6 < 11; local_6++) {
+                    if (GetMapViewport(local_6, local_8) != 0 ||
+                        GetActorMap(local_6, local_8) == 0x16)
+                        continue;
+                    unsigned native = GetActorMap(local_6, local_8);
+                    bool body = native == TILE_ACTOR_SLEEP || native == TILE_ACTOR_DEAD;
+                    if (body != (layer == 0))
+                        continue;
+                    /* Bodies occupy the ground beneath a footprint. Resolving their
+                     * cell as a standing actor would redraw a large sprite off-anchor. */
+                    unsigned sprite =
+                        body ? 256 + native
+                             : ACTORS_AtCell(
+                                   D_5893_map_id >= 128 ? local_6 : D_5896_map_x + local_6 - 5,
+                                   D_5893_map_id >= 128 ? local_8 : D_5897_map_y + local_8 - 5,
+                                   256 + native);
+                    GRAP_BUF_PutMapSprite(local_6, local_8, sprite);
+                }
+            }
 #endif
 
     if (0x7f < D_5893_map_id && (D_589f = !D_589f) != 0 && D_589e != 0xff && ULTIMA_5646(D_589e) == 0)
@@ -635,8 +748,12 @@ static void ULTIMA_5a28(int param_1, int param_2_y, int param_3_x, int param_4, 
                         if (local_210) // 5be1 : ??
                         {
                             // 5beb
-                            if (ULTIMA_5dfe(local_216_tile, ULTIMA_6ff0(local_212_x, local_214_y)) == 0)
-                            {
+                            if (TYPES_GAME_Sight(
+                                    param_3_x + local_212_x + (uint)D_589b,
+                                    param_2_y + local_214_y + (uint)D_589c,
+                                    ULTIMA_6ff0(local_212_x, local_214_y),
+                                    ULTIMA_5dfe(local_216_tile,
+                                                ULTIMA_6ff0(local_212_x, local_214_y))) == 0) {
                                 // 5c05
                                 if (
 #if !defined(MATCHING_BUILD)
@@ -655,9 +772,7 @@ static void ULTIMA_5a28(int param_1, int param_2_y, int param_3_x, int param_4, 
                                     // 5c93
                                     *ptr = local_216_tile;
                                 }
-                            }
-                            else
-                            {
+                            } else {
                                 // 5c52
                                 if (param_2_y + local_214_y < 0 || param_3_x + local_212_x < 0 ||
                                     param_3_x + local_212_x >= 0x20 || param_2_y + local_214_y >= 0x20)
@@ -694,8 +809,11 @@ static void ULTIMA_5a28(int param_1, int param_2_y, int param_3_x, int param_4, 
                     }
 
                     // 5ca1
-                    if (ULTIMA_5dfe(local_216_tile, ULTIMA_6ff0(local_212_x, local_214_y)) != 0)
-                    {
+                    if (TYPES_GAME_Sight(param_3_x + local_212_x + (uint)D_589b,
+                                         param_2_y + local_214_y + (uint)D_589c,
+                                         ULTIMA_6ff0(local_212_x, local_214_y),
+                                         ULTIMA_5dfe(local_216_tile,
+                                                     ULTIMA_6ff0(local_212_x, local_214_y))) != 0) {
                         local_206_queue[local_4_queueWritePos] = local_214_y;
                         local_4_queueWritePos++;
                         local_206_queue[local_4_queueWritePos] = local_212_x;

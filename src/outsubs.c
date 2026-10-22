@@ -2,6 +2,7 @@
 #include "funcs.h"
 #include "macros.h"
 #include "mod/runtime.h"
+#include "mod/types_game.h"
 #include "mod/world_resources.h"
 #include "tiles.h"
 #include "vars.h"
@@ -105,14 +106,14 @@ static void OUTSUBS_0098(char* param_1/*file_name*/, int param_2/*layer?*/, int 
                 // 012c
                 if (OUTSUBS_0000(param_3) != 0)
                 {
-                    *ULTIMA_4402_GetTileAddr(local_a + local_6, local_c + local_8) = TILE_MAP_DF;
+                    TYPES_GAME_Write(local_a + local_6, local_c + local_8, TILE_MAP_DF);
                 }
                 break;
             case 0x19:
                 // 017d
                 if (OUTSUBS_004a(param_3) != 0)
                 {
-                    *ULTIMA_4402_GetTileAddr(local_a + local_6, local_c + local_8) = TILE_MAP_RUINS;
+                    TYPES_GAME_Write(local_a + local_6, local_c + local_8, TILE_MAP_RUINS);
                 }
                 break;
             }
@@ -266,11 +267,10 @@ int OUTSUBS_0388_EnterTown(char* param_1)
 
     if (local_6 < 0x20)
     {
-        if (local_6 < 0xd || local_6 > 0x11)
-        {
+        if (local_6 < 0xd || local_6 > 0x11 || MOD_LocationName(local_6 + 1, NULL)) {
             ULTIMA_1850_PrintString(_TEXT(0x399c, "\n\n"));
             ULTIMA_16ba_PrintChar(CTRL_CHAR_CENTER_TEXT);
-            ULTIMA_1850_PrintString(D_1e3a[local_6]);
+            ULTIMA_1850_PrintString((char *)MOD_LocationName(local_6 + 1, D_1e3a[local_6]));
             ULTIMA_16ba_PrintChar(CTRL_CHAR_UNCENTER_TEXT);
         }
 

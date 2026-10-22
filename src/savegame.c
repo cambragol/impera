@@ -1,5 +1,7 @@
+#include "npc.h"
 #include "common/common.h"
 #include "mod/contents.h"
+#include "mod/types.h"
 #include "vars.h"
 #include <SDL3/SDL.h>
 
@@ -48,9 +50,8 @@ int FILE_ReadSavegameFile(char* fileName)
         return -1;
     }
 
-    if (fseek(stream, 0x1060, SEEK_SET) || !CONTENTS_ReadState(stream, 0) ||
-        fseek(stream, 0, SEEK_SET))
-    {
+    if (fseek(stream, 0x1060, SEEK_SET) || !NPC_ReadExtraState(stream, 0) ||
+        !CONTENTS_ReadState(stream, 0) || fseek(stream, 0, SEEK_SET)) {
         DEBUG_Error("Invalid map contents save state");
         fclose(stream);
         return -1;
@@ -177,7 +178,11 @@ int FILE_ReadSavegameFile(char* fileName)
     fread(D_659e, 0x20, 1, stream); // 3edb0
     // fread(D_659e, 0x20, 1, stream); // 3edb0 ; FMT sic
     READ_8(D_65be); // 3edd0
-    READ_8(D_65bf); // 3edd1
+    {
+        u8 interaction;
+        READ_8(interaction);
+        D_65bf = interaction;
+    } // 3edd1
     READ_16(D_65c0); // 3edd2
     fread(D_65c2, 0x40, 1, stream); // 3edd4
     READ_8(D_6602);// 3ee14
@@ -190,10 +195,14 @@ int FILE_ReadSavegameFile(char* fileName)
     debug("Party serializer file=%s final offset=%d expected=4192",fileName,pos);
 
     fseek(stream, 0x1060, SEEK_SET);
-    if (FILE_NameEqual(fileName, "INIT.GAM"))
+    if (FILE_NameEqual(fileName, "INIT.GAM")) {
         CONTENTS_Reset();
-    else
+        TYPES_Reset();
+        NPC_ResetExtra();
+    } else {
+        NPC_ReadExtraState(stream, 1);
         CONTENTS_ReadState(stream, 1);
+    }
     fclose(stream);
 
     //ASSERT(pos == 0x1060);
@@ -358,7 +367,7 @@ int FILE_WriteSavegameFile(char* fileName)
     int pos = (int)ftell(stream);
     debug("Party serializer file=%s final offset=%d expected=4192",fileName,pos);
 
-    int failed = ferror(stream) || !CONTENTS_WriteState(stream);
+    int failed = ferror(stream) || !NPC_WriteExtraState(stream) || !CONTENTS_WriteState(stream);
     if (fclose(stream) != 0) failed = 1;
 
     ASSERT(pos == 0x1060);

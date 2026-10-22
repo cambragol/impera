@@ -1,3 +1,4 @@
+#include "mod/actors.h"
 #include "mouse.h"
 #include "common/common.h"
 #include "common/movement.h"
@@ -5,6 +6,8 @@
 #include "cursor_assets.h"
 #include "funcs.h"
 #include "graphics/grap_sdl.h"
+#include "graphics/grap_buf.h"
+#include "event/event.h"
 #include "macros.h"
 #include "mod/contents_game.h"
 #include "talk.h"
@@ -31,7 +34,10 @@ static bool s_input, s_right, s_single;
 static int s_cursorWidth, s_cursorHeight;
 static void LoadCursors(void);
 static int DirectionOctant(float dx, float dy);
-static bool s_menu, s_menuClick;
+static bool s_menu, s_menuClick, s_scrollOnly, s_wheelContext;
+static int s_wheelSteps;
+static float s_wheelFraction;
+static int s_wheelArea;
 static int s_menuX, s_menuY, s_menuWidth, s_menuCount, s_menuSelected, s_menuTarget = -1;
 static float s_hoverX = -1, s_hoverY = -1;
 
@@ -39,18 +45,67 @@ void MOUSE_MenuSet(int x, int y, int width, int count, int selected)
 {
     if (x != s_menuX || y != s_menuY || width != s_menuWidth || count != s_menuCount) {
         s_menuTarget = -1; s_menuClick = false; s_hoverX = s_hoverY = -1;
+        s_wheelSteps = 0; s_wheelFraction = 0;
     }
     s_menuX=x; s_menuY=y; s_menuWidth=width; s_menuCount=count; s_menuSelected=selected;
     s_menu = s_enabled && count > 0;
     if (s_menu) { s_right = false; s_single = false; }
 }
-void MOUSE_MenuEnd(void) { s_menu = false; }
+void MOUSE_MenuEnd(void)
+{
+    s_menu = s_scrollOnly = s_wheelContext = false;
+    s_wheelSteps = 0; s_wheelFraction = 0;
+}
+static int FinishMenuRead(int key)
+{
+    int pending = s_wheelSteps;
+    float fraction = s_wheelFraction;
+    MOUSE_MenuEnd();
+    // Keep collecting wheel input while the same list redraws between reads.
+    // Confirmation/cancellation and returning to commands end this context.
+    if (s_enabled && (key == U5_KEY_UP || key == U5_KEY_DOWN ||
+                      key == U5_KEY_PGUP || key == U5_KEY_PGDN)) {
+        s_wheelContext = true;
+        s_wheelSteps = pending;
+        s_wheelFraction = fraction;
+    }
+    return key;
+}
+int MOUSE_ScrollRead(void)
+{
+    MOUSE_MenuSet(192, 8, 128, 9, 0);
+    s_scrollOnly = true;
+    int key = ULTIMA_266c_GetChar();
+    return FinishMenuRead(key);
+}
+void MOUSE_Wheel(float x, float y, float delta)
+{
+    float ux, uy;
+    if (!s_enabled || delta == 0 || EVT_ImmediateExitEnabled() || GRAP_SDL_PixelUI() ||
+        !GRAP_SDL_MouseUIPoint(x, y, &ux, &uy) || (SDL_isnanf(delta) || SDL_isinff(delta))) return;
+    const TextWindow *w = &D_535e_textWindows[2];
+    int area = ux >= w->left * 8 && ux < (w->right + 1) * 8 &&
+               uy >= w->top * 8 && uy < (w->bottom + 1) * 8 &&
+               w->left >= 24 && w->top >= 10 && D_58a4 ? 1 :
+               (s_menu || s_wheelContext) && ux >= 192 && ux < 320 && uy >= 8 && uy < 80 ? 2 : 0;
+    if (!area) { s_wheelFraction = 0; s_wheelArea = 0; return; }
+    if (area != s_wheelArea) s_wheelFraction = 0;
+    s_wheelArea = area;
+    s_wheelFraction += SDL_clamp(delta, -32.0f, 32.0f);
+    int steps = (int)s_wheelFraction;
+    s_wheelFraction -= steps;
+    if (area == 1) GRAP_BUF_ScrollTextHistory(steps);
+    else {
+        s_wheelSteps = SDL_clamp(s_wheelSteps + steps, -32, 32);
+        s_menuTarget = -1; s_menuClick = false;
+        SDL_GetMouseState(&s_hoverX, &s_hoverY);
+    }
+}
 int MOUSE_MenuRead(int x, int y, int width, int count, int selected)
 {
     MOUSE_MenuSet(x,y,width,count,selected);
     int key = ULTIMA_266c_GetChar();
-    MOUSE_MenuEnd();
-    return key;
+    return FinishMenuRead(key);
 }
 static int MenuItem(float x, float y)
 {
@@ -61,6 +116,12 @@ static int MenuItem(float x, float y)
 }
 static int PollMenu(void)
 {
+    if (s_wheelSteps) {
+        int key = s_wheelSteps > 0 ? U5_KEY_UP : U5_KEY_DOWN;
+        s_wheelSteps += s_wheelSteps > 0 ? -1 : 1;
+        return key;
+    }
+    if (s_scrollOnly) return 0;
     float x,y; SDL_GetMouseState(&x,&y);
     if (!s_menuClick && (x != s_hoverX || y != s_hoverY)) {
         s_hoverX=x; s_hoverY=y; s_menuTarget=MenuItem(x,y);
@@ -223,7 +284,8 @@ static int s_attackX, s_attackY, s_attackEntity;
 void MOUSE_ClearCombatAttack(void) { s_combatAttack=false; }
 static int CombatRange(int entity)
 {
-    if (!(D_ba14[entity].flags & COMBAT_FLAGS_PLAYER)) return D_159c[D_ba14[entity].entityIdx];
+    if (!(D_ba14[entity].flags & COMBAT_FLAGS_PLAYER))
+        return ACTORS_Range(D_ba14[entity].entityIdx);
     int range=1, party=D_ba14[entity].entityIdx;
     const int slots[3]={0,2,3};
     for (int i=0;i<3;i++) {
@@ -245,11 +307,14 @@ bool MOUSE_CombatAttackTarget(int entity, int range, int* distance)
 {
     if (!s_combatAttack || entity!=s_attackEntity) return false;
     int target=COMSUBS_0748(s_attackX,s_attackY);
-    *distance=COMSUBS_048a(D_ba14[entity].x,D_ba14[entity].y,s_attackX,s_attackY);
-    if (target<0 || ULTIMA_5646(target)==ULTIMA_5646(entity) ||
-        (D_ba14[target].flags & (COMBAT_FLAGS_DEAD|COMBAT_FLAGS_INVISIBLE|COMBAT_FLAGS_4)) ||
-        !MOVEMENT_AttackAllowed(s_attackX-D_ba14[entity].x,s_attackY-D_ba14[entity].y) ||
-        *distance>range) *distance=0;
+    int ax = D_ba14[entity].x, ay = D_ba14[entity].y, bx = s_attackX, by = s_attackY;
+    if (target >= 0)
+        ACTORS_AttackCells(entity, target, &ax, &ay, &bx, &by);
+    *distance = COMSUBS_048a(ax, ay, bx, by);
+    if (target < 0 || ULTIMA_5646(target) == ULTIMA_5646(entity) ||
+        (D_ba14[target].flags & (COMBAT_FLAGS_DEAD | COMBAT_FLAGS_INVISIBLE | COMBAT_FLAGS_4)) ||
+        !MOVEMENT_AttackAllowed(bx - ax, by - ay) || *distance > range)
+        *distance = 0;
     D_5899=s_attackX; D_589a=s_attackY;
     return true;
 }
@@ -264,6 +329,8 @@ void MOUSE_Initialize(void)
 }
 void MOUSE_Cancel(void)
 {
+    s_wheelSteps = 0; s_wheelFraction = 0; s_wheelArea = 0;
+    s_wheelContext = false;
     s_aimKey=0;
     MOUSE_ClearCombatAttack();
     s_menuTarget = -1; s_menuClick = false;
@@ -274,7 +341,7 @@ void MOUSE_Cancel(void)
 void MOUSE_SetCommandInput(bool enabled)
 {
     s_input = enabled;
-    if (enabled) s_direction = 0;
+    if (enabled) { s_direction = 0; s_wheelSteps = 0; s_wheelFraction = 0; s_wheelContext = false; }
 }
 static int DirectionOctant(float dx, float dy)
 {
@@ -318,7 +385,7 @@ int MOUSE_Action(int dx, int dy, bool mainAction)
             int contentsCommand = CONTENTS_GAME_Command(x, y);
             if (contentsCommand)
                 return contentsCommand;
-            for (int i=1;i<32;i++) {
+            for (int i = 1; i < MAP_ACTOR_COUNT; i++) {
                 ActorFmt* a=&D_5c5a[i];
                 if (!a->_0_tile || a->_2_x!=x || a->_3_y!=y) continue;
                 if (a->_0_tile==TILE_ACTOR_CHEST) return 'O';
@@ -326,10 +393,15 @@ int MOUSE_Action(int dx, int dy, bool mainAction)
                     a->_0_tile==TILE_ACTOR_CARPET || (a->_0_tile&0xfc)==TILE_ACTOR_SHARD) return 'G';
             }
         }
-        if (target<0 || target==D_589e || ULTIMA_5646(target)==ULTIMA_5646(D_589e) ||
-            (D_ba14[target].flags & (COMBAT_FLAGS_DEAD|COMBAT_FLAGS_INVISIBLE|COMBAT_FLAGS_4)) ||
-            !MOVEMENT_AttackAllowed(x-D_ba14[D_589e].x,y-D_ba14[D_589e].y) ||
-            COMSUBS_048a(D_ba14[D_589e].x,D_ba14[D_589e].y,x,y)>CombatRange(D_589e)) return 0;
+        int ax = D_ba14[D_589e].x, ay = D_ba14[D_589e].y, bx = x, by = y;
+        if (target >= 0)
+            ACTORS_AttackCells(D_589e, target, &ax, &ay, &bx, &by);
+        if (target < 0 || target == D_589e || ULTIMA_5646(target) == ULTIMA_5646(D_589e) ||
+            (D_ba14[target].flags &
+             (COMBAT_FLAGS_DEAD | COMBAT_FLAGS_INVISIBLE | COMBAT_FLAGS_4)) ||
+            !MOVEMENT_AttackAllowed(bx - ax, by - ay) ||
+            COMSUBS_048a(ax, ay, bx, by) > CombatRange(D_589e))
+            return 0;
         return 'A';
     }
     if (D_5893_map_id > 32) return 0;
@@ -352,7 +424,7 @@ int MOUSE_Action(int dx, int dy, bool mainAction)
         int contentsCommand = CONTENTS_GAME_Command(x, y);
         if (contentsCommand)
             return contentsCommand;
-        for (int i = 1; i < 32; i++) {
+        for (int i = 1; i < MAP_ACTOR_COUNT; i++) {
             ActorFmt* a = &D_5c5a[i];
             if (a->_2_x == x && a->_3_y == y && a->_4_z == D_5895_map_level &&
                 ((a->_0_tile & 0xfc) == TILE_ACTOR_HORSE ||
@@ -379,9 +451,9 @@ int MOUSE_Action(int dx, int dy, bool mainAction)
     int contentsCommand = CONTENTS_GAME_Command(x, y);
     if (contentsCommand)
         return contentsCommand;
-    for (int i = 1; i < 32; i++) {
+    for (int i = 1; i < MAP_ACTOR_COUNT; i++) {
         ActorFmt* a = &D_5c5a[i];
-        if (a->_0_tile && a->_2_x == (byte)x && a->_3_y == (byte)y && a->_4_z == D_5895_map_level) {
+        if (a->_0_tile && ACTORS_Contains(i, (byte)x, (byte)y) && a->_4_z == D_5895_map_level) {
             if (a->_0_tile == TILE_ACTOR_CHEST) return 'O';
             if (a->_0_tile < TILE_ACTOR_HORSE || a->_0_tile == TILE_ACTOR_MOONSTONE ||
                 a->_0_tile == TILE_ACTOR_CARPET || (a->_0_tile & 0xfc) == TILE_ACTOR_SHARD) return 'G';
@@ -423,6 +495,7 @@ void MOUSE_EndDirectionInput(void)
 void MOUSE_Button(float x, float y, int button, bool down, int clicks)
 {
     if (!s_enabled) return;
+    if (down) GRAP_BUF_EndTextScroll();
     if(down) debug("Mouse button=%d clicks=%d position=%.1f,%.1f menu=%d direction=%d aim=%d map=%u active=%u",button,clicks,(double)x,(double)y,s_menu,s_directionInput,s_aimInput,D_5893_map_id,D_589e);
     if (s_menu) {
         if (down && button == SDL_BUTTON_LEFT) {
@@ -453,9 +526,13 @@ void MOUSE_Button(float x, float y, int button, bool down, int clicks)
         if (down && button==SDL_BUTTON_LEFT && s_aimEntity==D_589e && D_5893_map_id>=128 &&
             GRAP_SDL_MouseMapPoint(x,y,&dx,&dy,&rx,&ry)) {
             int tx=dx+5, ty=dy+5;
-            int distance=COMSUBS_048a(D_ba14[s_aimEntity].x,D_ba14[s_aimEntity].y,tx,ty);
-            if (tx>=0 && tx<11 && ty>=0 && ty<11 && distance>0 && distance<=s_aimRange &&
-                MOVEMENT_AttackAllowed(tx-D_ba14[s_aimEntity].x,ty-D_ba14[s_aimEntity].y)) {
+            int ax = D_ba14[s_aimEntity].x, ay = D_ba14[s_aimEntity].y, bx = tx, by = ty;
+            int target = COMSUBS_0748(tx, ty);
+            if (target >= 0)
+                ACTORS_AttackCells(s_aimEntity, target, &ax, &ay, &bx, &by);
+            int distance = COMSUBS_048a(ax, ay, bx, by);
+            if (tx >= 0 && tx < 11 && ty >= 0 && ty < 11 && distance > 0 &&
+                distance <= s_aimRange && MOVEMENT_AttackAllowed(bx - ax, by - ay)) {
                 D_5899=tx; D_589a=ty; s_aimKey=U5_KEY_ENTER;
             }
         }

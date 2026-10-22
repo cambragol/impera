@@ -1,11 +1,13 @@
+#include "location_names.h"
 #include "runtime.h"
 #include "common/common.h"
 #include "common/file.h"
 #include "contents.h"
+#include "cutscenes.h"
 #include "engine_tables.h"
 #include "narrative.h"
-#include "cutscenes.h"
 #include "package.h"
+#include "types.h"
 #include "world_resources.h"
 #include <SDL3/SDL.h>
 #include <string.h>
@@ -102,6 +104,7 @@ static int compareNames(const void *a, const void *b) {
 }
 unsigned MOD_LoadedCount(void) { return loaded; }
 void MOD_MountDirectory(const char *directory) {
+    TYPES_Mount(NULL, 0, NULL, 0);
     for (unsigned i = 0; i < loaded; i++) {
         MOD_Free(packages[i]);
         free(packages[i]);
@@ -211,6 +214,11 @@ void MOD_MountDirectory(const char *directory) {
             packages[loaded++] = p;
             if (contents)
                 CONTENTS_Mount(contents->data, contents->size);
+            const ModResource *types = resourceIn(p, "TYPES.OVR"),
+                              *typeMap = resourceIn(p, "TYPEMAP.OVR");
+            if (types)
+                TYPES_Mount(types->data, types->size, typeMap ? typeMap->data : NULL,
+                            typeMap ? typeMap->size : 0);
             const ModResource *overlay = resourceIn(p, "DATA.OVL");
             if (overlay) {
                 memcpy(britanniaIndex, overlay->data + U5_WORLD_INDEX_OFFSET, sizeof(britanniaIndex));
@@ -277,6 +285,11 @@ int MOD_InitializeWorldObjects(void *worlds512) {
     return 1;
 }
 
+const char *MOD_LocationName(unsigned map, const char *fallback) {
+    const ModResource *r = mountedResource("LOCATIONS.OVR");
+    const char *name = r ? LOCATIONS_Name(r->data, r->size, map) : NULL;
+    return name ? name : fallback;
+}
 const char *MOD_NarrativeText(const char *resource, unsigned offset) {
     const ModResource *r = mountedResource("TEXT.OVR");
     if (!r) return NULL;

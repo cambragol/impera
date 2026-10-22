@@ -381,6 +381,24 @@ int main(void)
     assert(mask[(5*16+8)*176+8*16+8]==16); /* cannot reveal hidden terrain */
     assert(mask[(5*16+8)*176+7*16+14]>mask[(5*16+8)*176+7*16+1]);
     assert(mask[(5*16+8)*176+5*16+8]==0); /* player remains clear */
+    /* Only immediately adjacent tiles may fade, including diagonal edges.
+     * Every pixel in a tile two cells away must remain fully clear. */
+    GetMapViewport(8,5)=1;
+    GetMapViewport(3,3)=255;
+    assert(WIDE_DarknessMask(mask,11,11));
+    for(int oy=-1;oy<=1;oy++) for(int ox=-1;ox<=1;ox++) {
+        if(!ox && !oy) continue;
+        int firstCol=3-ox,firstRow=3-oy,secondCol=3-2*ox,secondRow=3-2*oy;
+        bool affected=false;
+        for(int y=0;y<16;y++) for(int x=0;x<16;x++) {
+            affected |= mask[(firstRow*16+y)*176+firstCol*16+x]>0;
+            assert(mask[(secondRow*16+y)*176+secondCol*16+x]==0);
+        }
+        assert(affected);
+    }
+    GetMapViewport(3,3)=1;
+    GetMapViewport(8,5)=255;
+
     /* Visible walls stay solid beside unseen rooms; hidden walls stay hidden. */
     GetMap(18,16)=TILE_MAP_WALL;
     GetMap(19,16)=TILE_MAP_WALL;
@@ -441,7 +459,9 @@ int main(void)
     /* Removing the barrier restores the ordinary outdoor fade. */
     for(int row=0;row<11;row++) GetMap(18,11+row)=1;
     assert(WIDE_DarknessMask(mask,11,11));
-    assert(mask[(5*16+8)*176+6*16+15]>0);
+    assert(mask[(5*16+8)*176+7*16+14]>0);
+    for(int y=0;y<16;y++) for(int x=0;x<16;x++)
+        assert(mask[(5*16+y)*176+6*16+x]==0);
     WIDE_SetDitheredDarkness(false);
     memcpy(D_6608_map.town,savedTown,sizeof(savedTown));memcpy(D_ab02,savedView,sizeof(savedView));
     D_58a5 = 50;

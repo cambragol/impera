@@ -1,3 +1,4 @@
+#include "mod/npcs.h"
 #ifndef _VARS_H
 #define _VARS_H
 
@@ -712,30 +713,33 @@ STUB u8  D_5958;
 STUB u8  D_5959;
 STUB u8 D_595a[0x200];  // +0x03B4 dungeon map data ..5b5a)
 // 5b00
-STUB u8 D_5b5a[0x80];   // +0x05B4 NPC killed flags (4 bytes / 32 bits per settlement) [..5bda) // TODO: u32
-STUB u8 D_5bda[0x80];   // +0x0634 NPC met flags (4 bytes / 32 bits per settlement) [..5c5a)
+STUB u8 D_5b5a[0x80 + 32 * (IMPERA_NPC_CAPACITY / 8)]; // +0x05B4 NPC killed flags (4 bytes / 32
+                                                       // bits per settlement) [..5bda) // TODO: u32
+STUB u8 D_5bda[0x80 + 32 * (IMPERA_NPC_CAPACITY / 8)]; // +0x0634 NPC met flags (4 bytes / 32 bits
+                                                       // per settlement) [..5c5a)
 
-STUB ActorFmt D_5c5a[32]; // ~5d5a) "Object" struct
+STUB ActorFmt D_5c5a[IMPERA_NPC_CAPACITY]; // ~5d5a) "Object" struct
 
 // 5d00
 STUB u16 D_5d5a; // unused?
 STUB u16 D_5d5c; // unused?
 
-STUB NpcScheduleFmt D_5d5e[32];  // +0x07B8 NPC Schedules [..5f5e) 0x200
+STUB NpcScheduleFmt D_5d5e[IMPERA_NPC_CAPACITY]; // +0x07B8 NPC Schedules [..5f5e) 0x200
 
 // 5f00
-STUB NpcFmt D_5f5e[32];  // +0x09B8 Character/monster states (16bytes * 32) [..615e) 0x200
+STUB NpcFmt
+    D_5f5e[IMPERA_NPC_CAPACITY]; // +0x09B8 Character/monster states (16bytes * 32) [..615e) 0x200
 
 // 6100
-STUB MovementFmt D_615e[0x20];  // +0x0BB8 Movement list table [..655e)
-//STUB u8 D_615e[0x400];
+STUB MovementFmt D_615e[IMPERA_NPC_CAPACITY]; // +0x0BB8 Movement list table [..655e)
+// STUB u8 D_615e[0x400];
 
-STUB s16 D_655e[0x20];   // +0x0FB8 Movement list pointers [..659e)
-STUB u8 D_659e[0x20];   // +0x0FF8 NPC types [..65be)
+STUB s16 D_655e[IMPERA_NPC_CAPACITY]; // +0x0FB8 Movement list pointers [..659e)
+STUB u8 D_659e[IMPERA_NPC_CAPACITY];  // +0x0FF8 NPC types [..65be)
 STUB u8 D_65be;
-STUB u8 D_65bf;
+STUB u16 D_65bf;
 STUB u16 D_65c0; // unused?
-STUB s16 D_65c2[0x20];
+STUB s16 D_65c2[IMPERA_NPC_CAPACITY];
 
 // 6600
 STUB u8 D_6602;
@@ -923,3 +927,9 @@ STUB u8 D_bd3e;
 // ..bd3f]
 
 #endif
+
+/* Additional location NPCs use their stable slot as actor index. World and
+ * combat keep the original 32 actor slots. */
+STUB unsigned D_imperaNpcCount;
+#define LOCATION_NPC_COUNT ((int)(D_imperaNpcCount < 32 ? 32 : D_imperaNpcCount))
+#define MAP_ACTOR_COUNT ((D_5893_map_id >= 1 && D_5893_map_id <= 32) ? LOCATION_NPC_COUNT : 32)

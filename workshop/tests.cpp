@@ -421,6 +421,102 @@ int main(int argc, char **argv) {
                  invalid.items[0].quantity = 100;
                  rejects([&] { Workshop::writeContents({invalid}, {}); });
              });
+        test("Location names follow maps, conversations, packages and undo", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            file(dir.path() + "/TOWNE.DAT", QByteArray(16384, 0));
+            file(dir.path() + "/CASTLE.DAT", QByteArray(16384, 0));
+            file(dir.path() + "/TOWNE.TLK",
+                 U5::writeDialogue(
+                     {{1, U5::encodeText(
+                              "Mage<Entry>A "
+                              "mage.<Entry>Hello<Entry>Work<Entry>Bye<Entry><Any><Label 15>@")}}));
+            QByteArray npcs(4608, 0);
+            npcs[513] = 64;
+            npcs[545] = 1;
+            file(dir.path() + "/TOWNE.NPC", npcs);
+            p.openGame(dir.path());
+            check(p.locationName(1) == "Moonglow" && p.locationName(17) == "Lord British's Castle",
+                  "Original location names changed");
+            p.resources["LOCATIONS.OVR"].edited = p.renameLocation(1, " New Moonglow ");
+            p.resources["LOCATIONS.OVR"].edited = p.renameLocation(17, "Avatar's Castle");
+            p.resources["LOCATIONS.OVR"].edited = p.renameLocation(33, "Abyss");
+            check(p.mapPages("TOWNE.DAT")[0].name == "New Moonglow — Floor 0" &&
+                      p.mapPages("TOWNE.DAT")[1].name == "New Moonglow — Floor 1",
+                  "Rename did not apply to all floors");
+            bool foundMap = false, foundNpc = false;
+            const auto destinations = Workshop::contentDestinations(p);
+            for (auto d : destinations) {
+                if (d.id == "world/TOWNE.DAT/0")
+                    foundMap = d.title == "New Moonglow";
+                if (d.character == Workshop::npcCharacter(0, 1))
+                    foundNpc = d.group == "New Moonglow";
+            }
+            check(foundMap && foundNpc, "Renamed location missing from map or dialogue navigation");
+            auto changes = Workshop::contentChanges(p, destinations);
+            check(changes["world/TOWNE.DAT/0"].contains("Location name") &&
+                      !changes["world/TOWNE.DAT/1"].contains("Location name"),
+                  "Rename change markers leaked to unrelated locations");
+            const auto positions = Workshop::mapPositions(p);
+            check(std::any_of(positions.begin(), positions.end(),
+                              [](auto pos) {
+                                  return pos.id == 100 && pos.name == "New Moonglow entrance";
+                              }),
+                  "Entrance retained its old name");
+            auto package = p.package();
+            check(package.startsWith("IMOD0017"), "Renames lack package version protection");
+            Project imported;
+            imported.openGame(dir.path());
+            imported.importPackage(package);
+            check(imported.locationName(1) == "New Moonglow" &&
+                      imported.locationName(33) == "Abyss",
+                  "Package lost location names");
+            package.replace(0, 8, "IMOD0016");
+            rejects([&] { imported.importPackage(package); });
+            p.save(dir.path() + "/locations.imperaproject");
+            Project reopened;
+            reopened.load(p.projectPath);
+            check(reopened.locationName(17) == "Avatar's Castle", "Project lost location names");
+            rejects([&] { p.renameLocation(1, " "); });
+            rejects([&] { p.renameLocation(1, QString(64, 'x')); });
+            rejects([&] { p.renameLocation(42, "Out of bounds"); });
+            rejects([&] { p.renameLocation(1, "Bad\nname"); });
+            WorkshopWindow window;
+            check(window.openGame(dir.path()), "Cannot open renaming fixture");
+            window.selectResource("TOWNE.DAT");
+            auto active = [&] {
+                return window.findChild<QStackedWidget *>("workspaces")->currentWidget();
+            };
+            auto rename = active()->findChild<QToolButton *>("renameLocation");
+            check(rename, "Map header lacks Rename location control");
+            QTimer::singleShot(0, [] {
+                auto dialog = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+                if (dialog) {
+                    dialog->setTextValue("New Moonglow");
+                    dialog->accept();
+                }
+            });
+            rename->click();
+            check(window.projectForTests().locationName(1) == "New Moonglow" &&
+                      active()->findChild<QLabel *>("mapLocationLabel")->text() == "New Moonglow:",
+                  "Rename UI did not refresh current map");
+            QAction *undo = nullptr, *redo = nullptr;
+            for (auto action : window.findChildren<QAction *>()) {
+                if (action->shortcut() == QKeySequence::Undo)
+                    undo = action;
+                if (action->shortcut() == QKeySequence::Redo)
+                    redo = action;
+            }
+            check(undo && redo && undo->isEnabled(), "Rename missing undo");
+            undo->trigger();
+            QApplication::processEvents();
+            check(window.projectForTests().locationName(1) == "Moonglow" &&
+                      active()->findChild<QLabel *>("mapLocationLabel")->text() == "Moonglow:",
+                  "Undo did not restore map name");
+            redo->trigger();
+            QApplication::processEvents();
+            check(window.projectForTests().locationName(1) == "New Moonglow", "Redo lost map name");
+        });
         test("Select Move opens contextual contents on settlement and encounter maps", [&] {
             QTemporaryDir dir;
             auto p = fixture(dir.path());
@@ -806,7 +902,7 @@ int main(int argc, char **argv) {
                 }
                 if (d.resource == "UNDER.OOL" || d.resource == "INIT.OOL") ++underworld;
                 if (d.resource == "SHOPPE.DAT")
-                    check(d.workspace == "NPCs", "Shop dialogue misplaced");
+                    check(d.workspace == "Dialogue", "Shop dialogue misplaced");
                 if (d.resource == "DATA.OVL") check(d.workspace == "Mod Overview", "Overlay coverage is not a rule editor");
             }
             check(scenes == 5 && underworld == 1, "Scene or effective-world routes missing");
@@ -914,10 +1010,21 @@ int main(int argc, char **argv) {
                 const auto navigation = Workshop::contentDestinations(p);
                 int dialogueEntries = 0;
                 for (const auto &d : navigation)
-                    if (d.workspace == "NPCs") {
+                    if (d.workspace == "Dialogue") {
                         check(d.conversation >= 0, "Schedule-only NPC cluttered dialogue navigation");
                         ++dialogueEntries;
                     }
+                int typeLibraries = 0;
+                for (const auto &d : navigation)
+                    if (d.workspace == "Graphics" && d.group == "Custom tiles" &&
+                        d.selection.value("customTiles/kind") > 0) {
+                        check(d.resource == "TYPES.OVR" &&
+                                  d.selection.value("customTiles/kind") > 0,
+                              "Type library lost its semantic navigation route");
+                        ++typeLibraries;
+                    }
+                check(typeLibraries == 2,
+                      "NPC and monster type libraries must be under Graphics / Custom tiles");
                 check(dialogueEntries == 6,
                       "Dialogue navigation lost shared NPCs or unassigned conversations");
                 check(p.data("TOWNE.NPC") == p.resources["TOWNE.NPC"].original,
@@ -926,14 +1033,14 @@ int main(int argc, char **argv) {
                 check(w.openGame(dir.path()), "Character UI fixture failed");
                 w.show();
                 auto selector = w.findChild<QComboBox *>("contentWorkspace");
-                selector->setCurrentText("NPCs");
+                selector->setCurrentText("Dialogue");
                 auto filter = w.findChild<QComboBox *>("characterLocationFilter");
                 check(filter && filter->findText("Moonglow") >= 0 &&
                           filter->findText("Unassigned conversations") >= 0,
                       "Cross-bank location filters missing");
                 auto tree = w.findChild<QWidget *>("resourceLibrary")->findChild<QTreeWidget *>();
                 auto choose = [&](const QString &id) {
-                    selector->setCurrentText("NPCs");
+                    selector->setCurrentText("Dialogue");
                     filter->setCurrentIndex(0);
                     QTreeWidgetItemIterator it(tree);
                     while (*it) {
@@ -1436,7 +1543,7 @@ int main(int argc, char **argv) {
                       !editor->findChild<QCheckBox *>("narrativeExtended") &&
                       !editor->findChild<QPushButton *>("narrativeApply"),
                   "Shop editor still exposes preview or format controls");
-            check(window.findChild<QComboBox *>("contentWorkspace")->currentText() == "NPCs",
+            check(window.findChild<QComboBox *>("contentWorkspace")->currentText() == "Dialogue",
                   "Shop dialogue is not in NPCs");
             auto serviceFilter = window.findChild<QComboBox *>("characterLocationFilter");
             check(serviceFilter && !serviceFilter->isHidden() &&
@@ -2583,6 +2690,21 @@ int main(int argc, char **argv) {
             check(records.location(0, monster.slot, 0).ai == 5 &&
                       records.dialogue(0, monster.slot) == 0,
                   "Settlement monster did not receive attack behavior");
+            auto linked = Workshop::createNpcConversation(p, "TOWNE.NPC", 0, monster.slot,
+                                                          "Friendly monster");
+            const auto oldNpc = p.data("TOWNE.NPC");
+            for (auto it = linked.begin(); it != linked.end(); ++it)
+                p.resources[it.key()].edited = it.value();
+            const int monsterConversation = records.dialogue(0, monster.slot);
+            check(monsterConversation > 0 && monsterConversation != conversation &&
+                      U5::readDialogue(p.data("TOWNE.TLK")).size() == 2,
+                  "Monster conversation was not created with a free ID");
+            auto expectedNpc = oldNpc;
+            expectedNpc[records.dialogueOffset(0, monster.slot)] = char(monsterConversation);
+            check(p.data("TOWNE.NPC") == expectedNpc,
+                  "Creating dialogue changed monster behavior or appearance");
+            p.resources["TOWNE.NPC"].edited = oldNpc;
+            p.resources["TOWNE.TLK"].edited = tlk;
             auto sign =
                 Workshop::addMapItem(p, "TOWNE.DAT", 0, {10, 11}, Workshop::MapItemKind::Sign);
             install(sign);
@@ -2629,10 +2751,30 @@ int main(int argc, char **argv) {
             for (int i = 1; i < 32; i++)
                 p.resources["TOWNE.NPC"].edited[512 + i] = 80;
             auto before = p.data("TOWNE.NPC");
-            rejects([&] {
+            auto additional =
                 Workshop::addMapItem(p, "TOWNE.DAT", 0, {1, 1}, Workshop::MapItemKind::Npc);
-            });
-            check(p.data("TOWNE.NPC") == before, "Failed placement changed existing NPCs");
+            check(additional.slot == 32 && additional.changes["TOWNE.NPC"].left(4608) == before,
+                  "Extended placement changed original NPC records");
+            check(p.data("TOWNE.NPC") == before, "Placement preview committed its changes");
+            install(additional);
+            check(records.count(0) == 33 && records.location(0, 32, 0).x == 1 &&
+                      records.location(0, 32, 0).y == 1,
+                  "Extended NPC was not initialized");
+            auto extraMonster = Workshop::addMapItem(p, "TOWNE.DAT", 0, {2, 1},
+                                                     Workshop::MapItemKind::Monster, 216);
+            install(extraMonster);
+            check(extraMonster.slot == 33, "Expected extended monster slot");
+            auto extraDialogue =
+                Workshop::createNpcConversation(p, "TOWNE.NPC", 0, extraMonster.slot, "Daemon");
+            for (auto it = extraDialogue.begin(); it != extraDialogue.end(); ++it)
+                p.resources[it.key()].edited = it.value();
+            check(records.dialogue(0, 33) > 0 &&
+                      records.dialogue(0, 33) != records.dialogue(0, 32) &&
+                      records.location(0, 33, 0).ai == 5,
+                  "Extended monster dialogue changed another NPC or its behavior");
+            rejects([&] { Workshop::createNpcConversation(p, "TOWNE.NPC", 0, 33, "Duplicate"); });
+            p.validate();
+            check(p.package().startsWith("IMOD0012"), "Extended NPC package lacks version gate");
         });
         test("Map positions preserve bytes, floors, entrance pairs, packages and native placement",
              [&] {
@@ -3121,8 +3263,18 @@ int main(int argc, char **argv) {
             entries[1].id = 1;
             rejects([&] { U5::writeDialogue(entries); });
             entries[1].id = 2;
-            entries[1].bytes = QByteArray(1025, 'x');
-            rejects([&] { U5::writeDialogue(entries); });
+            entries[1].bytes = QByteArray(70000, 'x');
+            auto extended = U5::writeDialogue(entries);
+            check(extended.startsWith("ITLK0001") &&
+                      U5::readDialogue(extended)[1].bytes == entries[1].bytes,
+                  "Extended dialogue bank lost long conversations");
+            auto truncated = extended;
+            truncated.chop(1);
+            rejects([&] { U5::readDialogue(truncated); });
+            auto overlap = extended;
+            overlap[28] = char(1);
+            overlap[29] = overlap[30] = overlap[31] = 0;
+            rejects([&] { U5::readDialogue(overlap); });
         });
         test("Britannia implicit water and shared chunks", [] {
             QByteArray ovl(0x3986, 0);
@@ -3981,7 +4133,9 @@ int main(int argc, char **argv) {
                                                       : npcs[i]),
                       "Cross-floor movement changed unrelated record bytes");
             active()->findChild<QComboBox *>("mapNpcList")->setCurrentIndex(2);
-            check(!active()->findChild<QPushButton *>("mapNpcConversation")->isEnabled() &&
+            check(active()->findChild<QPushButton *>("mapNpcConversation")->isEnabled() &&
+                      active()->findChild<QPushButton *>("mapNpcConversation")->text() ==
+                          "Create conversation" &&
                       active()->findChild<QSpinBox *>("mapNpcX")->value() == 255,
                   "Missing conversation or unusual position was rewritten");
             auto scheduleBefore = window.projectForTests().data("TOWNE.NPC");
@@ -4001,6 +4155,18 @@ int main(int argc, char **argv) {
             history("Undo");
             check(window.projectForTests().data("TOWNE.NPC") == scheduleBefore,
                   "Start hour undo did not restore exact schedule bytes");
+            auto createButton = active()->findChild<QPushButton *>("mapNpcConversation");
+            auto talkBefore = window.projectForTests().data("TOWNE.TLK");
+            createButton->click();
+            app.processEvents();
+            check(active()->findChild<QWidget *>("conversationEditor"),
+                  "Create conversation did not open dialogue editor");
+            check(window.projectForTests().data("TOWNE.TLK") != talkBefore,
+                  "Create conversation did not save dialogue");
+            history("Undo");
+            check(window.projectForTests().data("TOWNE.NPC") == scheduleBefore &&
+                      window.projectForTests().data("TOWNE.TLK") == talkBefore,
+                  "Conversation creation did not undo atomically");
         });
         test("Native widgets are read-only until an edit", [&] {
             QTemporaryDir dir;
@@ -4949,6 +5115,259 @@ int main(int argc, char **argv) {
                               .entries[4]
                               .bytes == closed,
                   "Pre-fix Workshop NPC Farewell was not repaired before save/Playtest");
+        });
+        test("Conversation opening setting persists and skips both introduction states", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            const auto bytes =
+                U5::encodeText("Mariah<Entry>A mage.<Entry>Old "
+                               "friend!<Entry>Magic<Entry>Farewell.<Entry><Any><Label 15>@");
+            file(dir.path() + "/TOWNE.TLK", U5::writeDialogue({{1, bytes}}));
+            QByteArray npcs(4608, 0);
+            npcs[513] = npcs[514] = 64;
+            npcs[545] = npcs[546] = 1;
+            file(dir.path() + "/TOWNE.NPC", npcs);
+            p.openGame(dir.path());
+            ConversationEditor editor(
+                &p, "TOWNE.TLK",
+                [&](const QByteArray &b, const QString &) { p.resources["TOWNE.TLK"].edited = b; },
+                {}, 0, 1, [](int, int) {});
+            auto checkbox = editor.findChild<QCheckBox *>("conversationSkipOpening");
+            check(checkbox && !checkbox->isChecked(), "Opening checkbox missing or defaults on");
+            checkbox->setChecked(true);
+            check(editor.flush(), "Opening setting cannot be saved");
+            auto bank = p.data("TOWNE.TLK");
+            auto flagged = U5::readDialogue(bank)[0].bytes;
+            check(Dialogue::parse(flagged).entries[1].bytes ==
+                      QByteArray(IMPERA_TALK_SKIP_OPENING) + Dialogue::text("A mage."),
+                  "Opening flag changed description text");
+            for (auto field : editor.findChildren<QPlainTextEdit *>("conversationBlockText"))
+                check(field->toPlainText() == "A mage.",
+                      "Opening metadata leaked into description UI");
+            check(p.data("TOWNE.NPC") == npcs, "Conversation setting changed NPC records");
+            auto package = p.package();
+            check(package.startsWith("IMOD0015"), "Opening setting lacks package version gate");
+            Project imported;
+            imported.openGame(dir.path());
+            imported.importPackage(package);
+            check(imported.data("TOWNE.TLK") == bank, "Package lost conversation opening flag");
+            auto old = package;
+            old.replace(0, 8, "IMOD0014");
+            rejects([&] { imported.importPackage(old); });
+            p.save(dir.path() + "/opening.imperaproject");
+            Project reopened;
+            reopened.load(p.projectPath);
+            check(reopened.data("TOWNE.TLK") == bank, "Project lost conversation opening flag");
+            for (int npc : {1, 2})
+                for (bool introduced : {false, true}) {
+                    auto setup =
+                        Dialogue::nativeSetup(p, "TOWNE.TLK", 0, Workshop::npcCharacter(0, npc));
+                    setup.state.introduced = introduced;
+                    auto result = Dialogue::runNativeVirtual(flagged, QByteArray(1024, char(128)),
+                                                             QByteArray(1024, char(128)), setup,
+                                                             {{0, 'n'},
+                                                              {0, 'a'},
+                                                              {0, 'm'},
+                                                              {0, 'e'},
+                                                              {0, 13},
+                                                              {0, 'b'},
+                                                              {0, 'y'},
+                                                              {0, 'e'},
+                                                              {0, 13}});
+                    check(result.error.isEmpty(), "Suppressed opening failed native execution");
+                    QString name, greeting, description;
+                    for (const auto &event : result.boundaries)
+                        if (event.kind == "glyph") {
+                            if (event.entry == 0)
+                                name += QChar(event.value);
+                            if (event.entry == 1)
+                                description += QChar(event.value);
+                            if (event.entry == 2)
+                                greeting += QChar(event.value);
+                        }
+                    check(name.contains("Mariah") && description.contains("A mage.") &&
+                              greeting.isEmpty(),
+                          "Shared opening setting removed Name/description or retained greeting");
+                }
+            checkbox->setChecked(false);
+            check(editor.flush() && U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes == bytes,
+                  "Clearing opening setting did not restore original conversation");
+        });
+        test("Gargoyle conversation speech is shared, packaged and rendered by native runtime",
+             [&] {
+                 QTemporaryDir dir;
+                 auto p = fixture(dir.path());
+                 const auto bytes =
+                     U5::encodeText("Beh Lem<Entry>A gargoyle.<Entry>Old "
+                                    "friend!<Entry>Work<Entry>Bye.<Entry><Any><Label 15>@");
+                 file(dir.path() + "/TOWNE.TLK", U5::writeDialogue({{1, bytes}}));
+                 QByteArray npcs(4608, 0);
+                 npcs[513] = npcs[514] = 64;
+                 npcs[545] = npcs[546] = 1;
+                 file(dir.path() + "/TOWNE.NPC", npcs);
+                 p.openGame(dir.path());
+                 ConversationEditor editor(
+                     &p, "TOWNE.TLK",
+                     [&](const QByteArray &b, const QString &) {
+                         p.resources["TOWNE.TLK"].edited = b;
+                     },
+                     {}, 0, 1, [](int, int) {});
+                 auto gargoyle = editor.findChild<QCheckBox *>("conversationGargoyleSpeech");
+                 auto skip = editor.findChild<QCheckBox *>("conversationSkipOpening");
+                 check(gargoyle && skip && !gargoyle->isChecked(),
+                       "Gargoyle setting missing or defaults on");
+                 gargoyle->setChecked(true);
+                 check(editor.flush(), "Cannot apply gargoyle speech");
+                 auto flagged = U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes;
+                 check(IMPERA_TalkConversationFlags(flagged.constData(), flagged.size()) ==
+                           IMPERA_TALK_FLAG_GARGOYLE_SPEECH,
+                       "Conversation flag not stored");
+                 for (auto field : editor.findChildren<QPlainTextEdit *>("conversationBlockText"))
+                     check(field->toPlainText() == "A gargoyle.",
+                           "Speech flag leaked into authored text");
+                 auto package = p.package();
+                 check(package.startsWith("IMOD0016"), "Gargoyle speech missing version gate");
+                 Project imported;
+                 imported.openGame(dir.path());
+                 imported.importPackage(package);
+                 check(imported.data("TOWNE.TLK") == p.data("TOWNE.TLK"),
+                       "Package lost speech flag");
+                 package.replace(0, 8, "IMOD0015");
+                 rejects([&] { imported.importPackage(package); });
+                 p.save(dir.path() + "/gargoyle.imperaproject");
+                 Project reopened;
+                 reopened.load(p.projectPath);
+                 check(reopened.data("TOWNE.TLK") == p.data("TOWNE.TLK"),
+                       "Project lost speech flag");
+                 auto run = [&](const QByteArray &source, int npc, bool introduced, int seed,
+                                bool askName) {
+                     auto setup =
+                         Dialogue::nativeSetup(p, "TOWNE.TLK", 0, Workshop::npcCharacter(0, npc));
+                     setup.state.introduced = introduced;
+                     setup.seed = seed;
+                     QList<Dialogue::NativeKey> keys;
+                     for (char c : askName ? QByteArray("name\rbye\r") : QByteArray("bye\r"))
+                         keys.append({0, c});
+                     auto result =
+                         Dialogue::runNativeVirtual(source, QByteArray(1024, char(128)),
+                                                    QByteArray(1024, char(128)), setup, keys);
+                     check(result.error.isEmpty(), "Native gargoyle playtest failed");
+                     QString text;
+                     for (const auto &event : result.boundaries)
+                         if (event.kind == "glyph")
+                             text += QChar(event.value);
+                     return text;
+                 };
+                 for (int npc : {1, 2})
+                     for (bool introduced : {false, true}) {
+                         auto text = run(flagged, npc, introduced, 42, true);
+                         check(text.contains("To be called Beh Lem") &&
+                                   !text.contains("My name is") && !text.contains("I am called"),
+                               "Shared Name response did not use gargoyle speech");
+                         if (introduced)
+                             check(text.contains("Old friend!"),
+                                   "Gargoyle speech changed authored greeting");
+                     }
+                 bool sawIntroduction = false;
+                 for (int seed = 0; seed < 32 && !sawIntroduction; ++seed) {
+                     auto normal = run(bytes, 1, false, seed, false);
+                     if (!normal.contains("I am called"))
+                         continue;
+                     sawIntroduction = true;
+                     check(run(flagged, 1, false, seed, false).contains("To be called"),
+                           "Automatic introduction did not use gargoyle speech");
+                 }
+                 check(sawIntroduction, "Random introduction path was not exercised");
+                 skip->setChecked(true);
+                 auto combined = U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes;
+                 check(IMPERA_TalkConversationFlags(combined.constData(), combined.size()) == 3,
+                       "Opening flag displaced gargoyle speech");
+                 check(run(combined, 2, false, 42, true).contains("To be called Beh Lem"),
+                       "Skip opening disabled gargoyle Name response");
+                 gargoyle->setChecked(false);
+                 check(IMPERA_TalkConversationFlags(
+                           U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes.constData(),
+                           combined.size() - 4) == 1,
+                       "Clearing speech flag lost opening flag");
+                 skip->setChecked(false);
+                 check(editor.flush() && U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes == bytes &&
+                           p.data("TOWNE.NPC") == npcs,
+                       "Clearing flags changed original conversation or NPCs");
+             });
+        test("Large mod conversations persist, package and playtest beyond DOS offsets", [&] {
+            QTemporaryDir dir;
+            auto p = fixture(dir.path());
+            auto bytes =
+                Dialogue::text(QString(70000, 'x')) +
+                U5::encodeText("<Entry>A creature.<Entry>Hello.<End "
+                               "Conversation><Entry>Work<Entry>Bye<Entry><Any><Label 15>@");
+            auto bank = U5::writeDialogue({{1, bytes}, {2, bytes}});
+            file(
+                dir.path() + "/TOWNE.TLK",
+                U5::writeDialogue({{1, U5::encodeText("Name<Entry>Description<Entry>Greeting<Entry>"
+                                                      "Work<Entry>Bye<Entry><Any><Label 15>@")}}));
+            p.openGame(dir.path());
+            p.resources["TOWNE.TLK"].edited = bank;
+            check(Dialogue::parse(bytes).issues().isEmpty(),
+                  "Long conversation rejected by editor");
+            auto package = p.package();
+            check(package.startsWith("IMOD0014"), "Long dialogue lacks version protection");
+            Project imported;
+            imported.openGame(dir.path());
+            imported.importPackage(package);
+            check(imported.data("TOWNE.TLK") == bank, "Long dialogue package roundtrip");
+            auto oldEngine = package;
+            oldEngine.replace(0, 8, "IMOD0013");
+            rejects([&] { imported.importPackage(oldEngine); });
+            p.save(dir.path() + "/long.imperaproject");
+            Project reopened;
+            reopened.load(dir.path() + "/long.imperaproject");
+            check(reopened.data("TOWNE.TLK") == bank, "Long dialogue project roundtrip");
+            Dialogue::NativeSetup setup;
+            setup.state.introduced = true;
+            auto result = Dialogue::runNativeVirtual(bytes, QByteArray(1024, char(128)),
+                                                     QByteArray(1024, char(128)), setup, {});
+            check(result.error.isEmpty(), "Native playtest failed beyond 16-bit offsets");
+            QString rendered;
+            for (const auto &glyph : result.boundaries)
+                if (glyph.kind == "glyph" && glyph.entry == 2)
+                    rendered += QChar(glyph.value);
+            check(rendered == "\"Hello.", "Long dialogue selected the wrong response");
+        });
+        test("Speech insertion after actions creates exactly one paragraph", [&] {
+            for (int code : {143, 131, 137}) {
+                QTemporaryDir dir;
+                auto p = fixture(dir.path());
+                auto response =
+                    Dialogue::text(code == 137 ? "First speech." : "First speech.\n\n") +
+                    Dialogue::action(code);
+                auto bytes = U5::encodeText("Name<Entry>Description<Entry>Greeting<Entry>") +
+                             response + U5::encodeText("<Entry>Bye<Entry><Any><Label 15>@");
+                file(dir.path() + "/TOWNE.TLK", U5::writeDialogue({{1, bytes}}));
+                p.openGame(dir.path());
+                ConversationEditor editor(
+                    &p, "TOWNE.TLK",
+                    [&](const QByteArray &data, const QString &) {
+                        p.resources["TOWNE.TLK"].edited = data;
+                    },
+                    {}, 0, 3, [](int, int) {});
+                auto actions = editor.findChild<QListWidget *>("conversationAvailableActions");
+                for (int i = 0; i < actions->count(); ++i)
+                    if (actions->item(i)->text() == "Speech Text") {
+                        actions->itemClicked(actions->item(i));
+                        break;
+                    }
+                auto fields = editor.findChildren<QPlainTextEdit *>("conversationBlockText");
+                check(fields.size() == 2, "Speech action inserted an extra text box");
+                check(fields[0]->toPlainText() == "First speech." &&
+                          fields[1]->toPlainText() == "New speech.",
+                      "Speech insertion changed text or exposed generated quotes/spacing");
+                fields[1]->setPlainText("Second speech.");
+                check(editor.flush(), "Inserted speech cannot be saved");
+                auto saved = Dialogue::parse(U5::readDialogue(p.data("TOWNE.TLK"))[0].bytes);
+                check(saved.entries[3].bytes.contains(Dialogue::text("Second speech.")),
+                      "New speech was not saved");
+            }
         });
         test("Explicit narration and speech preserve native paragraph quotes", [&] {
             const auto speech = Dialogue::text("I speak.");
@@ -5928,7 +6347,7 @@ int main(int argc, char **argv) {
                     app.processEvents();
                 }
                 w.show();
-                w.findChild<QComboBox *>("contentWorkspace")->setCurrentText("NPCs");
+                w.findChild<QComboBox *>("contentWorkspace")->setCurrentText("Dialogue");
                 auto characterTree =
                     w.findChild<QWidget *>("resourceLibrary")->findChild<QTreeWidget *>();
                 const auto originalCharacters = Workshop::characterDestinations(p);

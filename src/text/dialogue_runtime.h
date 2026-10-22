@@ -1,6 +1,7 @@
 #ifndef IMPERA_DIALOGUE_RUNTIME_H
 #define IMPERA_DIALOGUE_RUNTIME_H
 #include <stdint.h>
+#include "dialogue_format.h"
 #include <stddef.h>
 /* Entry-level extension: authored quotation marks, no implicit speech wrapper.
  * Recognized only at a response start; ordinary DOS text remains unchanged. */
