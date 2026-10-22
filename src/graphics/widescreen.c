@@ -444,7 +444,7 @@ static bool SolidMasonry(byte tile)
 }
 
 /* Darkness coverage, 0..16, at original game-pixel resolution. Visible tiles
- * fade inward over 24 pixels; unseen terrain stays completely hidden.
+ * fade inward over one 16-pixel tile; unseen terrain stays completely hidden.
  * Visible masonry (including concealed doors) keeps its solid silhouette. */
 bool WIDE_DarknessMask(byte* mask,int columns,int rows)
 {
@@ -470,10 +470,10 @@ bool WIDE_DarknessMask(byte* mask,int columns,int rows)
         bool masonry = TYPES_GAME_Property(D_5896_map_x + col - columns / 2,
                                            D_5897_map_y + row - rows / 2, 2, SolidMasonry(tile));
         /* Tile visibility is constant across its pixels. Collect only nearby
-         * exposed darkness once, rather than scanning 25 tiles per pixel. */
-        int candidateX[25],candidateY[25],candidateCount=0;
+         * exposed darkness once, rather than scanning nine tiles per pixel. */
+        int candidateX[9],candidateY[9],candidateCount=0;
         if(visible && !masonry && (col!=columns/2 || row!=rows/2))
-            for(int oy=-2;oy<=2;oy++) for(int ox=-2;ox<=2;ox++) {
+            for(int oy=-1;oy<=1;oy++) for(int ox=-1;ox<=1;ox++) {
                 int i=(row+oy+2)*stride+col+ox+2;
                 if(!lit[i] && !solid[i]) {
                     candidateX[candidateCount]=ox;candidateY[candidateCount++]=oy;
@@ -488,7 +488,7 @@ bool WIDE_DarknessMask(byte* mask,int columns,int rows)
             int shade=0;
             if(!visible) shade=16;
             else if(!masonry && (col!=columns/2 || row!=rows/2)) {
-                int nearest=24*24;
+                int nearest=16*16;
                 for(int candidate=0;candidate<candidateCount;candidate++) {
                     int ox=candidateX[candidate],oy=candidateY[candidate];
                     int x=px-ox*16,y=py-oy*16;
@@ -510,8 +510,8 @@ bool WIDE_DarknessMask(byte* mask,int columns,int rows)
                     }
                     if(!blocked) nearest=distance;
                 }
-                int distance=0;while(distance<24 && (distance+1)*(distance+1)<=nearest) distance++;
-                shade=(24-distance)*16/24;if(shade>15) shade=15;
+                int distance=0;while(distance<16 && (distance+1)*(distance+1)<=nearest) distance++;
+                shade=16-distance;if(shade>15) shade=15;
             }
             mask[(row*16+py)*columns*16+col*16+px]=(byte)shade;
         }
